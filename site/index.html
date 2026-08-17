@@ -1,0 +1,369 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>keyrx — Solana vanity addresses, keys for every wallet</title>
+<meta name="description" content="keyrx grinds Solana vanity addresses 20-60x faster than solana-keygen and hands you the seed, the path and the keypair in both wallet-import forms. One Rust binary. No daemon, no service, no network.">
+<link rel="canonical" href="https://keyrx.tech/">
+<meta property="og:title" content="keyrx — vanity addresses, keys for every wallet">
+<meta property="og:description" content="Try the grind in your browser. Nothing leaves it.">
+<meta property="og:url" content="https://keyrx.tech/">
+<style>
+/* The frame is only square if every glyph agrees on its width. System monos
+   cover the box-drawing set unevenly, so the face ships with the page:
+   JetBrains Mono, subset to ASCII + the frame glyphs, every advance verified
+   equal at 600 units. Self-contained; no request leaves the page. */
+@font-face{font-family:'KXMono';font-display:block;
+  src:url(data:font/woff2;base64,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) format('woff2')}
+:root{
+  --field:#091228; --panel:#0e1b3c; --edge:#22345f; --shadow:rgba(1,4,14,.45);
+  --white:#dbe3f2; --cyan:#5aa6c9; --yellow:#c9974f; --gray:#8a98b6;
+  --dim:#7686aa; --red:#c47070; --green:#6ea888;
+  --barbg:#8d9cbe; --barink:#091228;
+  --mono:'KXMono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --fs:14px; --nudge:8ch;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;background:var(--field)}
+body{color:var(--white);font-family:var(--mono);font-size:var(--fs);line-height:1.42;
+  -webkit-text-size-adjust:100%;text-size-adjust:100%;overflow:hidden}
+#scr{height:100%;overflow-y:auto;overflow-x:hidden;padding:1.6em .9em 3.4em;
+  scrollbar-width:none;background:
+  radial-gradient(ellipse at 50% 0%,#10214a 0%,var(--field) 60%),
+  repeating-linear-gradient(0deg,transparent 0 3px,rgba(255,255,255,.012) 3px 4px)}
+#scr::-webkit-scrollbar{display:none}
+#page{width:max-content;margin:0 auto;transform:translateX(var(--nudge))}
+@media (max-width:820px){:root{--nudge:0ch}}
+#out{white-space:pre}
+#out .cmd{white-space:pre-wrap;word-break:break-all}
+b{font-weight:400}
+.c{color:var(--cyan)} .y{color:var(--yellow)} .g{color:var(--green)}
+.r{color:var(--red)}  .d{color:var(--gray)}   .f{color:var(--dim)} .w{color:var(--white)}
+.pan{background:var(--panel);box-shadow:.7em .45em 0 var(--shadow);margin:.9em 0 1.4em;
+  border:1px solid var(--edge)}
+.pan>div{padding:0 .1em}
+a{color:var(--cyan);text-decoration:none;border-bottom:1px dotted rgba(90,166,201,.5)}
+a:hover{color:var(--white)}
+.addr{cursor:pointer;border-bottom:1px dotted rgba(201,151,79,.45)}
+#prompt{display:flex;align-items:center;gap:.6em;margin-top:.9em;color:var(--yellow)}
+#in{background:transparent;border:0;outline:0;color:var(--white);font:inherit;
+  caret-color:transparent;width:20ch;padding:0}
+#cur{display:inline-block;width:.6em;height:1.15em;background:var(--white);
+  animation:blink 1.1s steps(1) infinite;margin-left:-.5em;vertical-align:text-bottom}
+@keyframes blink{50%{opacity:0}}
+#keys{position:fixed;left:0;right:0;bottom:0;height:1.7em;display:flex;align-items:stretch;
+  background:var(--field);border-top:1px solid var(--edge);z-index:50;font-size:.95em;padding:0 .55em}
+#keys b{display:flex;align-items:center;color:var(--dim);padding:0 .4em 0 .55em;flex:none}
+#keys i{display:flex;align-items:center;background:var(--barbg);color:var(--barink);
+  padding:0 .7em;font-style:normal;cursor:pointer;flex:none}
+#keys i:hover{background:var(--white)}
+#keys .sp{flex:1}
+@media (pointer:coarse){#keys{font-size:max(.9em,13px);height:3em}#keys i{padding:0 .9em}#scr{padding-bottom:4.6em}}
+@media (max-width:700px){
+  #keys{height:2.6em;padding:0 .3em;justify-content:space-around;font-size:max(.84em,12px)}
+  #keys b,#keys .x,#keys .sp{display:none}
+  #keys i{flex:1;justify-content:center;margin:0 1px;padding:0 .2em;min-width:0;overflow:hidden}
+  #page{max-width:100%}
+  #scr{padding-bottom:4.2em}
+}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+noscript div{white-space:normal;max-width:68ch;color:var(--gray);padding:1em 0}
+</style>
+</head>
+<body>
+<div id="scr"><div id="page">
+<noscript><div>
+  <h1>keyrx</h1>
+  <p>Solana vanity addresses, 20-60x faster than solana-keygen grind. One seed phrase is a tree of
+  addresses: keyrx pays the expensive step once per seed and walks the branches. Every match writes
+  the address, its derivation path, the seed, and the keypair in both wallet-import forms (base58 for
+  Phantom, JSON array for Solflare). One Rust binary. No daemon, no service, no network.</p>
+  <pre>cargo install keyrx
+keyrx verify
+keyrx grind --ends-with MINT --indices 128</pre>
+  <p><a href="https://github.com/keyrx-tech/keyrx">github.com/keyrx-tech/keyrx</a></p>
+</div></noscript>
+<div id="out" aria-live="polite"></div>
+<div id="prompt" style="display:none"><span>keyrx&gt;</span><input id="in" autocomplete="off" spellcheck="false" aria-label="command"><span id="cur"></span></div>
+</div></div>
+<div class="sr" id="sr" aria-live="polite"></div>
+<div id="keys" role="toolbar" aria-label="keys">
+  <b>1</b><i data-c="grind" role="button" tabindex="0">Grind</i>
+  <b>2</b><i data-c="what" role="button" tabindex="0">What</i>
+  <b>3</b><i data-c="install" role="button" tabindex="0">Install</i>
+  <b>4</b><i class="x" data-c="match" role="button" tabindex="0">A match</i>
+  <b>5</b><i data-c="wallets" role="button" tabindex="0">Wallets</i>
+  <b>6</b><i class="x" data-c="verified" role="button" tabindex="0">Verified</i>
+  <span class="sp"></span>
+  <b>·</b><i data-c="github" role="button" tabindex="0">GitHub</i>
+  <b>·</b><i class="x" data-c="x" role="button" tabindex="0">X</i>
+</div>
+<script>
+(function(){
+var out=document.getElementById('out'),scr=document.getElementById('scr'),
+    inp=document.getElementById('in'),prom=document.getElementById('prompt'),
+    sr=document.getElementById('sr');
+var MOBILE=false, W=78, IN=76;
+function setMode(m){MOBILE=m; W=m?42:78; IN=W-2;}
+function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;');}
+function vis(s){return s.replace(/\[\[[a-z]\]\]|\[\[\/\]\]/g,'').length;}
+function pad(s,n){return s+' '.repeat(Math.max(0,n-vis(s)));}
+function rpad(s,n){return ' '.repeat(Math.max(0,n-vis(s)))+s;}
+function paint(s){return esc(s).replace(/\[\[([cygrdfw])\]\]/g,'<b class="$1">').replace(/\[\[\/\]\]/g,'</b>');}
+function line(s,cls){var d=document.createElement('div');if(cls)d.className=cls;d.innerHTML=paint(s||' ');out.appendChild(d);return d;}
+function blank(){line(' ');}
+function bottom(){scr.scrollTop=scr.scrollHeight;}
+function wrapWords(t,w){var o=[],cur='';t.split(/\s+/).forEach(function(x){
+  while(x.length>w){if(cur){o.push(cur);cur='';}o.push(x.slice(0,w));x=x.slice(w);}
+  var c=(cur?cur+' ':'')+x; if(c.length<=w||!cur)cur=c;else{o.push(cur);cur=x;}});o.push(cur);return o;}
+function prose(cls,text){wrapWords(text,IN-4).forEach(function(l){row('  [['+cls+']]'+l+'[[/]]');});}
+
+/* ── the frame: exactly the CLI's ───────────────────────────────────────── */
+var open=null;
+function pan(){var d=document.createElement('div');d.className='pan';out.appendChild(d);open=d;return d;}
+function put(s){var d=document.createElement('div');d.innerHTML=paint(s||' ');(open||out).appendChild(d);return d;}
+function head(t,sub){pan();
+  var l='[[c]]╔══[[/]][[w]]▌ '+t+' ▐[[/]]', r=sub?'[[d]] '+sub+' [[/]]':'';
+  if(IN-vis(l)-vis(r)+1<2)r='';
+  put(l+'[[c]]'+'═'.repeat(Math.max(2,IN-vis(l)-vis(r)+1))+'[[/]]'+r+'[[c]]╗[[/]]');row('');}
+function row(t){return put('[[c]]║[[/]]'+pad(t||'',IN)+'[[c]]║[[/]]');}
+function foot(n){row('');
+  if(n&&IN-vis('[[d]] '+n+' [[/]]')-2<2)n='';
+  if(n){var s='[[d]] '+n+' [[/]]';put('[[c]]╚══[[/]]'+s+'[[c]]'+'═'.repeat(Math.max(2,IN-vis(s)-2))+'╝[[/]]');}
+  else put('[[c]]╚'+'═'.repeat(IN)+'╝[[/]]');open=null;}
+function bar(p,w){var full=Math.round(p/100*w),col=p>=90?'r':p>=70?'y':p>=1?'g':'f';
+  if(p>0)full=Math.max(1,full);var cap=(full>0&&full<w)?'▌':'';
+  return '[['+col+']]'+'█'.repeat(full)+cap+'[[/]][[f]]'+'░'.repeat(w-full-cap.length)+'[[/]]';}
+function kv(k,v){
+  var kw=MOBILE?9:11;
+  if(vis(k)+vis(v)+2<=IN-2){row('  [[d]]'+pad(k,kw)+'[[/]][[w]]'+v+'[[/]]');return;}
+  // too long for one row: key, then the value wrapped beneath
+  row('  [[d]]'+k+'[[/]]');
+  wrapWords(v.replace(/\[\[[a-z]\]\]|\[\[\/\]\]/g,''),IN-6).forEach(function(l){row('    [[w]]'+l+'[[/]]');});
+}
+function kva(k,v){row('  [[d]]'+pad(k,MOBILE?9:11)+'[[/]][[c]]'+v+'[[/]]');}
+function note(t){row('  [[d]]'+t+'[[/]]');}
+function warn(t){row('  [[y]]▲ '+t+'[[/]]');}
+function okl(t){var ls=wrapWords(t,IN-6);row('  [[g]]● '+ls[0]+'[[/]]');
+  for(var i=1;i<ls.length;i++)row('    [[g]]'+ls[i]+'[[/]]');}
+function group(n){return Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g,',');}
+function fmtDur(s){if(!isFinite(s)||s<0)return '--';if(s<90)return Math.round(s)+'s';if(s<5400)return (s/60).toFixed(1)+'m';if(s<172800)return (s/3600).toFixed(1)+'h';return (s/86400).toFixed(1)+'d';}
+
+/* ── masthead ─────────────────────────────────────────────────────────── */
+function masthead(right){
+  var head='[[c]]▐▌[[/]] [[w]]KEYRX[[/]]  [[d]]'+(MOBILE?'vanity addresses':'vanity addresses, keys for every wallet')+'[[/]]';
+  var rt='[[d]]'+right+'[[/]]';
+  line(' '+head+' '.repeat(Math.max(1,W-vis(head)-vis(rt)-2))+rt);
+  line(' [[f]]'+'━'.repeat(W-2)+'[[/]]');
+}
+
+/* ── the toy grind: REAL random keys, REAL base58, in a worker ─────────── */
+var WORKER_SRC=[
+'var B58="123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";',
+'function b58(bytes){var d=[0],i,j;for(i=0;i<bytes.length;i++){var c=bytes[i];for(j=0;j<d.length;j++){c+=d[j]<<8;d[j]=c%58;c=(c/58)|0;}while(c>0){d.push(c%58);c=(c/58)|0;}}',
+'  var s="";for(i=0;i<bytes.length&&bytes[i]===0;i++)s+="1";for(j=d.length-1;j>=0;j--)s+=B58[d[j]];return s;}',
+'function suffix(bytes,n){var num=Array.from(bytes),o=new Array(n);for(var i=0;i<n;i++){var rem=0;for(var k=0;k<num.length;k++){var cur=(rem<<8)|num[k];num[k]=(cur/58)|0;rem=cur%58;}o[n-1-i]=B58[rem];}return o.join("");}',
+'var stop=false,tried=0;',
+'onmessage=function(e){var m=e.data;if(m.cmd==="stop"){stop=true;return;}',
+'  stop=false;tried=0;var pat=m.pattern,ic=m.ic,n=pat.length,pk=new Uint8Array(32),last=Date.now(),start=last;',
+'  var want=ic?pat.toLowerCase():pat;',
+'  (function loop(){for(var i=0;i<4000&&!stop;i++){crypto.getRandomValues(pk);var s=suffix(pk,n);if(ic)s=s.toLowerCase();tried++;',
+'     if(s===want){postMessage({hit:true,address:b58(pk),tried:tried,ms:Date.now()-start});return;}}',
+'   var now=Date.now();if(now-last>250){postMessage({hit:false,tried:tried,ms:now-start});last=now;}',
+'   if(!stop)setTimeout(loop,0);})();};'
+].join('\n');
+var worker=null,grinding=false,liveRow=null,gPattern='',gIc=false,gStart=0;
+function startGrind(pattern,ic){
+  if(worker){worker.postMessage({cmd:'stop'});worker.terminate();}
+  worker=new Worker(URL.createObjectURL(new Blob([WORKER_SRC],{type:'text/javascript'})));
+  grinding=true;gPattern=pattern;gIc=ic;gStart=Date.now();
+  var odds=Math.pow(58,pattern.length)/(ic?Math.pow(2,pattern.replace(/[^a-z]/gi,'').length):1);
+  blank();head('GRIND',MOBILE?'in your browser':'in your browser · nothing leaves it');
+  kv('pattern','*'+pattern+(ic?'   (case-insensitive)':''));
+  kv('odds','1 in '+group(odds));
+  kv('engine',MOBILE?'JS · real random keys':'plain JS · real random keys · one thread');
+  if(!MOBILE)note('the Rust binary does 21us per candidate on every core; this is a toy');
+  foot(MOBILE?'stop: type  stop':'a real grind writes secrets to a 0600 file · this shows only the address');
+  liveRow=line('  [[d]]starting…[[/]]');
+  worker.onmessage=function(e){var m=e.data;var rate=m.ms>0?m.tried/(m.ms/1000):0;
+    var med=Math.log(0.5)/Math.log(1-1/odds);
+    if(!m.hit){liveRow.innerHTML=paint('  [[d]]'+rpad(group(m.tried),12)+' tried · '+group(rate)+'/sec · '+fmtDur(m.ms/1000)+' · 50% in '+fmtDur(Math.max(0,med/rate-m.ms/1000))+'[[/]]');return;}
+    grinding=false;liveRow.remove();
+    head('MATCH',fmtDur(m.ms/1000)+' · '+group(m.tried)+' tried');
+    var a=m.address;var i=a.length-pattern.length;
+    kva('address',a.slice(0,i)+'[[/]][[y]]'+a.slice(i));
+    kv('path',"m/44'/501'/0'/0'");
+    kv('seed','-> [[d]]a real grind writes it to matches/'+pattern+'.txt[[/]]');
+    kv('keys','-> [[d]]base58 + JSON array, same file[[/]]');
+    row('');
+    note('this browser toy shows only the address; the binary writes');
+    note('seed, path and both keys to a mode-0600 file. Try again:');
+    note('type  grind XYZ  or press 1');
+    foot(MOBILE?'':'import and verify the address BEFORE funding - always');
+    bottom();};
+  worker.postMessage({pattern:pattern,ic:ic});bottom();
+}
+function stopGrind(){if(worker){worker.postMessage({cmd:'stop'});worker.terminate();worker=null;}
+  if(grinding){grinding=false;if(liveRow)liveRow.remove();line('  [[d]]stopped[[/]]');}}
+
+/* ── panels ───────────────────────────────────────────────────────────── */
+var C={};
+C.what=function(){blank();
+  head('WHAT THIS IS',MOBILE?'':'one seed, unlimited addresses, keys for every wallet');
+  prose('d','Grinds Solana vanity addresses - an address that ends (or starts) with the letters you choose - and hands you everything a wallet needs to hold it: seed phrase, derivation path, and the keypair in both import forms (base58 for Phantom, JSON array for Solflare).');row('');
+  prose('d','Fast because solana-keygen grind pays 2048 rounds of PBKDF2 (~1.2 ms) to test ONE address; keyrx pays it once per seed, then walks that seed\'s account indices at ~21 us each: 20-60x the throughput.');row('');
+  prose('d','Standalone. No daemon, no service, no network. Secrets go to a mode-0600 file in a directory of their own, never to the screen unless you ask.');
+  foot('verify -> bench -> estimate -> grind -> show');
+  if(!MOBILE){
+    head('THE 128','what --indices means and why it matters');
+    prose('d','One seed phrase is a TREE of addresses, not one address. Wallets number the branches: account 0, 1, 2 ... - the N\' in m/44\'/501\'/N\'/0\'. Turning a phrase into the tree\'s root costs ~1.2 ms; stepping to the next branch ~21 us. --indices is how many branches you check per phrase:');row('');
+    kv('--indices 8','1.2 ms + 8 x 21 us    =   8 candidates per ~1.4 ms');
+    kv('--indices 128','1.2 ms + 128 x 21 us  = 128 candidates per ~3.9 ms');
+    row('');
+    prose('d','The match lands on ANY branch you checked. That only matters if you import the SEED: Solflare takes the path, Phantom clicks "add account" N times. Import the KEY instead and the index never matters - grind wide.');
+    foot('Private key: --indices 128  ·  Seed into Phantom: --indices 8');
+  }
+  blank();};
+C.install=function(){blank();
+  head('INSTALL',MOBILE?'':'Rust 1.75+ · one binary · no dependencies at run time');
+  if(MOBILE){prose('d','Three lines, each copyable:');row('');foot('');
+    line('  [[y]]cargo install keyrx[[/]]','cmd');line('  [[y]]keyrx verify[[/]]','cmd');line('  [[y]]keyrx grind --ends-with MINT --indices 128[[/]]','cmd');blank();return;}
+  row('  [[y]]$[[/]] cargo install keyrx');
+  row('  [[y]]$[[/]] keyrx verify                       [[d]]run first, always[[/]]');
+  row('  [[y]]$[[/]] keyrx bench --indices 128          [[d]]this machine\'s real rate[[/]]');
+  row('  [[y]]$[[/]] keyrx estimate --ends-with MINT     [[d]]odds, from that rate[[/]]');
+  row('  [[y]]$[[/]] keyrx grind --ends-with MINT --indices 128');
+  row('  [[y]]$[[/]] keyrx show MINT --keys              [[d]]base58 + JSON array[[/]]');
+  row('');
+  note('or from source:  git clone https://github.com/keyrx-tech/keyrx && cd keyrx');
+  note('                 RUSTFLAGS="-C target-cpu=native" cargo install --path .');
+  foot('keyrx alone prints a start screen that explains every flag');blank();};
+C.match=function(){blank();
+  head('WHAT A MATCH WRITES',MOBILE?'':'five lines, mode 0600, in a directory of their own');
+  kv('address','the vanity address');
+  kv('path',MOBILE?"m/44'/501'/N'/0'":"m/44'/501'/N'/0' - where it sits in the seed's tree");
+  kv('seed',MOBILE?'12 or 24 words, whole tree':'the 12 or 24 words - restores the WHOLE tree');
+  kv('privkey',MOBILE?'base58, for Phantom':'base58 keypair - Phantom "Import Private Key"');
+  kv('keypair',MOBILE?'JSON array, for Solflare':'the same key as a JSON array - Solflare, solana-keygen');
+  row('');
+  prose('d','A key import lands on the exact address in one paste, standalone - a seed will not recover it, so the file IS the backup. Files are named after the pattern: MINT.txt.');
+  foot(MOBILE?'':'~/.local/share/keyrx/matches/ · never the current directory');blank();};
+C.wallets=function(){blank();
+  head('WALLETS','which route, which flags');
+  function wal(w,t){if(MOBILE){row('  [[w]]'+w+'[[/]]');prose('d',t);}else row('  [[w]]'+w+'[[/]]  [[d]]'+t+'[[/]]');}
+  function cmd(c){if(MOBILE){foot('');line('  [[c]]'+c+'[[/]]','cmd');pan();row('');}else row('    [[c]]'+c+'[[/]]');}
+  wal('Any wallet','key import - simplest, exact address');
+  cmd('keyrx grind --ends-with MINT --indices 128');
+  prose('d','keyrx show MINT --keys: base58 for Phantom, JSON array for Solflare. Standalone; keep the file.');row('');
+  wal('Phantom','by seed - inside a recoverable HD wallet');
+  cmd('keyrx grind --ends-with MINT --words 12 --indices 8');
+  prose('d','import the 12 words, then "add account" until the address shows (0-7 clicks). ~4x slower to find.');row('');
+  wal('Solflare','by seed - takes a custom path');
+  cmd('keyrx grind --ends-with MINT --indices 128');
+  prose('d','import the words, choose the exact path the match printed.');
+  foot('estimate first: it prints the odds for YOUR machine');blank();};
+C.verified=function(){blank();
+  head('VERIFIED',MOBILE?'':'not asserted - proven, on 2026-08-16, and pinned as tests');
+  okl('SLIP-0010 matches solana-keygen at both path styles');
+  okl('a ground hit\'s seed re-derives the address in solana-keygen');
+  okl('base58 key -> solana-keygen pubkey -> identical address');
+  okl('JSON keypair line, copied verbatim -> identical address');
+  okl('50,000 pubkeys x 10 suffix lengths: b58 suffix == full encoding');
+  okl('19 tests, clippy clean, every frame line measured');
+  row('');
+  kv('bench',MOBILE?'24.4x at 128 idx':'24.4x solana-keygen at 128 indices, 32.2x at 256');
+  kv('per core',MOBILE?'33-55x baseline':'9,495-15,636/sec vs 284 baseline (33-55x)');
+  foot(MOBILE?'':'a wrong SLIP-0010 grinds fine and prints an address no wallet can derive - so it is tested');blank();};
+C.grind=function(arg){var p=(arg||'').trim();var ic=false;
+  if(/\s--ignore-case$/.test(p)||/\s-i$/.test(p)){ic=true;p=p.replace(/\s(--ignore-case|-i)$/,'');}
+  if(!p){blank();
+    head('TRY IT','a real grind, in this tab');
+    prose('d','Type a pattern and watch it find an address that ends with it. Real random keys, real base58, plain JavaScript on one thread - a toy next to the Rust binary, and honest about it.');row('');
+    if(MOBILE){kva('','grind ab   [[d]]seconds[[/]]');kva('','grind MINT [[d]]1 in 11.3M[[/]]');kva('','grind ab -i [[d]]any case[[/]]');}
+    else{kva('','grind ab          [[d]]two letters: seconds[[/]]');
+    kva('','grind MINT        [[d]]four: 1 in 11.3M - go make coffee[[/]]');
+    kva('','grind key -i      [[d]]case-insensitive[[/]]');}
+    row('');
+    prose('d','Nothing leaves your browser. The address shown is real but the toy keeps no key - and you should never fund an address from a web page anyway.');
+    foot('base58 has no 0 O I l');blank();return;}
+  for(var i=0;i<p.length;i++)if('123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'.indexOf(p[i])<0){
+    blank();line('  [[r]]'+p[i]+' is not base58[[/]] [[d]](0 O I l are excluded)[[/]]');blank();return;}
+  if(p.length>6){blank();line('  [[r]]six characters max in the browser toy[[/]] [[d]]- the binary takes 16[[/]]');blank();return;}
+  startGrind(p,ic);};
+C.stop=function(){stopGrind();};
+C.help=function(){blank();head('COMMANDS');
+  [['grind X',MOBILE?'find an address *X':'grind for an address ending in X'],['stop','stop the grind'],['what','what this is'],
+   ['install','three lines'],['match','what a match writes'],['wallets','which route'],
+   ['verified','the proof'],['github','the repository'],['x','@keyrx_tech'],['cls','clear']]
+   .forEach(function(c){row('  [[y]]'+pad(c[0],12)+'[[/]][[d]]'+c[1]+'[[/]]');});
+  foot('the bar below does the same');blank();};
+C.cls=function(){out.innerHTML='';};
+C.github=function(){window.open('https://github.com/keyrx-tech/keyrx','_blank');};
+C.x=function(){window.open('https://x.com/keyrx_tech','_blank');};
+C['?']=C.help;C.clear=C.cls;
+
+function announce(t){sr.textContent=t;}
+function run(raw){var parts=raw.trim().split(/\s+/),c=(parts[0]||'').toLowerCase(),arg=parts.slice(1).join(' ');
+  line('[[y]]keyrx>[[/]] '+raw);if(!c)return;
+  if(C[c]){C[c](arg);announce(c);}
+  else{blank();line('  [[r]]Bad command[[/]] - [[w]]'+raw.trim()+'[[/]]');line('  [[f]]Type[[/]] [[y]]help[[/]][[f]].[[/]]');blank();}
+  bottom();}
+var navBase=0;
+function runNav(c){if(MOBILE&&c!=='github'&&c!=='x')while(out.children.length>navBase)out.removeChild(out.lastChild);
+  if(c==='grind')C.grind('');else run(c);}
+inp.addEventListener('keydown',function(e){if(e.key==='Enter'){var v=inp.value;inp.value='';run(v);}});
+document.querySelectorAll('#keys i').forEach(function(t){t.addEventListener('click',function(){
+  inp.value='';runNav(t.dataset.c);bottom();if(!MOBILE)inp.focus();});});
+addEventListener('keydown',function(e){var k={'1':'grind','2':'what','3':'install','4':'match','5':'wallets','6':'verified'}[e.key];
+  if(k&&document.activeElement!==inp){runNav(k);}});
+scr.addEventListener('click',function(e){if(!e.target.closest('a,[data-c]')&&(!MOBILE||e.target.closest('#prompt')))inp.focus();});
+
+/* ── fit: solve the type size for the grid, then VERIFY the render ─────── */
+function fit(){
+  var probe=document.createElement('span');
+  probe.style.cssText='position:absolute;visibility:hidden;white-space:pre;font-family:var(--mono);font-size:100px';
+  probe.textContent='0'.repeat(78);document.body.appendChild(probe);
+  var per=probe.getBoundingClientRect().width/100;
+  var pad2=parseFloat(getComputedStyle(scr).paddingLeft)*2;
+  var avail=document.documentElement.clientWidth-pad2-2;
+  var size=avail/per;var wantMobile=size<9;
+  if(wantMobile!==MOBILE){setMode(wantMobile);if(booted)rerender();}
+  if(MOBILE){avail-=4;size=avail/(per/78*42);}
+  size=Math.max(6.2,Math.min(MOBILE?15:14.5,size));
+  probe.textContent='0'.repeat(W);
+  for(var i=0;i<4;i++){probe.style.fontSize=size.toFixed(2)+'px';var real=probe.getBoundingClientRect().width;if(real<=avail)break;size=Math.max(6.2,size*avail/real-0.05);}
+  probe.remove();document.documentElement.style.setProperty('--fs',size.toFixed(2)+'px');
+}
+var booted=false;
+function rerender(){out.innerHTML='';start();}
+function start(){
+  masthead('v0.2.0');
+  blank();
+  if(MOBILE){line('  [[w]]Solana vanity addresses.[[/]]');line('  [[d]]20-60x faster. Keys for every wallet.[[/]]');}
+  else{line('  [[w]]Solana vanity addresses, 20-60x faster than solana-keygen grind[[/]]');
+       line('  [[d]]- and every match hands you the seed, the path, and the keypair in[[/]]');
+       line('  [[d]]both wallet-import forms. One Rust binary. No daemon, no network.[[/]]');}
+  blank();
+  head('START',MOBILE?'':'the whole tool, in one line each');
+  kva('grind X',MOBILE?'try it here, live':'try it here, live - a real grind in this tab');
+  kva('install',MOBILE?'three lines':'three lines to your machine');
+  kva('what',MOBILE?'the idea':'the idea, and THE 128');
+  kva('match',MOBILE?'the file it writes':'the five lines a match writes');
+  kva('wallets',MOBILE?'which route':'Phantom, Solflare, any - which flags');
+  kva('verified',MOBILE?'the proof':'the proof, not the claim');
+  foot(MOBILE?'':'type a command, or use the bar below');
+  blank();
+  if(MOBILE)line('  [[f]]Tap[[/]] [[y]]Grind[[/]] [[f]]below to try it live.[[/]]');
+  else line('  [[f]]Type[[/]] [[y]]grind ab[[/]] [[f]]to see it find one in seconds.[[/]]');
+  blank();navBase=out.children.length;
+  prom.style.display='flex';if(!MOBILE)inp.focus();bottom();booted=true;
+}
+fit();addEventListener('resize',fit);
+if(document.fonts&&document.fonts.ready)document.fonts.ready.then(fit);
+start();
+window.__kx={run:run,out:out,vis:vis,W:function(){return W;},mode:function(m){setMode(m);out.innerHTML='';}};
+})();
+</script>
+</body>
+</html>
