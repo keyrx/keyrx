@@ -602,6 +602,8 @@ fn cmd_show(file: Option<String>, with_seed: bool, with_key: bool) {
     };
     println!("{}", ui::top("MATCHES", &file));
     let mut n = 0;
+    type Secret = (usize, String, Option<String>, Option<String>, Option<String>);
+    let mut secrets: Vec<Secret> = Vec::new();
     for block in text.split("\n\n") {
         let mut addr = None; let mut path = None; let mut seed = None; let mut key = None; let mut kp = None;
         for line in block.lines() {
@@ -614,35 +616,8 @@ fn cmd_show(file: Option<String>, with_seed: bool, with_key: bool) {
         if let (Some(a), Some(p)) = (addr, path) {
             n += 1;
             println!("{}", ui::mid(&format!("  {}{:>2}.{} {}{}{}  {}{}{}", ui::gry(), n, ui::r(), ui::wht(), a, ui::r(), ui::accent(), p, ui::r())));
-            if with_seed {
-                let s = seed.unwrap_or("(missing)");
-                let w: Vec<&str> = s.split_whitespace().collect();
-                for chunk in w.chunks(8) {
-                    println!("{}", ui::mid(&format!("      {}{}{}", ui::gry(), chunk.join(" "), ui::r())));
-                }
-            }
-            if with_key {
-                let k = key.unwrap_or("(missing)");
-                // 88 base58 chars: two rows so the frame never clips a key
-                let (a1, a2) = k.split_at(k.len().min(60));
-                println!("{}", ui::mid(&format!("      {}base58  {}{}", ui::gry(), a1, ui::r())));
-                if !a2.is_empty() { println!("{}", ui::mid(&format!("              {}{}{}", ui::gry(), a2, ui::r()))); }
-                // the JSON array is ~250 chars: wrap on the commas, never mid-number
-                let j = kp.unwrap_or("(missing)");
-                let mut line = String::new();
-                let mut first = true;
-                for piece in j.split_inclusive(',') {
-                    if line.len() + piece.len() > 56 {
-                        println!("{}", ui::mid(&format!("      {}{}{}{}", ui::gry(),
-                            if first { "json    " } else { "        " }, line, ui::r())));
-                        first = false; line.clear();
-                    }
-                    line.push_str(piece);
-                }
-                if !line.is_empty() {
-                    println!("{}", ui::mid(&format!("      {}{}{}{}", ui::gry(),
-                        if first { "json    " } else { "        " }, line, ui::r())));
-                }
+            if with_seed || with_key {
+                secrets.push((n, a.to_string(), seed.map(str::to_string), key.map(str::to_string), kp.map(str::to_string)));
             }
         }
     }
@@ -651,9 +626,26 @@ fn cmd_show(file: Option<String>, with_seed: bool, with_key: bool) {
     }
     let foot = match (with_seed, with_key) {
         (false, false) => "seeds and keys withheld · --seeds / --keys to print them",
-        _ => "secrets shown - clear your scrollback when done",
+        _ => "secrets below, one per line, bare - clear your scrollback when done",
     };
     println!("{}", ui::bot(foot));
+    // Anything meant to be PASTED prints as one unbroken plain line OUTSIDE
+    // the frame: a secret split across framed rows copies with border glyphs
+    // and padding in it - a wrapped key pasted into Phantom did not take.
+    for (i, a, seed, key, kp) in secrets {
+        println!();
+        println!(" {}{:>2}. {}{}", ui::gry(), i, a, ui::r());
+        if with_seed {
+            println!(" {}seed{}", ui::gry(), ui::r());
+            println!("{}", seed.as_deref().unwrap_or("(missing)"));
+        }
+        if with_key {
+            println!(" {}privkey  base58 - Phantom: Import Private Key{}", ui::gry(), ui::r());
+            println!("{}", key.as_deref().unwrap_or("(missing)"));
+            println!(" {}keypair  JSON array - Solflare, solana-keygen{}", ui::gry(), ui::r());
+            println!("{}", kp.as_deref().unwrap_or("(missing)"));
+        }
+    }
     println!();
 }
 
