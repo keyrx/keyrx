@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-label="keyrx">
+  <title>keyrx</title>
+
+  <!--
+    A key whose bit is a vanity suffix.
+
+    The bow (the round end you hold) is a plain ring - one seed. The blade
+    runs right, and the teeth at the tip are five filled cells on a 5x3 grid:
+    the last characters of an address, drawn as the block cells the CLI's
+    frame is made of. A key that ends in the letters you chose - the whole
+    product in one shape.
+
+    Ring: the bow is a ring, not a disc, for the same reason omnigauge's dial
+    is an interrupted arc - a solid disc reads as a dot below 40px; a ring
+    stays a ring. Stroke width matches the blade so it reads as one object.
+
+    Colours are the site's own: soft blue #5aa6c9 for the metal, the amber
+    #c9974f for the teeth - the amber is what the site uses to highlight the
+    matched suffix on an address, so the mark and the MATCH panel agree.
+    currentColor nowhere: this mark sits on the dark field only.
+
+    Grid: cells are 14 wide on an 18 pitch (4 of gap) so the teeth stay
+    separate at favicon size.
+  -->
+
+  <!-- bow: a ring -->
+  <circle cx="72" cy="128" r="40" fill="none" stroke="#5aa6c9" stroke-width="18"/>
+  <!-- blade -->
+  <rect x="104" y="119" width="112" height="18" rx="2" fill="#5aa6c9"/>
+  <!-- collar where blade meets bow -->
+  <rect x="106" y="112" width="12" height="32" rx="2" fill="#5aa6c9"/>
+
+  <!-- teeth: five cells, two rows, the suffix -->
+  <g fill="#c9974f">
+    <rect x="148" y="141" width="14" height="22" rx="1.5"/>
+    <rect x="166" y="141" width="14" height="14" rx="1.5"/>
+    <rect x="184" y="141" width="14" height="30" rx="1.5"/>
+    <rect x="202" y="141" width="14" height="18" rx="1.5"/>
+    <rect x="220" y="141" width="12" height="26" rx="1.5"/>
+  </g>
+</svg>
