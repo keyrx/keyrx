@@ -44,6 +44,11 @@ use zeroize::{Zeroize, Zeroizing};
 type HmacSha512 = Hmac<Sha512>;
 
 const HARDENED: u32 = 0x8000_0000;
+/// The donation address. ONE place - the CLI panel reads it, and the site
+/// carries the same string in its own DONATE_SOL const; change both
+/// together. Set once the keyrx vanity grind lands; until then the panel
+/// says so rather than showing an address that is not ours.
+const DONATE_SOL: &str = "";
 const B58: &[u8; 58] = b"123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 
 // ---------------------------------------------------------------- CLI
@@ -79,6 +84,9 @@ enum Cmd {
         #[arg(long, default_value_t = 15)]
         seconds: u64,
     },
+
+    /// Optional, and it changes nothing: MIT, no paid tier, nothing gated.
+    Donate,
 
     /// List matches - addresses and paths; seeds and keys withheld by default.
     /// With no FILE, lists every match file in the matches directory.
@@ -529,7 +537,14 @@ fn cmd_show(file: Option<String>, with_seed: bool, with_key: bool) {
             // a bare pattern name: MINT -> matches/MINT.txt
             let cand = matches_dir().join(format!("{}.txt", f.trim_end_matches(".txt")));
             if cand.exists() { cand.to_string_lossy().into_owned() }
-            else { eprintln!("no such file: {} (nor {})", f, cand.display()); std::process::exit(1); }
+            else {
+                println!("{}", ui::top("NO MATCHES YET", &format!("{}", cand.display())));
+                println!("{}", ui::note("a match file appears on the FIRST hit - if a grind is running,"));
+                println!("{}", ui::note("it has not landed yet. `keyrx show` alone lists what exists."));
+                println!("{}", ui::bot(""));
+                println!();
+                std::process::exit(1);
+            }
         }
         None => {
             let dir = matches_dir();
@@ -660,6 +675,7 @@ fn main() {
         Cmd::Estimate { pattern, threads, indices } => cmd_estimate(pattern, threads, indices),
         Cmd::Bench { threads, indices, seconds } => cmd_bench(threads, indices, seconds),
         Cmd::Show { file, seeds, keys } => cmd_show(file, seeds, keys),
+        Cmd::Donate => cmd_donate(),
         Cmd::Grind { pattern, threads, indices, count, words, out, show_seed } => {
             let out = out.unwrap_or_else(|| default_out(&pattern));
             cmd_grind(pattern, threads, indices, count, words, out, show_seed)
@@ -710,6 +726,8 @@ fn cmd_start() {
     blank();
     println!("{}", kvw("show", "lists matches from the file: address + path,"));
     println!("{}", cont("seeds withheld. --seeds prints them too."));
+    blank();
+    println!("{}", kvw("donate", "optional, and it changes nothing."));
     println!("{}", ui::bot("every command takes --help"));
 
     println!("{}", ui::top("PATTERN FLAGS", "estimate and grind"));
@@ -820,6 +838,43 @@ fn cmd_start() {
     println!("{}", ui::warn_line("import and verify the address BEFORE funding."));
     println!("{}", ui::warn_line("the match file holds seed and keys. Treat it like a key - it is one."));
     println!("{}", ui::bot("keyrx <command> --help · keyrx.tech · MIT"));
+    println!();
+}
+
+fn cmd_donate() {
+    ui::masthead("donate");
+    println!("{}", ui::top("DONATE", "optional, and it changes nothing"));
+    println!("{}", ui::note("keyrx is MIT and stays that way. No paid tier, no hosted version"));
+    println!("{}", ui::note("waiting behind it, no feature held back. Nothing is gated on this."));
+    println!("{}", ui::mid(""));
+    println!("{}", ui::mid(&format!("  {}{}Solana{}", ui::b(), ui::wht(), ui::r())));
+    #[allow(clippy::const_is_empty)]   // empty until the vanity grind lands
+    if DONATE_SOL.is_empty() {
+        println!("{}", ui::note("address not set yet - it will be a keyrx vanity address, ground"));
+        println!("{}", ui::note("with this tool. Check keyrx.tech."));
+    } else {
+        println!("{}", ui::mid(&format!("  {}{}{}", ui::warn(), DONATE_SOL, ui::r())));
+    }
+    println!("{}", ui::mid(""));
+    println!("{}", ui::note("If you got more out of this than it cost you to read the source,"));
+    println!("{}", ui::note("that trade already worked. Chip in a Sol or two if you like. It"));
+    println!("{}", ui::note("buys nothing - no tier, no badge, no priority - which is what makes"));
+    println!("{}", ui::note("it a donation and not a purchase."));
+    println!("{}", ui::mid(""));
+    println!("{}", ui::mid(&format!("  {}{}There will be no keyrx token from the developer of keyrx.{}", ui::b(), ui::wht(), ui::r())));
+    println!("{}", ui::note("No presale. No airdrop. No community round. No Phase 3."));
+    println!("{}", ui::mid(""));
+    println!("{}", ui::note("You can launch one - someone always does. The ask: creator fees"));
+    println!("{}", ui::note("plus 3% of supply to the address above, and the token's socials"));
+    println!("{}", ui::note("pointed at @keyrx_tech and keyrx.tech - the only two places this"));
+    println!("{}", ui::note("project exists. What you may not do is LARP as this project while"));
+    println!("{}", ui::note("you do it: no \"official\", no borrowed name, no invented team."));
+    println!("{}", ui::mid(""));
+    println!("{}", ui::mid(&format!("  {}{}X is the only place keyrx exists.{}", ui::b(), ui::wht(), ui::r())));
+    println!("{}", ui::note("No Discord, no Telegram, no Reddit, no group chat, no \"community\"."));
+    println!("{}", ui::note("If something calls itself keyrx anywhere other than @keyrx_tech or"));
+    println!("{}", ui::note("keyrx.tech, it is not us."));
+    println!("{}", ui::bot("a listing is not an endorsement · DYOR"));
     println!();
 }
 

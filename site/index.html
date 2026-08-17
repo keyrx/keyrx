@@ -101,6 +101,7 @@ keyrx grind --ends-with MINT --indices 128</pre>
   <b>4</b><i class="x" data-c="match" role="button" tabindex="0">A match</i>
   <b>5</b><i data-c="wallets" role="button" tabindex="0">Wallets</i>
   <b>6</b><i class="x" data-c="verified" role="button" tabindex="0">Verified</i>
+  <b>7</b><i class="x" data-c="donate" role="button" tabindex="0">Donate</i>
   <span class="sp"></span>
   <b>·</b><i data-c="github" role="button" tabindex="0">GitHub</i>
   <b>·</b><i class="x" data-c="x" role="button" tabindex="0">X</i>
@@ -110,6 +111,10 @@ keyrx grind --ends-with MINT --indices 128</pre>
 var out=document.getElementById('out'),scr=document.getElementById('scr'),
     inp=document.getElementById('in'),prom=document.getElementById('prompt'),
     sr=document.getElementById('sr');
+/* One place for the donation address; the CLI carries the same string in
+   its DONATE_SOL const - change both together. Empty until the keyrx vanity
+   grind lands; the panel says so rather than show an address that is not ours. */
+var DONATE_SOL='';
 var MOBILE=false, W=78, IN=76;
 function setMode(m){MOBILE=m; W=m?42:78; IN=W-2;}
 function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;');}
@@ -281,6 +286,29 @@ C.verified=function(){blank();
   kv('bench',MOBILE?'24.4x at 128 idx':'24.4x solana-keygen at 128 indices, 32.2x at 256');
   kv('per core',MOBILE?'33-55x baseline':'9,495-15,636/sec vs 284 baseline (33-55x)');
   foot(MOBILE?'':'a wrong SLIP-0010 grinds fine and prints an address no wallet can derive - so it is tested');blank();};
+C.donate=function(){blank();
+  head('DONATE',MOBILE?'':'optional, and it changes nothing');
+  prose('d','keyrx is MIT and stays that way. No paid tier, no hosted version waiting behind it, no feature held back. Nothing here is gated on this.');row('');
+  row('  [[w]]Solana[[/]]');
+  if(DONATE_SOL){
+    if(MOBILE){row('  [[y]]'+DONATE_SOL.slice(0,5)+'...'+DONATE_SOL.slice(-5)+'[[/]]  [[f]]tap to copy[[/]]');}
+    else row('  [[y]]'+DONATE_SOL+'[[/]]');
+    (function(){var b=out.querySelectorAll('b.y');for(var i=b.length-1;i>=0;i--){var t=b[i].textContent.trim();
+      if(t===DONATE_SOL||t===DONATE_SOL.slice(0,5)+'...'+DONATE_SOL.slice(-5)){b[i].className='y addr';b[i].title='click to copy';break;}}})();
+  } else {
+    prose('d','address not set yet - it will be a keyrx vanity address, ground with this tool.');
+  }
+  row('');
+  prose('f','If you got more out of this than it cost you to read the source, that trade already worked. Chip in a Sol or two if you like. It buys nothing - no tier, no badge, no priority - which is what makes it a donation and not a purchase.');
+  row('');
+  prose('w','There will be no keyrx token from the developer of keyrx.');
+  prose('d','No presale. No airdrop. No community round. No Phase 3.');row('');
+  prose('d','You can launch one - someone always does. The ask: creator fees plus 3% of supply to the address above, and the token\'s socials pointed at @keyrx_tech and keyrx.tech - the only two places this project exists. What you may not do is LARP as this project while you do it: no "official", no borrowed name, no invented team.');row('');
+  row('  [[w]]X is the only place keyrx exists.[[/]]');
+  prose('d','No Discord, no Telegram, no Reddit, no group chat, no "community". If something calls itself keyrx anywhere other than @keyrx_tech or keyrx.tech, it is not us.');
+  foot('a listing is not an endorsement · DYOR');blank();};
+out.addEventListener('click',function(e){var t=e.target.closest&&e.target.closest('b.addr');if(!t||!DONATE_SOL)return;
+  navigator.clipboard.writeText(DONATE_SOL).then(function(){blank();line('  [[g]]Copied[[/]] [[d]]- Solana address[[/]]');blank();bottom();});});
 C.grind=function(arg){var p=(arg||'').trim();var ic=false;
   if(/\s--ignore-case$/.test(p)||/\s-i$/.test(p)){ic=true;p=p.replace(/\s(--ignore-case|-i)$/,'');}
   if(!p){blank();
@@ -301,7 +329,7 @@ C.stop=function(){stopGrind();};
 C.help=function(){blank();head('COMMANDS');
   [['grind X',MOBILE?'find an address *X':'grind for an address ending in X'],['stop','stop the grind'],['what','what this is'],
    ['install','three lines'],['match','what a match writes'],['wallets','which route'],
-   ['verified','the proof'],['github','the repository'],['x','@keyrx_tech'],['cls','clear']]
+   ['verified','the proof'],['donate','optional, changes nothing'],['github','the repository'],['x','@keyrx_tech'],['cls','clear']]
    .forEach(function(c){row('  [[y]]'+pad(c[0],12)+'[[/]][[d]]'+c[1]+'[[/]]');});
   foot('the bar below does the same');blank();};
 C.cls=function(){out.innerHTML='';};
@@ -321,7 +349,7 @@ function runNav(c){if(MOBILE&&c!=='github'&&c!=='x')while(out.children.length>na
 inp.addEventListener('keydown',function(e){if(e.key==='Enter'){var v=inp.value;inp.value='';run(v);}});
 document.querySelectorAll('#keys i').forEach(function(t){t.addEventListener('click',function(){
   inp.value='';runNav(t.dataset.c);bottom();if(!MOBILE)inp.focus();});});
-addEventListener('keydown',function(e){var k={'1':'grind','2':'what','3':'install','4':'match','5':'wallets','6':'verified'}[e.key];
+addEventListener('keydown',function(e){var k={'1':'grind','2':'what','3':'install','4':'match','5':'wallets','6':'verified','7':'donate'}[e.key];
   if(k&&document.activeElement!==inp){runNav(k);}});
 scr.addEventListener('click',function(e){if(!e.target.closest('a,[data-c]')&&(!MOBILE||e.target.closest('#prompt')))inp.focus();});
 
@@ -358,6 +386,7 @@ function start(){
   kva('match',MOBILE?'the file it writes':'the five lines a match writes');
   kva('wallets',MOBILE?'which route':'Phantom, Solflare, any - which flags');
   kva('verified',MOBILE?'the proof':'the proof, not the claim');
+  kva('donate',MOBILE?'changes nothing':'optional, and it changes nothing');
   foot(MOBILE?'':'type a command, or use the bar below');
   blank();
   if(MOBILE)line('  [[f]]Tap[[/]] [[y]]Grind[[/]] [[f]]below to try it live.[[/]]');

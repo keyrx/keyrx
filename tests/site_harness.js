@@ -79,7 +79,7 @@ global.open = () => {};
 eval(m[1]);
 
 const CMDS = ['help', 'what', 'install', 'match', 'wallets', 'verified',
-              'grind',
+              'grind', 'donate',
               ];
 
 // The ban covers EVERY emitted line, loose ones included - checking only
