@@ -48,7 +48,7 @@ const HARDENED: u32 = 0x8000_0000;
 /// carries the same string in its own DONATE_SOL const; change both
 /// together. Set once the keyRX vanity grind lands; until then the panel
 /// says so rather than showing an address that is not ours.
-const DONATE_SOL: &str = "";
+const DONATE_SOL: &str = "Gi2z4r7ib15A7PRVyoR5zbEyJcBLh9CnJ9mgSw2KEYRX";
 const B58: &[u8; 58] = b"123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 
 // ---------------------------------------------------------------- CLI

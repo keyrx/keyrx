@@ -56,7 +56,7 @@ a:hover{color:var(--white)}
 .addr{cursor:pointer;border-bottom:1px dotted rgba(201,151,79,.45)}
 #prompt{display:flex;align-items:center;gap:.6em;margin-top:.9em;color:var(--yellow)}
 #in{background:transparent;border:0;outline:0;color:var(--white);font:inherit;
-  caret-color:transparent;width:20ch;padding:0}
+  caret-color:transparent;width:1ch;padding:0}
 #cur{display:inline-block;width:.6em;height:1.15em;background:var(--white);
   animation:blink 1.1s steps(1) infinite;margin-left:-.5em;vertical-align:text-bottom}
 @keyframes blink{50%{opacity:0}}
@@ -93,7 +93,7 @@ keyrx grind --ends-with MINT --indices 128</pre>
   <p><a href="https://github.com/keyrx/keyrx">github.com/keyrx/keyrx</a></p>
 </div></noscript>
 <div id="out" aria-live="polite"></div>
-<div id="prompt" style="display:none"><span>keyrx&gt;</span><input id="in" autocomplete="off" spellcheck="false" aria-label="command"><span id="cur"></span></div>
+<div id="prompt" style="display:none"><span>keyRX&gt;</span><input id="in" autocomplete="off" spellcheck="false" aria-label="command"><span id="cur"></span></div>
 </div></div>
 <div class="sr" id="sr" aria-live="polite"></div>
 <div id="keys" role="toolbar" aria-label="keys">
@@ -116,7 +116,7 @@ var out=document.getElementById('out'),scr=document.getElementById('scr'),
 /* One place for the donation address; the CLI carries the same string in
    its DONATE_SOL const - change both together. Empty until the keyRX vanity
    grind lands; the panel says so rather than show an address that is not ours. */
-var DONATE_SOL='';
+var DONATE_SOL='Gi2z4r7ib15A7PRVyoR5zbEyJcBLh9CnJ9mgSw2KEYRX';
 var MOBILE=false, W=78, IN=76;
 function setMode(m){MOBILE=m; W=m?42:78; IN=W-2;}
 function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;');}
@@ -341,14 +341,16 @@ C['?']=C.help;C.clear=C.cls;
 
 function announce(t){sr.textContent=t;}
 function run(raw){var parts=raw.trim().split(/\s+/),c=(parts[0]||'').toLowerCase(),arg=parts.slice(1).join(' ');
-  line('[[y]]keyrx>[[/]] '+raw);if(!c)return;
+  line('[[y]]keyRX>[[/]] '+raw);if(!c)return;
   if(C[c]){C[c](arg);announce(c);}
   else{blank();line('  [[r]]Bad command[[/]] - [[w]]'+raw.trim()+'[[/]]');line('  [[f]]Type[[/]] [[y]]help[[/]][[f]].[[/]]');blank();}
   bottom();}
 var navBase=0;
 function runNav(c){if(MOBILE&&c!=='github'&&c!=='x')while(out.children.length>navBase)out.removeChild(out.lastChild);
   if(c==='grind')C.grind('');else run(c);}
-inp.addEventListener('keydown',function(e){if(e.key==='Enter'){var v=inp.value;inp.value='';run(v);}});
+function resize(){inp.style.width=(inp.value.length+1)+'ch';}
+inp.addEventListener('input',resize);resize();
+inp.addEventListener('keydown',function(e){if(e.key==='Enter'){var v=inp.value;inp.value='';resize();run(v);}});
 document.querySelectorAll('#keys i').forEach(function(t){t.addEventListener('click',function(){
   inp.value='';runNav(t.dataset.c);bottom();if(!MOBILE)inp.focus();});});
 addEventListener('keydown',function(e){var k={'1':'grind','2':'what','3':'install','4':'match','5':'wallets','6':'verified','7':'donate'}[e.key];
