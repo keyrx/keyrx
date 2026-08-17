@@ -1,0 +1,67 @@
+# Trademark
+
+The **code** in this repository is MIT licensed. Take it, change it, ship it,
+sell it — that licence means what it says and none of this narrows it.
+
+The **name** is not part of that grant. MIT covers copyright; it is silent on
+trademarks, and nothing here licenses one.
+
+## What this covers
+
+- The name **keyRX**, in any capitalisation or spacing
+- The keyRX logo - the capsule key - and any mark used to identify this project
+- The domain **keyrx.tech** and the account **@keyRX**
+- The files under `assets/` — logo, wordmark, banner, favicons. They carry
+  their own notice (`assets/LICENSE`) and are **not** part of the MIT grant.
+  The code is free; the brand is not.
+
+keyRX™ is an unregistered mark claimed through use. First public use:
+August 2026.
+
+## If you fork this
+
+**Rebrand it.** Pick your own name, your own mark, your own domain. You may
+absolutely ship a competing product built on this code — that is the whole point
+of the licence — but ship it as yours, not as this.
+
+Please do not:
+
+- Name your fork keyRX, or a name close enough to be mistaken for it
+- Use the logo, or a variation of it, to identify your project
+- Register a domain or social account that reads as an official keyRX one
+- Describe your fork as "official", "the new keyRX", or endorsed by anyone here
+
+## What you may always do
+
+Referring to this project by name is normal and welcome. None of the above stops
+you saying any of the following:
+
+- "a fork of keyRX"
+- "based on keyRX"
+- "compatible with keyRX providers"
+- "keyRX is a similar tool"
+
+The distinction is simple: describing a relationship to this project is fine,
+claiming to *be* it is not.
+
+## What is and is not covered, plainly
+
+MIT covers every line of code, and with it the whole way this thing looks -
+the double-line frames, the gauge bars, the palette. Someone may build a tool
+that looks exactly like this. What they may not do is call it keyRX, put
+this mark on it, or point a lookalike domain or account at it. The design is
+free to imitate; the identity is not free to take.
+
+## The honest part
+
+This mark is not registered. Rights in an unregistered name come from using it,
+they are narrower than a registered mark, and enforcing them is expensive. This
+file is not a legal threat and there is no lawyer behind it.
+
+It is here because almost everyone who forks an open-source project is acting in
+good faith and will happily rename when asked — and because a request that was
+made in writing beforehand is a great deal easier to honour than one made after
+the fact.
+
+If you want to use the name for something, ask: **dev@keyrx.tech**. The answer
+is often yes.

@@ -100,3 +100,10 @@ overrides. `keyrx show` lists the files; `keyrx show MINT` reads one
 hit before the stop flag propagates. Every extra match is written and
 valid. Phantom walks account indices sequentially when adding accounts, so
 keep `--indices` low if Phantom is the target; Solflare takes custom paths.
+
+## Licence and name
+
+MIT — use it, fork it, ship it, sell it. The code is yours under that licence, and
+with it the look: anyone may build a grinder that frames its panels the same way.
+The **name**, the **capsule mark**, and the files under `assets/` are not part of
+the grant — see [TRADEMARK.md](TRADEMARK.md) and `assets/LICENSE`. Forks rebrand.
