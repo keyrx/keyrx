@@ -847,6 +847,12 @@ fn cmd_start() {
     cmd("keyrx grind --ends-with MINT --ignore-case --indices 8");
     sub("matches mint, Mint, MINT, mInT... - only an exact-case grind");
     sub("guarantees the letters print exactly MINT.");
+    blank();
+    wal("Prefix", "the address STARTS with your letters");
+    cmd("keyrx grind --starts-with Mint --indices 128");
+    sub("slower per candidate: a prefix needs the whole address encoded,");
+    sub("a suffix only its last N characters. Same odds per letter.");
+    sub("Repeatable, and combinable: --starts-with Mint --ends-with RX");
     println!("{}", ui::bot("estimate first: it prints the odds for THIS machine"));
 
     println!("{}", ui::top("A TYPICAL SESSION", ""));
