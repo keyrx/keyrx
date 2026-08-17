@@ -103,7 +103,7 @@ keyrx grind --ends-with MINT --indices 128</pre>
   <b>4</b><i class="x" data-c="match" role="button" tabindex="0">A match</i>
   <b>5</b><i data-c="wallets" role="button" tabindex="0">Wallets</i>
   <b>6</b><i class="x" data-c="verified" role="button" tabindex="0">Verified</i>
-  <b>7</b><i class="x" data-c="donate" role="button" tabindex="0">Donate</i>
+  <b>7</b><i data-c="donate" role="button" tabindex="0">Donate</i>
   <span class="sp"></span>
   <b>·</b><i data-c="github" role="button" tabindex="0">GitHub</i>
   <b>·</b><i class="x" data-c="x" role="button" tabindex="0">X</i>
@@ -195,24 +195,28 @@ function startGrind(pattern,ic){
   blank();head('GRIND',MOBILE?'in your browser':'in your browser · nothing leaves it');
   kv('pattern','*'+pattern+(ic?'   (case-insensitive)':''));
   kv('odds','1 in '+group(odds));
-  kv('engine',MOBILE?'JS · real random keys':'plain JS · real random keys · one thread');
+  kv('engine',MOBILE?'JS, real keys':'plain JS · real random keys · one thread');
   if(!MOBILE)note('the Rust binary does 21us per candidate on every core; this is a toy');
   foot(MOBILE?'stop: type  stop':'a real grind writes secrets to a 0600 file · this shows only the address');
   liveRow=line('  [[d]]starting…[[/]]');
   worker.onmessage=function(e){var m=e.data;var rate=m.ms>0?m.tried/(m.ms/1000):0;
     var med=Math.log(0.5)/Math.log(1-1/odds);
-    if(!m.hit){liveRow.innerHTML=paint('  [[d]]'+rpad(group(m.tried),12)+' tried · '+group(rate)+'/sec · '+fmtDur(m.ms/1000)+' · 50% in '+fmtDur(Math.max(0,med/rate-m.ms/1000))+'[[/]]');return;}
+    if(!m.hit){liveRow.innerHTML=paint(MOBILE
+      ?'  [[d]]'+group(m.tried)+' tried · '+group(rate)+'/s · 50% in '+fmtDur(Math.max(0,med/rate-m.ms/1000))+'[[/]]'
+      :'  [[d]]'+rpad(group(m.tried),12)+' tried · '+group(rate)+'/sec · '+fmtDur(m.ms/1000)+' · 50% in '+fmtDur(Math.max(0,med/rate-m.ms/1000))+'[[/]]');return;}
     grinding=false;liveRow.remove();
     head('MATCH',fmtDur(m.ms/1000)+' · '+group(m.tried)+' tried');
     var a=m.address;var i=a.length-pattern.length;
-    kva('address',a.slice(0,i)+'[[/]][[y]]'+a.slice(i));
+    // 44 base58 chars do not fit a 42-column phone row: show head...tail there,
+    // with the matched suffix still lit; desktop shows the whole address.
+    var shown=MOBILE?(a.slice(0,6)+'...'+a.slice(-(pattern.length+4))):a;
+    var j=shown.length-pattern.length;
+    kva('address',shown.slice(0,j)+'[[/]][[y]]'+shown.slice(j));
     kv('path',"m/44'/501'/0'/0'");
-    kv('seed','-> [[d]]a real grind writes it to matches/'+pattern+'.txt[[/]]');
-    kv('keys','-> [[d]]base58 + JSON array, same file[[/]]');
+    kv('seed',MOBILE?'-> [[d]]matches/'+pattern+'.txt[[/]]':'-> [[d]]a real grind writes it to matches/'+pattern+'.txt[[/]]');
+    kv('keys',MOBILE?'-> [[d]]same file, both forms[[/]]':'-> [[d]]base58 + JSON array, same file[[/]]');
     row('');
-    note('this browser toy shows only the address; the binary writes');
-    note('seed, path and both keys to a mode-0600 file. Try again:');
-    note('type  grind XYZ  or press 1');
+    prose('d','this browser toy shows only the address; the binary writes seed, path and both keys to a mode-0600 file. Try again: type  grind XYZ  or press 1');
     foot(MOBILE?'':'import and verify the address BEFORE funding - always');
     bottom();};
   worker.postMessage({pattern:pattern,ic:ic});bottom();
