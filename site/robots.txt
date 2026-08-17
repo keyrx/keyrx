@@ -1,0 +1,7 @@
+# keyrx.tech
+# MIT-licensed tool; the whole point is that people find it. Nothing restricted.
+
+User-agent: *
+Allow: /
+
+Sitemap: https://keyrx.tech/sitemap.xml

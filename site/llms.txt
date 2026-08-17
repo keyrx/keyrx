@@ -1,0 +1,46 @@
+# keyrx
+
+> Solana vanity address grinder. One seed phrase is a tree of addresses; keyrx
+> derives the expensive prefix once and walks the account index - 20-60x the
+> throughput of `solana-keygen grind --use-mnemonic`. Every match writes the
+> address, its derivation path, the seed phrase, and the keypair in both
+> wallet-import forms (base58 for Phantom, JSON byte array for Solflare and
+> solana-keygen). One Rust binary. No daemon, no service, no network.
+
+The site is a terminal UI rendered in JavaScript with a real toy grind in a
+Web Worker; nothing leaves the browser. This file carries the same content
+as plain text.
+
+## Install
+
+    cargo install keyrx          # or: git clone https://github.com/keyrx/keyrx && cargo install --path .
+    keyrx verify                 # run first, always: base58, derivation, the pinned solana-keygen answer
+    keyrx bench --indices 128    # this machine's real rate; estimate uses it
+    keyrx grind --ends-with MINT --indices 128
+    keyrx show MINT --keys       # base58 (Phantom) + JSON array (Solflare); seeds/keys withheld by default
+
+## What a match writes
+
+Five lines, in a mode-0600 file inside a mode-0700 directory of its own
+(~/.local/share/keyrx/matches/, named after the pattern): address, path,
+seed, privkey (base58 keypair), keypair (JSON byte array). A key import lands
+on the exact address in one paste as a standalone account - the file IS the
+backup. Importing the seed instead places the address inside a recoverable
+HD wallet at the printed path; Phantom reaches account N by N "add account"
+clicks (grind with --indices 8 for that), Solflare takes the path directly.
+
+## Verified
+
+SLIP-0010 identical to solana-keygen at both path styles (pinned as tests);
+ground hits re-derive from their own seed; both key encodings round-trip
+through `solana-keygen pubkey` to the same address; 50,000 pubkeys x 10
+suffix lengths agree with the full base58 encoding. Bench 24.4x baseline at
+128 indices, 32.2x at 256.
+
+## Links
+
+- Source: https://github.com/keyrx/keyrx
+- X: https://x.com/keyrx_tech
+
+MIT. Import and verify the address before funding. Match files hold seed
+phrases and keys - treat them like a key.

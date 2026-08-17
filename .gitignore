@@ -1,5 +1,5 @@
 /target
-matches.txt
-*.txt
-!README.txt
 node_modules/
+# match files never enter the repo - they hold seeds and keys
+matches/
+*.ic.txt
