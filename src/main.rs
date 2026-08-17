@@ -1040,7 +1040,7 @@ fn cmd_bench(threads: usize, indices: u32, seconds: u64) {
     println!("{}", ui::kv("candidates", &format!("{} in {:.1}s", group(n as f64), secs)));
     println!("{}", ui::kv_accent("rate", &format!("{}/sec total · {}/sec/thread", group(rate), group(rate / threads as f64))));
     let x = rate / 13_600.0;
-    println!("{}", ui::kv("vs baseline", &format!("{:.1}x the 13,600/sec of solana-keygen grind", x)));
+    println!("{}", ui::kv("baseline", &format!("{:.1}x the 13,600/sec of solana-keygen grind", x)));
     println!("{}", ui::mid(&format!("  {}{:<11}{}{}", ui::gry(), "", ui::r(), ui::bar((x / 40.0 * 100.0).min(100.0), 40))));
     println!("{}", ui::mid(""));
     println!("{}", ui::note("time to first 5-char suffix (1 in 656,356,768)"));
