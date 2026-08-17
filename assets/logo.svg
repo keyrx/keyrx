@@ -10,9 +10,8 @@
     frame is made of. A key that ends in the letters you chose - the whole
     product in one shape.
 
-    Ring: the bow is a ring, not a disc, for the same reason omnigauge's dial
-    is an interrupted arc - a solid disc reads as a dot below 40px; a ring
-    stays a ring. Stroke width matches the blade so it reads as one object.
+    Ring: the bow is a ring, not a disc - a solid disc reads as a dot below
+    40px; a ring stays a ring. Stroke width matches the blade so it reads as one object.
 
     Colours are the site's own: soft blue #5aa6c9 for the metal, the amber
     #c9974f for the teeth - the amber is what the site uses to highlight the
