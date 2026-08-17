@@ -4,7 +4,15 @@ version = "0.2.0"
 edition = "2021"
 description = "Solana vanity address grinder - one seed, unlimited addresses, keys for every wallet"
 homepage = "https://keyrx.tech"
+repository = "https://github.com/keyrx/keyrx"
+readme = "README.md"
 license = "MIT"
+keywords = ["solana", "vanity", "wallet", "keygen", "address"]
+categories = ["command-line-utilities", "cryptography::cryptocurrencies"]
+# The crate is the CLI. The site, the mark and the banner live in the repo, not in
+# the tarball: assets/ is outside the MIT grant (TRADEMARK.md), and cargo install
+# needs none of it.
+include = ["/src/**", "/Cargo.toml", "/Cargo.lock", "/README.md", "/LICENSE", "/TRADEMARK.md"]
 
 [[bin]]
 name = "keyrx"
