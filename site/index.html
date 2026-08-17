@@ -88,7 +88,7 @@ noscript div{white-space:normal;max-width:68ch;color:var(--gray);padding:1em 0}
   <pre>cargo install keyrx
 keyrx verify
 keyrx grind --ends-with MINT --indices 128</pre>
-  <p><a href="https://github.com/keyrx-tech/keyrx">github.com/keyrx-tech/keyrx</a></p>
+  <p><a href="https://github.com/keyrx/keyrx">github.com/keyrx/keyrx</a></p>
 </div></noscript>
 <div id="out" aria-live="polite"></div>
 <div id="prompt" style="display:none"><span>keyrx&gt;</span><input id="in" autocomplete="off" spellcheck="false" aria-label="command"><span id="cur"></span></div>
@@ -242,7 +242,7 @@ C.install=function(){blank();
   row('  [[y]]$[[/]] keyrx grind --ends-with MINT --indices 128');
   row('  [[y]]$[[/]] keyrx show MINT --keys              [[d]]base58 + JSON array[[/]]');
   row('');
-  note('or from source:  git clone https://github.com/keyrx-tech/keyrx && cd keyrx');
+  note('or from source:  git clone https://github.com/keyrx/keyrx && cd keyrx');
   note('                 RUSTFLAGS="-C target-cpu=native" cargo install --path .');
   foot('keyrx alone prints a start screen that explains every flag');blank();};
 C.match=function(){blank();
@@ -305,7 +305,7 @@ C.help=function(){blank();head('COMMANDS');
    .forEach(function(c){row('  [[y]]'+pad(c[0],12)+'[[/]][[d]]'+c[1]+'[[/]]');});
   foot('the bar below does the same');blank();};
 C.cls=function(){out.innerHTML='';};
-C.github=function(){window.open('https://github.com/keyrx-tech/keyrx','_blank');};
+C.github=function(){window.open('https://github.com/keyrx/keyrx','_blank');};
 C.x=function(){window.open('https://x.com/keyrx_tech','_blank');};
 C['?']=C.help;C.clear=C.cls;
 
