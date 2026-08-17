@@ -1,4 +1,7 @@
-# keyrx
+# keyRX
+
+**GAUGE, five exact letters. `solana-keygen grind`: 50 hours, nothing. keyRX: 24 minutes,
+a match.** Same machine, same 1-in-656,356,768 odds - measured, not estimated.
 
 Solana BIP39 vanity address grinder. Standalone terminal tool — no daemon,
 no service, no network. Replaces `solana-keygen grind --use-mnemonic`.

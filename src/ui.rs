@@ -169,10 +169,10 @@ pub fn crit_line(text: &str) -> String {
     mid(&format!("  {}▲ {}{}", crit(), text, r()))
 }
 
-/// The masthead: ▐▌ KEYRX  one mnemonic, unlimited addresses     right-hand note
+/// The masthead: ▐▌ keyRX  one mnemonic, unlimited addresses     right-hand note
 pub fn masthead(right: &str) {
     let logo = format!("{}▐▌{}", accent(), r());
-    let name = format!("{}{}KEYRX{}  {}vanity addresses, keys for every wallet{}", b(), wht(), r(), gry(), r());
+    let name = format!("{}{}keyRX{}  {}vanity addresses, keys for every wallet{}", b(), wht(), r(), gry(), r());
     let head = format!(" {} {}", logo, name);
     let rt = format!("{}{}{}", gry(), right, r());
     let gap = (W as isize - vis(&head) as isize - vis(&rt) as isize - 1).max(1) as usize;

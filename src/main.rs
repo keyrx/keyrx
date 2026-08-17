@@ -1,4 +1,4 @@
-// keyrx -- Solana vanity address grinder
+// keyRX -- Solana vanity address grinder
 //
 // Standalone terminal tool. No daemon, no service, no network.
 //
@@ -46,7 +46,7 @@ type HmacSha512 = Hmac<Sha512>;
 const HARDENED: u32 = 0x8000_0000;
 /// The donation address. ONE place - the CLI panel reads it, and the site
 /// carries the same string in its own DONATE_SOL const; change both
-/// together. Set once the keyrx vanity grind lands; until then the panel
+/// together. Set once the keyRX vanity grind lands; until then the panel
 /// says so rather than showing an address that is not ours.
 const DONATE_SOL: &str = "";
 const B58: &[u8; 58] = b"123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
@@ -722,7 +722,7 @@ fn cmd_start() {
     println!("{}", n("both import forms (base58 for Phantom, JSON array for Solflare)."));
     blank();
     println!("{}", n("Fast because `solana-keygen grind` pays 2048 rounds of PBKDF2 (~1.2 ms)"));
-    println!("{}", n("to test ONE address; keyrx pays it once per seed, then walks that"));
+    println!("{}", n("to test ONE address; keyRX pays it once per seed, then walks that"));
     println!("{}", n("seed's account indices at ~21 us each: 20-60x the throughput."));
     blank();
     println!("{}", n("Standalone. No daemon, no service, no network. Secrets go to a"));
@@ -865,13 +865,13 @@ fn cmd_start() {
 fn cmd_donate() {
     ui::masthead("donate");
     println!("{}", ui::top("DONATE", "optional, and it changes nothing"));
-    println!("{}", ui::note("keyrx is MIT and stays that way. No paid tier, no hosted version"));
+    println!("{}", ui::note("keyRX is MIT and stays that way. No paid tier, no hosted version"));
     println!("{}", ui::note("waiting behind it, no feature held back. Nothing is gated on this."));
     println!("{}", ui::mid(""));
     println!("{}", ui::mid(&format!("  {}{}Solana{}", ui::b(), ui::wht(), ui::r())));
     #[allow(clippy::const_is_empty)]   // empty until the vanity grind lands
     if DONATE_SOL.is_empty() {
-        println!("{}", ui::note("address not set yet - it will be a keyrx vanity address, ground"));
+        println!("{}", ui::note("address not set yet - it will be a keyRX vanity address, ground"));
         println!("{}", ui::note("with this tool. Check keyrx.tech."));
     } else {
         println!("{}", ui::mid(&format!("  {}{}{}", ui::warn(), DONATE_SOL, ui::r())));
@@ -882,7 +882,7 @@ fn cmd_donate() {
     println!("{}", ui::note("buys nothing - no tier, no badge, no priority - which is what makes"));
     println!("{}", ui::note("it a donation and not a purchase."));
     println!("{}", ui::mid(""));
-    println!("{}", ui::mid(&format!("  {}{}There will be no keyrx token from the developer of keyrx.{}", ui::b(), ui::wht(), ui::r())));
+    println!("{}", ui::mid(&format!("  {}{}There will be no keyRX token from the developer of keyRX.{}", ui::b(), ui::wht(), ui::r())));
     println!("{}", ui::note("No presale. No airdrop. No community round. No Phase 3."));
     println!("{}", ui::mid(""));
     println!("{}", ui::note("You can launch one - someone always does. The ask: creator fees"));
@@ -891,9 +891,9 @@ fn cmd_donate() {
     println!("{}", ui::note("project exists. What you may not do is LARP as this project while"));
     println!("{}", ui::note("you do it: no \"official\", no borrowed name, no invented team."));
     println!("{}", ui::mid(""));
-    println!("{}", ui::mid(&format!("  {}{}X is the only place keyrx exists.{}", ui::b(), ui::wht(), ui::r())));
+    println!("{}", ui::mid(&format!("  {}{}X is the only place keyRX exists.{}", ui::b(), ui::wht(), ui::r())));
     println!("{}", ui::note("No Discord, no Telegram, no Reddit, no group chat, no \"community\"."));
-    println!("{}", ui::note("If something calls itself keyrx anywhere other than @keyrx_tech or"));
+    println!("{}", ui::note("If something calls itself keyRX anywhere other than @keyrx_tech or"));
     println!("{}", ui::note("keyrx.tech, it is not us."));
     println!("{}", ui::bot("a listing is not an endorsement · DYOR"));
     println!();
