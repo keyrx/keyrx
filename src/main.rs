@@ -538,12 +538,41 @@ fn cmd_show(file: Option<String>, with_seed: bool, with_key: bool) {
             let cand = matches_dir().join(format!("{}.txt", f.trim_end_matches(".txt")));
             if cand.exists() { cand.to_string_lossy().into_owned() }
             else {
-                println!("{}", ui::top("NO MATCHES YET", &format!("{}", cand.display())));
-                println!("{}", ui::note("a match file appears on the FIRST hit - if a grind is running,"));
-                println!("{}", ui::note("it has not landed yet. `keyrx show` alone lists what exists."));
-                println!("{}", ui::bot(""));
-                println!();
-                std::process::exit(1);
+                let lock = format!("{}.grinding", cand.display());
+                let running = |p: &str| -> bool {
+                    std::fs::read_to_string(p).ok()
+                        .and_then(|s| s.trim().parse::<u32>().ok())
+                        .map(|pid| std::path::Path::new(&format!("/proc/{}", pid)).exists())
+                        .unwrap_or(false)
+                };
+                if running(&lock) {
+                    // A grind is working on exactly this file: wait for the
+                    // first hit and draw it, instead of answering "nothing"
+                    // to a question that will have an answer in a moment.
+                    println!("{}", ui::top("GRINDING", &format!("{}", cand.file_name().unwrap().to_string_lossy())));
+                    println!("{}", ui::note("a grind for this pattern is running - waiting for the first match."));
+                    println!("{}", ui::note("Ctrl-C to stop waiting; the grind keeps going."));
+                    println!("{}", ui::bot("the file appears on the first hit"));
+                    let _ = std::io::stdout().flush();
+                    loop {
+                        std::thread::sleep(Duration::from_millis(400));
+                        if cand.exists() { break; }
+                        if !running(&lock) {
+                            println!("\n{}", ui::note("the grind exited without a match."));
+                            std::process::exit(1);
+                        }
+                    }
+                    // let the writer finish its append
+                    std::thread::sleep(Duration::from_millis(200));
+                    cand.to_string_lossy().into_owned()
+                } else {
+                    println!("{}", ui::top("NO MATCHES", &format!("{}", cand.display())));
+                    println!("{}", ui::note("no grind is running for this pattern and no match file exists."));
+                    println!("{}", ui::note("start one:  keyrx grind --ends-with <pattern>"));
+                    println!("{}", ui::bot("`keyrx show` alone lists what exists"));
+                    println!();
+                    std::process::exit(1);
+                }
             }
         }
         None => {
@@ -1101,6 +1130,13 @@ fn cmd_grind(
             }
         }
     }
+    // A running grind leaves <out>.grinding beside its file so `show` can
+    // tell "not landed yet" from "never started" - and wait for the former.
+    let lock = format!("{}.grinding", out);
+    let _ = std::fs::write(&lock, std::process::id().to_string());
+    struct Unlock(String);
+    impl Drop for Unlock { fn drop(&mut self) { let _ = std::fs::remove_file(&self.0); } }
+    let _unlock = Unlock(lock.clone());
     ui::masthead("grind");
     println!("{}", ui::top("GRIND", "Ctrl-C stops after the current batch"));
     let pats: Vec<String> = m.suffixes.iter().map(|s| format!("*{}", String::from_utf8_lossy(s)))
