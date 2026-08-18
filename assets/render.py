@@ -1,11 +1,12 @@
-"""keyRX mark - the raster generator.
+"""keyRX mark - the PIL capsule used by the banner and OG generators.
 
-logo.svg is the authored source; this file draws the same capsule key with PIL
-(cylinder shading, rim, countersunk bow hole, two clipped teeth) at any size,
-and is what produced every PNG here, the favicons, the X header and the OG
-image. Run: python3 assets/render.py  (needs Pillow; JetBrains Mono TTF for the
-banner text). Fonts are not committed; the banner uses the same face the site
-embeds as a subset.
+logo.svg is the authored source of the mark. Since 2026-08-18 every logo-*.png
+and avatar-*.png is Chromium's rasterisation of that SVG (assets/render_svg.cjs,
+alpha kept, hole and teeth cut through) - one source, no drift. This file draws
+the same capsule with PIL (cylinder shading, rim, countersunk bow hole, two
+clipped teeth) for the X header and the OG image, where the mark sits inside a
+composed picture. Fonts are not committed; the banner uses the same face the
+site embeds as a subset (needs Pillow + the JetBrains Mono TTF).
 """
 from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageChops
 BLUE=(90,166,201); BLUE_D=(40,96,128); BLUE_L=(150,208,232); AMBER=(201,151,79); AMBER_D=(132,92,40); AMBER_L=(238,204,140)

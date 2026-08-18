@@ -1,3 +1,18 @@
+<p align="center">
+  <img src="assets/x-header-1500x500.png" width="100%" alt="keyRX — Solana vanity address grinder">
+</p>
+
+<p align="center">
+  <em>Solana vanity addresses in minutes, not hours.</em><br>
+  <sub>One seed · walk the account index · every match written once, mode 0600 · verified against solana-keygen</sub>
+</p>
+
+<p align="center">
+  <a href="LICENSE"><img alt="MIT" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
+  <a href="https://crates.io/crates/keyrx"><img alt="crates.io" src="https://img.shields.io/crates/v/keyrx.svg"></a>
+  <img alt="dependencies at runtime" src="https://img.shields.io/badge/network-none-brightgreen.svg">
+</p>
+
 # keyRX
 
 **KEYRX, five exact letters, 1 in 656,356,768. `solana-keygen grind` at its 13,600/sec:
@@ -12,16 +27,16 @@ m/44'/501' once, then walk the account index; each extra candidate costs
 two HMAC-SHA512 ops and one Ed25519 scalar mult instead of 2048 rounds of
 PBKDF2. Suffix matching needs only the last N base58 characters.
 
-    cargo install keyrx                                    # from crates.io
-    RUSTFLAGS="-C target-cpu=native" cargo install --path . # from a clone, tuned to this CPU
+    cargo install keyrx                                                 # from crates.io
+    RUSTFLAGS="-C target-cpu=native" cargo install --path .             # from a clone, tuned to this CPU
 
-    keyrx                                     # start screen: every command and flag, explained
-    keyrx verify                              # run first, always
-    keyrx bench --indices 128                 # measures AND saves the rate estimate uses
-    keyrx estimate --ends-with MINT          # measured basis; shows what --ignore-case / --indices 128 buy
-    keyrx grind --ends-with MINT --words 12 --indices 8 --out mint.txt     # Phantom
-    keyrx grind --ends-with MINT --indices 128 --out mint.txt             # Solflare
-    keyrx show MINT --keys                    # the private key for Phantom 'Import Private Key'
+    keyrx                                                               # start screen: every command and flag, explained
+    keyrx verify                                                        # run first, always
+    keyrx bench --indices 128                                           # measures AND saves the rate estimate uses
+    keyrx estimate --ends-with MINT                                     # measured; what --ignore-case and --indices 128 buy
+    keyrx grind --ends-with MINT --words 12 --indices 8 --out mint.txt  # Phantom
+    keyrx grind --ends-with MINT --indices 128 --out mint.txt           # Solflare
+    keyrx show MINT --keys                                              # the private key, for Phantom 'Import Private Key'
 
 While grinding, one line rewrites in place every 2s: candidates tried, rate,
 elapsed, time to the 50% and 90% marks. Every match prints its address, path

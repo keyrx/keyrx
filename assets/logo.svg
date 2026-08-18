@@ -22,11 +22,24 @@
 
     Colours are the site's own: the soft blue for the bow, the amber the site
     uses to highlight a matched suffix for the bit - so the mark and the MATCH
-    panel agree. Sits on the dark field only; no currentColor.
+    panel agree. No currentColor.
+
+    The bow hole and the two teeth are real cut-outs (a mask), not shapes
+    painted in the field colour - so the mark sits on any ground: the site's
+    navy, GitHub's white, a transparent avatar. The shadow is blurred; on a
+    light ground it reads as a soft grey, on the field it disappears into it.
   -->
 
   <defs>
     <clipPath id="pill"><rect x="28" y="88" width="200" height="80" rx="40"/></clipPath>
+    <!-- everything the key is made of, minus the hole and the two tooth cuts -->
+    <mask id="cuts" maskUnits="userSpaceOnUse" x="0" y="0" width="256" height="256">
+      <rect width="256" height="256" fill="#fff"/>
+      <circle cx="76" cy="128" r="17.5" fill="#000"/>
+      <rect x="158" y="138" width="12" height="30.5" fill="#000"/>
+      <rect x="180" y="125" width="12" height="43.5" fill="#000"/>
+    </mask>
+    <filter id="soft" x="-20%" y="-40%" width="140%" height="200%"><feGaussianBlur stdDeviation="5"/></filter>
     <linearGradient id="bow" x1="0" y1="88" x2="0" y2="168" gradientUnits="userSpaceOnUse">
       <stop offset="0" stop-color="#96d0e8"/><stop offset=".5" stop-color="#5aa6c9"/><stop offset="1" stop-color="#286080"/>
     </linearGradient>
@@ -38,8 +51,9 @@
     </linearGradient>
   </defs>
 
-  <!-- shadow -->
-  <rect x="33" y="99" width="200" height="80" rx="40" fill="#01040e" opacity=".55"/>
+  <g mask="url(#cuts)">
+  <!-- shadow: inside the mask too, so the cuts stay clear on a light ground -->
+  <rect x="33" y="99" width="200" height="80" rx="40" fill="#01040e" opacity=".45" filter="url(#soft)"/>
 
   <g clip-path="url(#pill)">
     <!-- the two halves -->
@@ -55,10 +69,6 @@
       <rect x="156" y="136" width="16" height="34"/>
       <rect x="178" y="123" width="16" height="47"/>
     </g>
-    <g fill="#091228">
-      <rect x="158" y="138" width="12" height="32"/>
-      <rect x="180" y="125" width="12" height="45"/>
-    </g>
     <g fill="#fff" opacity=".2">
       <rect x="170" y="138" width="1" height="32"/>
       <rect x="192" y="125" width="1" height="45"/>
@@ -67,8 +77,8 @@
   <!-- rim -->
   <rect x="28.5" y="88.5" width="199" height="79" rx="39.5" fill="none" stroke="#fff" stroke-opacity=".22"/>
 
-  <!-- bow hole, countersunk -->
+  <!-- bow hole, countersunk: the ring is drawn, the hole is cut by the mask -->
   <circle cx="76" cy="128" r="21.5" fill="#286080"/>
-  <circle cx="76" cy="128" r="17.5" fill="#091228"/>
+  </g>
   <path d="M60.5 122 A17.5 17.5 0 0 1 91.5 122" fill="none" stroke="#fff" stroke-opacity=".28" stroke-width="1.5"/>
 </svg>
