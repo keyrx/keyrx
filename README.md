@@ -117,6 +117,10 @@ hit before the stop flag propagates. Every extra match is written and
 valid. Phantom walks account indices sequentially when adding accounts, so
 keep `--indices` low if Phantom is the target; Solflare takes custom paths.
 
+## Changelog
+
+[CHANGELOG.md](https://github.com/keyrx/keyrx/blob/main/CHANGELOG.md) — one section per version on crates.io.
+
 ## Licence and name
 
 MIT — use it, fork it, ship it, sell it. The code is yours under that licence, and

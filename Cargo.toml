@@ -13,7 +13,7 @@ categories = ["command-line-utilities", "cryptography::cryptocurrencies"]
 # The crate is the CLI. The site, the mark and the banner live in the repo, not in
 # the tarball: assets/ is outside the MIT grant (TRADEMARK.md), and cargo install
 # needs none of it.
-include = ["/src/**", "/Cargo.toml", "/Cargo.lock", "/README.md", "/LICENSE", "/TRADEMARK.md"]
+include = ["/src/**", "/Cargo.toml", "/Cargo.lock", "/README.md", "/LICENSE", "/TRADEMARK.md", "/CHANGELOG.md"]
 
 [[bin]]
 name = "keyrx"
