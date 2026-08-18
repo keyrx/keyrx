@@ -1,0 +1,29 @@
+# Publish keyrx to crates.io on a version tag - by trusted publishing (OIDC), no token anywhere.
+# crates.io is configured to trust this repository + this workflow file. A tag `vX.Y.Z` must
+# equal the version in Cargo.toml or nothing is published.
+name: publish
+on:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: read
+  id-token: write   # the OIDC token crates.io exchanges for a short-lived publish token
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: the tag must be the version in Cargo.toml
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          ver="$(cargo metadata --no-deps --format-version 1 | python3 -c 'import json,sys;print(json.load(sys.stdin)["packages"][0]["version"])')"
+          test "$tag" = "$ver" || { echo "tag v$tag != Cargo.toml $ver"; exit 1; }
+      - run: cargo test --all-targets
+      - name: publish (dry run first, then for real)
+        run: cargo publish --dry-run
+      - uses: rust-lang/crates-io-auth-action@v1
+        id: auth
+      - run: cargo publish
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
