@@ -358,7 +358,11 @@ var navBase=0;
 function runNav(c){if(MOBILE&&c!=='github'&&c!=='x')while(out.children.length>navBase)out.removeChild(out.lastChild);
   if(c==='grind')C.grind('');else run(c);}
 function resize(){inp.style.width=(inp.value.length+1)+'ch';}
-inp.addEventListener('input',resize);resize();
+// the toy takes four characters after `grind`: the line stops there, and says so once
+var capNoted=false;
+function capGrind(){var m=/^(\s*grind\s+)(\S+)(.*)$/i.exec(inp.value);if(m&&m[2].length>4){inp.value=m[1]+m[2].slice(0,4);
+  if(!capNoted){capNoted=true;blank();line('  [[d]]four characters max in the browser toy - it runs on your CPU; keyrx takes 16[[/]]');bottom();}}}
+inp.addEventListener('input',function(){capGrind();resize();});resize();
 inp.addEventListener('keydown',function(e){if(e.key==='Enter'){var v=inp.value;inp.value='';resize();run(v);}});
 document.querySelectorAll('#keys i').forEach(function(t){t.addEventListener('click',function(){
   inp.value='';runNav(t.dataset.c);bottom();if(!MOBILE)inp.focus();});});
