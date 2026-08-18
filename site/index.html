@@ -183,7 +183,8 @@ var WORKER_SRC=[
 '  var want=ic?pat.toLowerCase():pat;',
 '  (function loop(){for(var i=0;i<4000&&!stop;i++){crypto.getRandomValues(pk);var s=suffix(pk,n);if(ic)s=s.toLowerCase();tried++;',
 '     if(s===want){postMessage({hit:true,address:b58(pk),tried:tried,ms:Date.now()-start});return;}}',
-'   var now=Date.now();if(now-last>250){postMessage({hit:false,tried:tried,ms:now-start});last=now;}',
+'   var now=Date.now();if(now-start>90000){postMessage({timeout:true,tried:tried,ms:now-start});return;}',
+'   if(now-last>250){postMessage({hit:false,tried:tried,ms:now-start});last=now;}',
 '   if(!stop)setTimeout(loop,0);})();};'
 ].join('\n');
 var worker=null,grinding=false,liveRow=null,gPattern='',gIc=false,gStart=0;
@@ -201,6 +202,7 @@ function startGrind(pattern,ic){
   liveRow=line('  [[d]]starting…[[/]]');
   worker.onmessage=function(e){var m=e.data;var rate=m.ms>0?m.tried/(m.ms/1000):0;
     var med=Math.log(0.5)/Math.log(1-1/odds);
+    if(m.timeout){grinding=false;if(liveRow)liveRow.remove();line('  [[d]]the toy stops after 90 s - '+group(m.tried)+' tried, no match; keyrx does not stop[[/]]');bottom();return;}
     if(!m.hit){liveRow.innerHTML=paint(MOBILE
       ?'  [[d]]'+group(m.tried)+' tried · '+group(rate)+'/s · 50% in '+fmtDur(Math.max(0,med/rate-m.ms/1000))+'[[/]]'
       :'  [[d]]'+rpad(group(m.tried),12)+' tried · '+group(rate)+'/sec · '+fmtDur(m.ms/1000)+' · 50% in '+fmtDur(Math.max(0,med/rate-m.ms/1000))+'[[/]]');return;}
@@ -332,7 +334,7 @@ C.grind=function(arg){var p=(arg||'').trim();var ic=false;
     foot('base58 has no 0 O I l');blank();return;}
   for(var i=0;i<p.length;i++)if('123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'.indexOf(p[i])<0){
     blank();line('  [[r]]'+p[i]+' is not base58[[/]] [[d]](0 O I l are excluded)[[/]]');blank();return;}
-  if(p.length>6){blank();line('  [[r]]six characters max in the browser toy[[/]] [[d]]- the binary takes 16[[/]]');blank();return;}
+  if(p.length>4){blank();line('  [[r]]four characters max in the browser toy[[/]] [[d]]- it runs on your CPU and stops after 90 s; keyrx takes 16 and is 20-60x faster[[/]]');blank();return;}
   startGrind(p,ic);};
 C.stop=function(){stopGrind();};
 C.help=function(){blank();head('COMMANDS');
