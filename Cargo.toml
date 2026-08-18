@@ -1,7 +1,8 @@
 [package]
 name = "keyrx"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
+rust-version = "1.85"
 description = "Solana vanity address grinder - one seed, unlimited addresses, keys for every wallet"
 homepage = "https://keyrx.tech"
 repository = "https://github.com/keyrx/keyrx"

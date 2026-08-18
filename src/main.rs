@@ -1161,7 +1161,7 @@ fn cmd_grind(
                 tick += 1;
                 if stop.load(Ordering::Relaxed) { break; }
                 let every = if tty { 4 } else { 30 };
-                if !tick.is_multiple_of(every) { continue; }
+                if tick % every != 0 { continue; }
                 let n = counter.load(Ordering::Relaxed);
                 let secs = start.elapsed().as_secs_f64();
                 let rate = if secs > 0.0 { n as f64 / secs } else { 0.0 };
