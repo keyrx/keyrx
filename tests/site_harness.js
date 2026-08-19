@@ -84,7 +84,8 @@ const CMDS = ['help', 'what', 'install', 'match', 'wallets', 'verified',
 
 // The ban covers EVERY emitted line, loose ones included - checking only
 // panel rows left five survivors, one of them in a panel header.
-const banned = /[—–“”→▟▛▎▋▁▂▃▄▅▆▇]/;
+// ▀ and ▄ are IN the embedded subset since v0.2.2 - the masthead seal is drawn with them.
+const banned = /[—–“”→▟▛▎▋▁▂▃▅▆▇]/;
 
 function measure(og, label, width, bad) {
   let rows = 0, loose = 0;

@@ -1,84 +1,166 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-label="keyRX">
   <title>keyRX</title>
-
   <!--
-    A capsule that is a key.
+    The seal of the flagship record - the first keyRX/KEYRX launch through keyRX Deploy: token keyRX
+    (KEYRX), deployed by the wallet ending in KEYRX at the mint ending in KEYRX, on devnet, the list
+    published on chain before the token existed. This mark is that record's manifest hash:
 
-    The pharmacy Rx meets the thing the tool makes. The left half is the
-    key's bow - the ring you hold - and carries the hole; the right half is
-    the bit, with two teeth cut into its lower edge. One silhouette: a pill
-    at a glance, a key on the second look, and the second look is the joke.
+      manifest sha256 fbd454bdefee923628fcb6f24667b772ea942f176f9c7988b5e2d2264b335ac8
+      mint            DH3EVN49g3EazPWfBUkKGc1Qa3JJZiFNKKrywSkKEYRX
+      record          https://deploy.keyrx.tech/DH3EVN49g3EazPWfBUkKGc1Qa3JJZiFNKKrywSkKEYRX
 
-    Two teeth, not three: the flat run of the bit half is short, and a third
-    tooth crowded the seam or ran into the end cap's curve. Two, with a full
-    tooth's width of amber after the seam band, is the version that breathes.
-    The teeth are clipped to the pill's own outline so a cut can never show
-    outside the shape.
+    Anyone can re-derive it:
+      curl -sO https://deploy.keyrx.tech/verify.py
+      curl -sO https://deploy.keyrx.tech/records/DH3EVN49g3EazPWfBUkKGc1Qa3JJZiFNKKrywSkKEYRX/manifest.json
+      python3 verify.py hash manifest.json
 
-    Rendered, not flat: a three-stop vertical gradient makes each half a
-    cylinder, a soft highlight bar sits high on it, a thin light rim traces
-    the top edge, the bow hole is countersunk. Flat two-tone read as an
-    icon-set icon; this reads as an object.
-
-    Colours are the site's own: the soft blue for the bow, the amber the site
-    uses to highlight a matched suffix for the bit - so the mark and the MATCH
-    panel agree. No currentColor.
-
-    The bow hole and the two teeth are real cut-outs (a mask), not shapes
-    painted in the field colour - so the mark sits on any ground: the site's
-    navy, GitHub's white, a transparent avatar. The shadow is blurred; on a
-    light ground it reads as a soft grey, on the field it disappears into it.
+    Sixty-four hex digits on an 8x8 grid, one per cell, row by row; a cell is
+    lit when its digit is 8 or above - the same rule that draws the seal of
+    every deployment record. The pattern is the truth and never changes; the
+    dressing is free: rows 0-3 in the site's blue, rows 4-7 in its amber (the
+    keyRX capsule's bow and bit), each tile a small cylinder, one soft shadow
+    under the whole glyph, inset inside the inscribed circle. Regenerate with
+    assets/make_mark.py; rasterise with assets/render_svg.cjs.
   -->
-
   <defs>
-    <clipPath id="pill"><rect x="28" y="88" width="200" height="80" rx="40"/></clipPath>
-    <!-- everything the key is made of, minus the hole and the two tooth cuts -->
-    <mask id="cuts" maskUnits="userSpaceOnUse" x="0" y="0" width="256" height="256">
-      <rect width="256" height="256" fill="#fff"/>
-      <circle cx="76" cy="128" r="17.5" fill="#000"/>
-      <rect x="158" y="138" width="12" height="30.5" fill="#000"/>
-      <rect x="180" y="125" width="12" height="43.5" fill="#000"/>
-    </mask>
-    <filter id="soft" x="-20%" y="-40%" width="140%" height="200%"><feGaussianBlur stdDeviation="5"/></filter>
-    <linearGradient id="bow" x1="0" y1="88" x2="0" y2="168" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#96d0e8"/><stop offset=".5" stop-color="#5aa6c9"/><stop offset="1" stop-color="#286080"/>
-    </linearGradient>
-    <linearGradient id="bit" x1="0" y1="88" x2="0" y2="168" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#eecc8c"/><stop offset=".5" stop-color="#c9974f"/><stop offset="1" stop-color="#845c28"/>
-    </linearGradient>
-    <linearGradient id="hl" x1="0" y1="96" x2="0" y2="112" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#fff" stop-opacity=".42"/><stop offset="1" stop-color="#fff" stop-opacity="0"/>
-    </linearGradient>
+    <linearGradient id="bl" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#96d0e8"/><stop offset=".5" stop-color="#5aa6c9"/><stop offset="1" stop-color="#286080"/></linearGradient>
+    <linearGradient id="am" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#eecc8c"/><stop offset=".5" stop-color="#c9974f"/><stop offset="1" stop-color="#845c28"/></linearGradient>
+    <filter id="soft" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="3"/></filter>
   </defs>
-
-  <g mask="url(#cuts)">
-  <!-- shadow: inside the mask too, so the cuts stay clear on a light ground -->
-  <rect x="33" y="99" width="200" height="80" rx="40" fill="#01040e" opacity=".45" filter="url(#soft)"/>
-
-  <g clip-path="url(#pill)">
-    <!-- the two halves -->
-    <rect x="28" y="88" width="100" height="80" fill="url(#bow)"/>
-    <rect x="128" y="88" width="100" height="80" fill="url(#bit)"/>
-    <!-- highlight bar -->
-    <rect x="41" y="96" width="174" height="16" rx="8" fill="url(#hl)"/>
-    <!-- seam band -->
-    <rect x="125" y="88" width="6" height="80" fill="#14203c" opacity=".8"/>
-    <rect x="127" y="88" width="2" height="80" fill="#fff" opacity=".16"/>
-    <!-- teeth: two cuts, a tooth's width of amber after the seam -->
-    <g fill="#845c28">
-      <rect x="156" y="136" width="16" height="34"/>
-      <rect x="178" y="123" width="16" height="47"/>
-    </g>
-    <g fill="#fff" opacity=".2">
-      <rect x="170" y="138" width="1" height="32"/>
-      <rect x="192" y="125" width="1" height="45"/>
-    </g>
+  <!-- shadow: one, under the whole glyph, kept inside the circle -->
+  <g filter="url(#soft)" opacity=".42">
+    <rect x="46.00" y="49.00" width="19.53" height="19.53" rx="1.4" fill="#01040e"/>
+    <rect x="67.00" y="49.00" width="19.53" height="19.53" rx="1.4" fill="#01040e"/>
+    <rect x="88.00" y="49.00" width="19.53" height="19.53" rx="1.4" fill="#01040e"/>
+    <rect x="172.00" y="49.00" width="19.53" height="19.53" rx="1.4" fill="#01040e"/>
+    <rect x="193.00" y="49.00" width="19.53" height="19.53" rx="1.4" fill="#01040e"/>
+    <rect x="46.00" y="70.00" width="19.53" height="19.53" rx="1.4" fill="#01040e"/>
+    <rect x="67.00" y="70.00" width="19.53" height="19.53" rx="1.4" fill="#01040e"/>
+    <rect x="88.00" y="70.00" width="19.53" height="19.53" rx="1.4" fill="#01040e"/>
+    <rect x="109.00" y="70.00" width="19.53" height="19.53" rx="1.4" fill="#01040e"/>
+    <rect x="130.00" y="70.00" width="19.53" height="19.53" rx="1.4" fill="#01040e"/>
+    <rect x="67.00" y="91.00" width="19.53" height="19.53" rx="1.4" fill="#01040e"/>
+    <rect x="88.00" y="91.00" width="19.53" height="19.53" rx="1.4" fill="#01040e"/>
+    <rect x="109.00" y="91.00" width="19.53" height="19.53" rx="1.4" fill="#01040e"/>
+    <rect x="130.00" y="91.00" width="19.53" height="19.53" rx="1.4" fill="#01040e"/>
+    <rect x="172.00" y="91.00" width="19.53" height="19.53" rx="1.4" fill="#01040e"/>
+    <rect x="130.00" y="112.00" width="19.53" height="19.53" rx="1.4" fill="#01040e"/>
+    <rect x="46.00" y="133.00" width="19.53" height="19.53" rx="1.4" fill="#01040e"/>
+    <rect x="67.00" y="133.00" width="19.53" height="19.53" rx="1.4" fill="#01040e"/>
+    <rect x="88.00" y="133.00" width="19.53" height="19.53" rx="1.4" fill="#01040e"/>
+    <rect x="151.00" y="133.00" width="19.53" height="19.53" rx="1.4" fill="#01040e"/>
+    <rect x="67.00" y="154.00" width="19.53" height="19.53" rx="1.4" fill="#01040e"/>
+    <rect x="88.00" y="154.00" width="19.53" height="19.53" rx="1.4" fill="#01040e"/>
+    <rect x="109.00" y="154.00" width="19.53" height="19.53" rx="1.4" fill="#01040e"/>
+    <rect x="151.00" y="154.00" width="19.53" height="19.53" rx="1.4" fill="#01040e"/>
+    <rect x="172.00" y="154.00" width="19.53" height="19.53" rx="1.4" fill="#01040e"/>
+    <rect x="193.00" y="154.00" width="19.53" height="19.53" rx="1.4" fill="#01040e"/>
+    <rect x="46.00" y="175.00" width="19.53" height="19.53" rx="1.4" fill="#01040e"/>
+    <rect x="88.00" y="175.00" width="19.53" height="19.53" rx="1.4" fill="#01040e"/>
+    <rect x="130.00" y="175.00" width="19.53" height="19.53" rx="1.4" fill="#01040e"/>
+    <rect x="67.00" y="196.00" width="19.53" height="19.53" rx="1.4" fill="#01040e"/>
+    <rect x="151.00" y="196.00" width="19.53" height="19.53" rx="1.4" fill="#01040e"/>
+    <rect x="172.00" y="196.00" width="19.53" height="19.53" rx="1.4" fill="#01040e"/>
+    <rect x="193.00" y="196.00" width="19.53" height="19.53" rx="1.4" fill="#01040e"/>
   </g>
-  <!-- rim -->
-  <rect x="28.5" y="88.5" width="199" height="79" rx="39.5" fill="none" stroke="#fff" stroke-opacity=".22"/>
-
-  <!-- bow hole, countersunk: the ring is drawn, the hole is cut by the mask -->
-  <circle cx="76" cy="128" r="21.5" fill="#286080"/>
-  </g>
-  <path d="M60.5 122 A17.5 17.5 0 0 1 91.5 122" fill="none" stroke="#fff" stroke-opacity=".28" stroke-width="1.5"/>
+  <!-- tiles: rows 0-3 blue, rows 4-7 amber -->
+  <rect x="44.00" y="44.00" width="19.53" height="19.53" rx="1.4" fill="url(#bl)"/>
+  <rect x="46.34" y="45.95" width="14.84" height="3.12" rx="1" fill="#fff" fill-opacity=".18"/>
+  <rect x="44.50" y="44.50" width="18.53" height="18.53" rx="1.1" fill="none" stroke="#fff" stroke-opacity=".14"/>
+  <rect x="65.00" y="44.00" width="19.53" height="19.53" rx="1.4" fill="url(#bl)"/>
+  <rect x="67.34" y="45.95" width="14.84" height="3.12" rx="1" fill="#fff" fill-opacity=".18"/>
+  <rect x="65.50" y="44.50" width="18.53" height="18.53" rx="1.1" fill="none" stroke="#fff" stroke-opacity=".14"/>
+  <rect x="86.00" y="44.00" width="19.53" height="19.53" rx="1.4" fill="url(#bl)"/>
+  <rect x="88.34" y="45.95" width="14.84" height="3.12" rx="1" fill="#fff" fill-opacity=".18"/>
+  <rect x="86.50" y="44.50" width="18.53" height="18.53" rx="1.1" fill="none" stroke="#fff" stroke-opacity=".14"/>
+  <rect x="170.00" y="44.00" width="19.53" height="19.53" rx="1.4" fill="url(#bl)"/>
+  <rect x="172.34" y="45.95" width="14.84" height="3.12" rx="1" fill="#fff" fill-opacity=".18"/>
+  <rect x="170.50" y="44.50" width="18.53" height="18.53" rx="1.1" fill="none" stroke="#fff" stroke-opacity=".14"/>
+  <rect x="191.00" y="44.00" width="19.53" height="19.53" rx="1.4" fill="url(#bl)"/>
+  <rect x="193.34" y="45.95" width="14.84" height="3.12" rx="1" fill="#fff" fill-opacity=".18"/>
+  <rect x="191.50" y="44.50" width="18.53" height="18.53" rx="1.1" fill="none" stroke="#fff" stroke-opacity=".14"/>
+  <rect x="44.00" y="65.00" width="19.53" height="19.53" rx="1.4" fill="url(#bl)"/>
+  <rect x="46.34" y="66.95" width="14.84" height="3.12" rx="1" fill="#fff" fill-opacity=".18"/>
+  <rect x="44.50" y="65.50" width="18.53" height="18.53" rx="1.1" fill="none" stroke="#fff" stroke-opacity=".14"/>
+  <rect x="65.00" y="65.00" width="19.53" height="19.53" rx="1.4" fill="url(#bl)"/>
+  <rect x="67.34" y="66.95" width="14.84" height="3.12" rx="1" fill="#fff" fill-opacity=".18"/>
+  <rect x="65.50" y="65.50" width="18.53" height="18.53" rx="1.1" fill="none" stroke="#fff" stroke-opacity=".14"/>
+  <rect x="86.00" y="65.00" width="19.53" height="19.53" rx="1.4" fill="url(#bl)"/>
+  <rect x="88.34" y="66.95" width="14.84" height="3.12" rx="1" fill="#fff" fill-opacity=".18"/>
+  <rect x="86.50" y="65.50" width="18.53" height="18.53" rx="1.1" fill="none" stroke="#fff" stroke-opacity=".14"/>
+  <rect x="107.00" y="65.00" width="19.53" height="19.53" rx="1.4" fill="url(#bl)"/>
+  <rect x="109.34" y="66.95" width="14.84" height="3.12" rx="1" fill="#fff" fill-opacity=".18"/>
+  <rect x="107.50" y="65.50" width="18.53" height="18.53" rx="1.1" fill="none" stroke="#fff" stroke-opacity=".14"/>
+  <rect x="128.00" y="65.00" width="19.53" height="19.53" rx="1.4" fill="url(#bl)"/>
+  <rect x="130.34" y="66.95" width="14.84" height="3.12" rx="1" fill="#fff" fill-opacity=".18"/>
+  <rect x="128.50" y="65.50" width="18.53" height="18.53" rx="1.1" fill="none" stroke="#fff" stroke-opacity=".14"/>
+  <rect x="65.00" y="86.00" width="19.53" height="19.53" rx="1.4" fill="url(#bl)"/>
+  <rect x="67.34" y="87.95" width="14.84" height="3.12" rx="1" fill="#fff" fill-opacity=".18"/>
+  <rect x="65.50" y="86.50" width="18.53" height="18.53" rx="1.1" fill="none" stroke="#fff" stroke-opacity=".14"/>
+  <rect x="86.00" y="86.00" width="19.53" height="19.53" rx="1.4" fill="url(#bl)"/>
+  <rect x="88.34" y="87.95" width="14.84" height="3.12" rx="1" fill="#fff" fill-opacity=".18"/>
+  <rect x="86.50" y="86.50" width="18.53" height="18.53" rx="1.1" fill="none" stroke="#fff" stroke-opacity=".14"/>
+  <rect x="107.00" y="86.00" width="19.53" height="19.53" rx="1.4" fill="url(#bl)"/>
+  <rect x="109.34" y="87.95" width="14.84" height="3.12" rx="1" fill="#fff" fill-opacity=".18"/>
+  <rect x="107.50" y="86.50" width="18.53" height="18.53" rx="1.1" fill="none" stroke="#fff" stroke-opacity=".14"/>
+  <rect x="128.00" y="86.00" width="19.53" height="19.53" rx="1.4" fill="url(#bl)"/>
+  <rect x="130.34" y="87.95" width="14.84" height="3.12" rx="1" fill="#fff" fill-opacity=".18"/>
+  <rect x="128.50" y="86.50" width="18.53" height="18.53" rx="1.1" fill="none" stroke="#fff" stroke-opacity=".14"/>
+  <rect x="170.00" y="86.00" width="19.53" height="19.53" rx="1.4" fill="url(#bl)"/>
+  <rect x="172.34" y="87.95" width="14.84" height="3.12" rx="1" fill="#fff" fill-opacity=".18"/>
+  <rect x="170.50" y="86.50" width="18.53" height="18.53" rx="1.1" fill="none" stroke="#fff" stroke-opacity=".14"/>
+  <rect x="128.00" y="107.00" width="19.53" height="19.53" rx="1.4" fill="url(#bl)"/>
+  <rect x="130.34" y="108.95" width="14.84" height="3.12" rx="1" fill="#fff" fill-opacity=".18"/>
+  <rect x="128.50" y="107.50" width="18.53" height="18.53" rx="1.1" fill="none" stroke="#fff" stroke-opacity=".14"/>
+  <rect x="44.00" y="128.00" width="19.53" height="19.53" rx="1.4" fill="url(#am)"/>
+  <rect x="46.34" y="129.95" width="14.84" height="3.12" rx="1" fill="#fff" fill-opacity=".18"/>
+  <rect x="44.50" y="128.50" width="18.53" height="18.53" rx="1.1" fill="none" stroke="#fff" stroke-opacity=".14"/>
+  <rect x="65.00" y="128.00" width="19.53" height="19.53" rx="1.4" fill="url(#am)"/>
+  <rect x="67.34" y="129.95" width="14.84" height="3.12" rx="1" fill="#fff" fill-opacity=".18"/>
+  <rect x="65.50" y="128.50" width="18.53" height="18.53" rx="1.1" fill="none" stroke="#fff" stroke-opacity=".14"/>
+  <rect x="86.00" y="128.00" width="19.53" height="19.53" rx="1.4" fill="url(#am)"/>
+  <rect x="88.34" y="129.95" width="14.84" height="3.12" rx="1" fill="#fff" fill-opacity=".18"/>
+  <rect x="86.50" y="128.50" width="18.53" height="18.53" rx="1.1" fill="none" stroke="#fff" stroke-opacity=".14"/>
+  <rect x="149.00" y="128.00" width="19.53" height="19.53" rx="1.4" fill="url(#am)"/>
+  <rect x="151.34" y="129.95" width="14.84" height="3.12" rx="1" fill="#fff" fill-opacity=".18"/>
+  <rect x="149.50" y="128.50" width="18.53" height="18.53" rx="1.1" fill="none" stroke="#fff" stroke-opacity=".14"/>
+  <rect x="65.00" y="149.00" width="19.53" height="19.53" rx="1.4" fill="url(#am)"/>
+  <rect x="67.34" y="150.95" width="14.84" height="3.12" rx="1" fill="#fff" fill-opacity=".18"/>
+  <rect x="65.50" y="149.50" width="18.53" height="18.53" rx="1.1" fill="none" stroke="#fff" stroke-opacity=".14"/>
+  <rect x="86.00" y="149.00" width="19.53" height="19.53" rx="1.4" fill="url(#am)"/>
+  <rect x="88.34" y="150.95" width="14.84" height="3.12" rx="1" fill="#fff" fill-opacity=".18"/>
+  <rect x="86.50" y="149.50" width="18.53" height="18.53" rx="1.1" fill="none" stroke="#fff" stroke-opacity=".14"/>
+  <rect x="107.00" y="149.00" width="19.53" height="19.53" rx="1.4" fill="url(#am)"/>
+  <rect x="109.34" y="150.95" width="14.84" height="3.12" rx="1" fill="#fff" fill-opacity=".18"/>
+  <rect x="107.50" y="149.50" width="18.53" height="18.53" rx="1.1" fill="none" stroke="#fff" stroke-opacity=".14"/>
+  <rect x="149.00" y="149.00" width="19.53" height="19.53" rx="1.4" fill="url(#am)"/>
+  <rect x="151.34" y="150.95" width="14.84" height="3.12" rx="1" fill="#fff" fill-opacity=".18"/>
+  <rect x="149.50" y="149.50" width="18.53" height="18.53" rx="1.1" fill="none" stroke="#fff" stroke-opacity=".14"/>
+  <rect x="170.00" y="149.00" width="19.53" height="19.53" rx="1.4" fill="url(#am)"/>
+  <rect x="172.34" y="150.95" width="14.84" height="3.12" rx="1" fill="#fff" fill-opacity=".18"/>
+  <rect x="170.50" y="149.50" width="18.53" height="18.53" rx="1.1" fill="none" stroke="#fff" stroke-opacity=".14"/>
+  <rect x="191.00" y="149.00" width="19.53" height="19.53" rx="1.4" fill="url(#am)"/>
+  <rect x="193.34" y="150.95" width="14.84" height="3.12" rx="1" fill="#fff" fill-opacity=".18"/>
+  <rect x="191.50" y="149.50" width="18.53" height="18.53" rx="1.1" fill="none" stroke="#fff" stroke-opacity=".14"/>
+  <rect x="44.00" y="170.00" width="19.53" height="19.53" rx="1.4" fill="url(#am)"/>
+  <rect x="46.34" y="171.95" width="14.84" height="3.12" rx="1" fill="#fff" fill-opacity=".18"/>
+  <rect x="44.50" y="170.50" width="18.53" height="18.53" rx="1.1" fill="none" stroke="#fff" stroke-opacity=".14"/>
+  <rect x="86.00" y="170.00" width="19.53" height="19.53" rx="1.4" fill="url(#am)"/>
+  <rect x="88.34" y="171.95" width="14.84" height="3.12" rx="1" fill="#fff" fill-opacity=".18"/>
+  <rect x="86.50" y="170.50" width="18.53" height="18.53" rx="1.1" fill="none" stroke="#fff" stroke-opacity=".14"/>
+  <rect x="128.00" y="170.00" width="19.53" height="19.53" rx="1.4" fill="url(#am)"/>
+  <rect x="130.34" y="171.95" width="14.84" height="3.12" rx="1" fill="#fff" fill-opacity=".18"/>
+  <rect x="128.50" y="170.50" width="18.53" height="18.53" rx="1.1" fill="none" stroke="#fff" stroke-opacity=".14"/>
+  <rect x="65.00" y="191.00" width="19.53" height="19.53" rx="1.4" fill="url(#am)"/>
+  <rect x="67.34" y="192.95" width="14.84" height="3.12" rx="1" fill="#fff" fill-opacity=".18"/>
+  <rect x="65.50" y="191.50" width="18.53" height="18.53" rx="1.1" fill="none" stroke="#fff" stroke-opacity=".14"/>
+  <rect x="149.00" y="191.00" width="19.53" height="19.53" rx="1.4" fill="url(#am)"/>
+  <rect x="151.34" y="192.95" width="14.84" height="3.12" rx="1" fill="#fff" fill-opacity=".18"/>
+  <rect x="149.50" y="191.50" width="18.53" height="18.53" rx="1.1" fill="none" stroke="#fff" stroke-opacity=".14"/>
+  <rect x="170.00" y="191.00" width="19.53" height="19.53" rx="1.4" fill="url(#am)"/>
+  <rect x="172.34" y="192.95" width="14.84" height="3.12" rx="1" fill="#fff" fill-opacity=".18"/>
+  <rect x="170.50" y="191.50" width="18.53" height="18.53" rx="1.1" fill="none" stroke="#fff" stroke-opacity=".14"/>
+  <rect x="191.00" y="191.00" width="19.53" height="19.53" rx="1.4" fill="url(#am)"/>
+  <rect x="193.34" y="192.95" width="14.84" height="3.12" rx="1" fill="#fff" fill-opacity=".18"/>
+  <rect x="191.50" y="191.50" width="18.53" height="18.53" rx="1.1" fill="none" stroke="#fff" stroke-opacity=".14"/>
 </svg>

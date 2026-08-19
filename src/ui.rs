@@ -170,19 +170,58 @@ pub fn crit_line(text: &str) -> String {
 }
 
 /// The masthead: ▐▌ keyRX  one mnemonic, unlimited addresses     right-hand note
+/// The mark: the seal of the flagship keyRX Deploy record - the manifest sha256 of the first
+/// keyRX/KEYRX launch (mint DH3EVN…KEYRX, devnet). Sixty-four hex digits on an 8x8 grid, a cell
+/// lit where the digit is 8 or above - the rule that draws the seal of every deployment record on
+/// deploy.keyrx.tech. Two grid rows per text line in half-blocks: rows 0-3 blue, rows 4-7 amber.
+/// The same glyph is the site's favicon and the repository's avatar; here it is text.
+pub const SEAL: &str = "fbd454bdefee923628fcb6f24667b772ea942f176f9c7988b5e2d2264b335ac8";
+
+/// Four text lines, sixteen columns each (two columns per cell), coloured when stdout is a terminal.
+pub fn seal_lines() -> [String; 4] {
+    let lit: Vec<bool> = SEAL.bytes().map(|b| (b as char).to_digit(16).unwrap_or(0) >= 8).collect();
+    let mut out: [String; 4] = Default::default();
+    for (p, line) in out.iter_mut().enumerate() {
+        let mut s = String::new();
+        for c in 0..8 {
+            let (t, bt) = (lit[p * 16 + c], lit[p * 16 + 8 + c]);
+            let ch = match (t, bt) { (true, true) => "█", (true, false) => "▀", (false, true) => "▄", _ => " " };
+            s.push_str(ch); s.push_str(ch);
+        }
+        *line = format!("{}{}{}", if p < 2 { accent() } else { warn() }, s, r());
+    }
+    out
+}
+
 pub fn masthead(right: &str) {
-    let logo = format!("{}▐▌{}", accent(), r());
+    let seal = seal_lines();
     let name = format!("{}{}keyRX{}  {}vanity addresses, keys for every wallet{}", b(), wht(), r(), gry(), r());
-    let head = format!(" {} {}", logo, name);
+    let head = format!(" {}  {}", seal[0], name);
     let rt = format!("{}{}{}", gry(), right, r());
     let gap = (W as isize - vis(&head) as isize - vis(&rt) as isize - 1).max(1) as usize;
     println!("\n{}{}{}", head, " ".repeat(gap), rt);
+    println!(" {}", seal[1]);
+    println!(" {}  {}the mark is a record: the first keyRX Deploy launch, sealed{}", seal[2], faint(), r());
+    println!(" {}", seal[3]);
     println!(" {}{}{}", faint(), "━".repeat(W - 2), r());
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn seal_is_four_lines_of_sixteen_columns_and_lit_where_the_digit_is_eight_or_more() {
+        let l = seal_lines();
+        assert!(l.iter().all(|x| vis(x) == 16));
+        // top-left cell: 'f' (15) is lit; row 1 col 0: 'e' from "…efee9…"? derive from the constant instead
+        let lit = |i: usize| SEAL.as_bytes()[i] as char >= '8';
+        let first = l[0].chars().filter(|c| !c.is_ascii_control()).collect::<String>();
+        let first: String = { let mut s = String::new(); let mut in_esc = false; for ch in first.chars() { if in_esc { if ch == 'm' { in_esc = false; } } else if ch == '\x1b' { in_esc = true; } else { s.push(ch); } } s };
+        let expect0 = match (lit(0), lit(8)) { (true, true) => '█', (true, false) => '▀', (false, true) => '▄', _ => ' ' };
+        assert_eq!(first.chars().next().unwrap(), expect0);
+        assert_eq!(SEAL.bytes().filter(|b| (*b as char).to_digit(16).unwrap() >= 8).count(), 33);
+    }
 
     fn frame_lines(s: &str) -> Vec<&str> {
         s.lines().filter(|l| {

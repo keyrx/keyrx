@@ -125,5 +125,5 @@ keep `--indices` low if Phantom is the target; Solflare takes custom paths.
 
 MIT — use it, fork it, ship it, sell it. The code is yours under that licence, and
 with it the look: anyone may build a grinder that frames its panels the same way.
-The **name**, the **capsule mark**, and the files under `assets/` are not part of
+The **name**, the **mark** (the seal of the first keyRX Deploy launch), and the files under `assets/` are not part of
 the grant — see [TRADEMARK.md](TRADEMARK.md) and `assets/LICENSE`. Forks rebrand.
