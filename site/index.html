@@ -173,21 +173,13 @@ function sealLines(){var out=[];
   for(var r=0;r<8;r++){var s='';for(var c=0;c<8;c++)s+=parseInt(SEAL[r*8+c],16)>=8?'██':'  ';
     out.push('[['+(r<4?'c':'y')+']]'+s+'[[/]]');}return out;}
 var ABOUT=['Solana vanity address grinder.','One seed, unlimited addresses, keys for every wallet.','Offline. Open. Verified.','The mark is a record. What it seals comes next.'];
-/* the same seal at phone width: one column per cell, two grid rows per line in half-blocks -
-   8 columns by 4 lines, which is the mark's true square at that size */
-function sealLinesSmall(){var out=[];
-  for(var p=0;p<4;p++){var s='';for(var c=0;c<8;c++){var t=parseInt(SEAL[p*16+c],16)>=8,b=parseInt(SEAL[p*16+8+c],16)>=8;
-    s+=t&&b?'█':t?'▀':b?'▄':' ';}out.push('[['+(p<2?'c':'y')+']]'+s+'[[/]]');}return out;}
 function masthead(right){
   var rt='[[d]]'+right+'[[/]]',h='[[w]]keyRX[[/]] [[f]]|[[/]] [[w]]CLI[[/]]';
-  if(MOBILE){var sm=sealLinesSmall();
-    line(' '+sm[0]+'  '+h+' '.repeat(Math.max(1,W-8-2-vis(h)-vis(rt)-2))+rt);
-    line(' '+sm[1]+'  [[d]]'+ABOUT[0]+'[[/]]');
-    line(' '+sm[2]+'  [[d]]One seed, unlimited addresses,[[/]]');
-    line(' '+sm[3]+'  [[d]]keys for every wallet.[[/]]');
-    line('           [[d]]'+ABOUT[2]+'[[/]]');
-    line('           [[f]]The mark is a record.[[/]]');
-    line('           [[f]]What it seals comes next.[[/]]');
+  if(MOBILE){var sl=sealLines();   // the same 16x8 seal as the desktop - the true square; the words go under it
+    line(' '+sl[0]+'  '+h+' '.repeat(Math.max(1,W-16-2-vis(h)-vis(rt)-2))+rt);
+    for(var i=1;i<8;i++)line(' '+sl[i]);
+    line(' [[d]]'+ABOUT[0]+'[[/]]');line(' [[d]]One seed, unlimited addresses,[[/]]');line(' [[d]]keys for every wallet.[[/]]');
+    line(' [[d]]'+ABOUT[2]+'[[/]]');line(' [[f]]The mark is a record.[[/]]');line(' [[f]]What it seals comes next.[[/]]');
     var lf=' [[d]]keyRX.tech[[/]]',rf='[[d]]dev@keyrx.tech[[/]]';line(lf+' '.repeat(Math.max(1,W-vis(lf)-vis(rf)-1))+rf);}
   else{var sl=sealLines();
     line(' '+sl[0]+'  '+h+' '.repeat(Math.max(1,W-vis(sl[0])-2-vis(h)-vis(rt)-2))+rt);
