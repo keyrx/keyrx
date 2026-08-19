@@ -58,7 +58,7 @@ fn help_seal() -> String {
     let l = ui::seal_lines();
     let mut out = format!(" {}  keyRX", l[0]);
     for (i, line) in l.iter().enumerate().skip(1) {
-        let t = match i { 1 => ui::ABOUT[0], 2 => ui::ABOUT[1], 3 => ui::ABOUT[2], 5 => ui::ABOUT[3], _ => "" };
+        let t = match i { 1 => ui::ABOUT[0].to_string(), 2 => ui::ABOUT[1].to_string(), 3 => ui::ABOUT[2].to_string(), 5 => ui::ABOUT[3].to_string(), 7 => format!("{}  ·  {}", ui::SITE, ui::CONTACT), _ => String::new() };
         out.push_str(&format!("\n {}{}{}", line, if t.is_empty() { "" } else { "  " }, t));
     }
     out

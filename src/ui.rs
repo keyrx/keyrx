@@ -190,6 +190,8 @@ pub fn seal_lines() -> [String; 8] {
 }
 
 /// The one line, wrapped beside the seal (the seal is 16 columns; the text has the rest).
+pub const SITE: &str = "keyRX.tech";
+pub const CONTACT: &str = "dev@keyrx.tech";
 pub const ABOUT: [&str; 4] = [
     "Solana vanity address grinder.",
     "One seed, unlimited addresses, keys for every wallet.",
@@ -210,6 +212,13 @@ pub fn masthead(right: &str) {
             2 => println!(" {}  {}{}{}", l, gry(), ABOUT[1], r()),
             3 => println!(" {}  {}{}{}", l, gry(), ABOUT[2], r()),
             5 => println!(" {}  {}{}{}", l, faint(), ABOUT[3], r()),
+            7 => {
+                // the bottom line: the site at the text column, the contact at the right edge
+                let left = format!(" {}  {}{}{}", l, gry(), SITE, r());
+                let right = format!("{}{}{}", gry(), CONTACT, r());
+                let gap = (W as isize - vis(&left) as isize - vis(&right) as isize - 1).max(1) as usize;
+                println!("{}{}{}", left, " ".repeat(gap), right);
+            }
             _ => println!(" {}", l),
         }
     }

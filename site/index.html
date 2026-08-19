@@ -179,7 +179,8 @@ function masthead(right){
   else{var sl=sealLines(),h='[[w]]keyRX[[/]]';
     line(' '+sl[0]+'  '+h+' '.repeat(Math.max(1,W-vis(sl[0])-2-vis(h)-vis(rt)-2))+rt);
     var side={1:'[[d]]'+ABOUT[0]+'[[/]]',2:'[[d]]'+ABOUT[1]+'[[/]]',3:'[[d]]'+ABOUT[2]+'[[/]]',5:'[[f]]'+ABOUT[3]+'[[/]]'};
-    for(var i=1;i<8;i++)line(' '+sl[i]+(side[i]?'  '+side[i]:''));}
+    for(var i=1;i<7;i++)line(' '+sl[i]+(side[i]?'  '+side[i]:''));
+    var lf=' '+sl[7]+'  [[d]]keyRX.tech[[/]]',rf='[[d]]dev@keyrx.tech[[/]]';line(lf+' '.repeat(Math.max(1,W-vis(lf)-vis(rf)-1))+rf);}
   line(' [[f]]'+'━'.repeat(W-2)+'[[/]]');
 }
 
@@ -401,7 +402,7 @@ function fit(){
 var booted=false;
 function rerender(){out.innerHTML='';start();}
 function start(){
-  masthead('v0.2.6');
+  masthead('v0.2.7');
   blank();
   if(MOBILE){line('  [[w]]Solana vanity addresses.[[/]]');line('  [[d]]20-60x faster. Keys for every wallet.[[/]]');}
   else{line('  [[w]]Solana vanity addresses, 20-60x faster than solana-keygen grind[[/]]');
