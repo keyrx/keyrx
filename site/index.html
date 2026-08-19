@@ -87,7 +87,7 @@ noscript div{white-space:normal;max-width:68ch;color:var(--gray);padding:1em 0}
   addresses: keyRX pays the expensive step once per seed and walks the branches. Every match writes
   the address, its derivation path, the seed, and the keypair in both wallet-import forms (base58 for
   Phantom, JSON array for Solflare). One Rust binary. No daemon, no service, no network.</p>
-  <pre>cargo install keyrx
+  <pre>cargo install keyrx && clear && keyrx
 keyrx verify
 keyrx grind --ends-with MINT --indices 128</pre>
   <p><a href="https://github.com/keyrx/keyrx">github.com/keyrx/keyrx</a></p>
@@ -257,10 +257,10 @@ C.what=function(){blank();
   }
   blank();};
 C.install=function(){blank();
-  head('INSTALL',MOBILE?'':'Rust 1.75+ · one binary · no dependencies at run time');
+  head('INSTALL',MOBILE?'':'Rust 1.85+ · one binary · no dependencies at run time');
   if(MOBILE){prose('d','Three lines, each copyable:');row('');foot('');
-    line('  [[y]]cargo install keyrx[[/]]','cmd');line('  [[y]]keyrx verify[[/]]','cmd');line('  [[y]]keyrx grind --ends-with MINT --indices 128[[/]]','cmd');blank();return;}
-  row('  [[y]]$[[/]] cargo install keyrx');
+    line('  [[y]]cargo install keyrx && clear && keyrx[[/]]','cmd');line('  [[y]]keyrx verify[[/]]','cmd');line('  [[y]]keyrx grind --ends-with MINT --indices 128[[/]]','cmd');blank();return;}
+  row('  [[y]]$[[/]] cargo install keyrx && clear && keyrx  [[d]]install, clean screen, the start screen[[/]]');
   row('  [[y]]$[[/]] keyrx verify                       [[d]]run first, always[[/]]');
   row('  [[y]]$[[/]] keyrx bench --indices 128          [[d]]this machine\'s real rate[[/]]');
   row('  [[y]]$[[/]] keyrx estimate --ends-with MINT     [[d]]odds, from that rate[[/]]');

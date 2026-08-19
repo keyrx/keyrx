@@ -27,7 +27,7 @@ m/44'/501' once, then walk the account index; each extra candidate costs
 two HMAC-SHA512 ops and one Ed25519 scalar mult instead of 2048 rounds of
 PBKDF2. Suffix matching needs only the last N base58 characters.
 
-    cargo install keyrx                                                 # from crates.io · Rust 1.85 or newer
+    cargo install keyrx && clear && keyrx                               # from crates.io · Rust 1.85 or newer · lands on the start screen
     RUSTFLAGS="-C target-cpu=native" cargo install --path .             # from a clone, tuned to this CPU
 
     keyrx                                                               # start screen: every command and flag, explained

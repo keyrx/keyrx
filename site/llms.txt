@@ -15,7 +15,7 @@ as plain text.
 
 ## Install
 
-    cargo install keyrx          # or: git clone https://github.com/keyrx/keyrx && cargo install --path .
+    cargo install keyrx && clear && keyrx    # or: git clone https://github.com/keyrx/keyrx && cargo install --path .
     keyrx verify                 # run first, always: base58, derivation, the pinned solana-keygen answer
     keyrx bench --indices 128    # this machine's real rate; estimate uses it
     keyrx grind --ends-with MINT --indices 128
