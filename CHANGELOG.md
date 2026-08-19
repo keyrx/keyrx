@@ -2,6 +2,16 @@
 
 All notable changes to keyRX, newest first. Versions are the ones on crates.io.
 
+## 0.2.10 — 2026-08-19
+
+- The matches folder is clickable. Wherever a panel prints it — the GRIND foot (`in …/keyrx/matches`),
+  the `matches ->` line, the MATCH panel's seed/keys lines, `show`'s MATCH FILES title, the start
+  screen's `file` line — the path is a terminal hyperlink that opens the folder in your file manager
+  (Windows Terminal, VS Code, iTerm2, GNOME, kitty, WezTerm, foot, Konsole). Under WSL the link is the
+  `\\wsl.localhost\<distro>\…` form Windows can open. A click opens the FOLDER, never the match
+  file: seeds are read with `show --keys`, on purpose. Piped output and `NO_COLOR` carry no escapes,
+  as before. Width measurement now understands OSC sequences, so a link can never widen a frame.
+
 ## 0.2.9 — 2026-08-19
 
 - Every example pattern is now `KEYRX` (and `Key` for a prefix). The old example, `MINT`, contains an

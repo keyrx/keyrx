@@ -462,6 +462,18 @@ fn short_path(p: &str) -> String {
     p.to_string()
 }
 
+/// The match file as `short_path` prints it, clickable: the click opens the
+/// FOLDER it sits in, never the file - a seed is read with `show --keys`, on
+/// purpose, not by a stray click into whatever the desktop opens .txt with.
+fn out_link(p: &str) -> String {
+    let path = std::path::Path::new(p);
+    let dir = path.parent().filter(|d| !d.as_os_str().is_empty()).map(|d| d.to_path_buf())
+        .unwrap_or_else(|| std::path::PathBuf::from("."));
+    let abs = std::fs::canonicalize(&dir)
+        .unwrap_or_else(|_| std::env::current_dir().map(|c| c.join(&dir)).unwrap_or(dir));
+    ui::link(&ui::file_url(&abs), &short_path(p))
+}
+
 fn save_rate(threads: usize, indices: u32, rate: f64) {
     let p = rate_cache_path();
     if let Some(d) = p.parent() { let _ = std::fs::create_dir_all(d); }
@@ -588,7 +600,7 @@ fn cmd_show(file: Option<String>, with_seed: bool, with_key: bool) {
         }
         None => {
             let dir = matches_dir();
-            println!("{}", ui::top("MATCH FILES", &dir.to_string_lossy()));
+            println!("{}", ui::top("MATCH FILES", &ui::dir_link(&dir)));
             let mut names: Vec<String> = std::fs::read_dir(&dir).map(|rd| rd.filter_map(|e| e.ok())
                 .filter_map(|e| e.file_name().into_string().ok())
                 .filter(|n| n.ends_with(".txt")).collect()).unwrap_or_default();
@@ -611,7 +623,7 @@ fn cmd_show(file: Option<String>, with_seed: bool, with_key: bool) {
         Ok(t) => t,
         Err(e) => { eprintln!("cannot read {}: {}", file, e); std::process::exit(1); }
     };
-    println!("{}", ui::top("MATCHES", &file));
+    println!("{}", ui::top("MATCHES", &{ let d = std::path::Path::new(&file).parent().map(|d| d.to_path_buf()).unwrap_or_default(); let abs = std::fs::canonicalize(&d).unwrap_or(d); ui::link(&ui::file_url(&abs), &file) }));
     let mut n = 0;
     type Secret = (usize, String, Option<String>, Option<String>, Option<String>);
     let mut secrets: Vec<Secret> = Vec::new();
@@ -831,7 +843,7 @@ fn cmd_start() {
     println!("{}", cont("solana-keygen import it. Both are standalone: a seed"));
     println!("{}", cont("will not recover them - the file IS the backup."));
     blank();
-    println!("{}", kvw("file", &format!("{}", matches_dir().display())));
+    println!("{}", kvw("file", &ui::dir_link(&matches_dir())));
     println!("{}", cont("named after the pattern: KEYRX.txt / KEYRX.ic.txt"));
     println!("{}", ui::bot("keyrx show            lists the files · keyrx show KEYRX reads one"));
 
@@ -1153,9 +1165,9 @@ fn cmd_grind(
     println!("{}", ui::kv("pattern", &format!("{}{}", pats.join("  "), if p.ignore_case { "   (case-insensitive)" } else { "" })));
     println!("{}", ui::kv("odds", &format!("1 in {}", group(1.0 / prob))));
     println!("{}", ui::kv("threads", &format!("{} · {} indices/mnemonic · {}-word seeds", threads, indices, words)));
-    println!("{}", ui::kv("matches ->", &format!("{}  (mode 0600)", short_path(&out))));
+    println!("{}", ui::kv("matches ->", &format!("{}  (mode 0600)", out_link(&out))));
     println!("{}", ui::kv("stop after", &format!("{} match(es)", count)));
-    println!("{}", ui::bot(&format!("in {}", matches_dir().display())));
+    println!("{}", ui::bot(&format!("in {}", ui::dir_link(&matches_dir()))));
     println!();
 
     {
@@ -1235,9 +1247,9 @@ fn cmd_grind(
                             first = false;
                         }
                     } else {
-                        println!("{}", ui::kv("seed", &format!("-> {}   (--show-seed to print here)", short_path(&out))));
+                        println!("{}", ui::kv("seed", &format!("-> {}   (--show-seed to print here)", out_link(&out))));
                     }
-                    println!("{}", ui::kv("keys", &format!("-> {}   base58 + JSON array (show --keys)", short_path(&out))));
+                    println!("{}", ui::kv("keys", &format!("-> {}   base58 + JSON array (show --keys)", out_link(&out))));
                     println!("{}", ui::mid(""));
                     println!("{}", ui::note("Key:      Phantom pastes the base58 · Solflare imports the JSON array"));
                     println!("{}", ui::note("          -> this exact address, standalone, no clicks"));

@@ -34,46 +34,114 @@ code!(gry, "\x1b[38;5;243m");
 code!(faint, "\x1b[38;5;237m");
 code!(wht, "\x1b[38;5;251m");
 
-/// Visible width: characters, with SGR escapes removed. Every glyph this
-/// module emits is one column wide in a monospace font (no wide chars, no
-/// combining marks), so char count is column count.
-pub fn vis(s: &str) -> usize {
-    let mut n = 0;
-    let mut in_esc = false;
+/// Walk a string, calling `f(ch, visible)` once per char. `visible` is false
+/// for every char that belongs to an escape sequence: CSI/SGR (`ESC [ … final`)
+/// and OSC (`ESC ] … BEL` or `ESC ] … ESC \`), the latter being the shape a
+/// terminal hyperlink takes. Everything this module measures goes through here.
+fn walk(s: &str, mut f: impl FnMut(char, bool)) {
+    #[derive(Clone, Copy)]
+    enum St { Text, Esc, Csi, Osc, OscEsc }
+    let mut st = St::Text;
     for ch in s.chars() {
-        if in_esc {
-            if ch == 'm' { in_esc = false; }
-        } else if ch == '\x1b' {
-            in_esc = true;
-        } else {
-            n += 1;
+        match st {
+            St::Text => { if ch == '\x1b' { st = St::Esc; f(ch, false); } else { f(ch, true); } }
+            St::Esc => { f(ch, false); st = match ch { '[' => St::Csi, ']' => St::Osc, _ => St::Text }; }
+            St::Csi => { f(ch, false); if ('@'..='~').contains(&ch) { st = St::Text; } }
+            St::Osc => { f(ch, false); st = match ch { '\x07' => St::Text, '\x1b' => St::OscEsc, _ => St::Osc }; }
+            St::OscEsc => { f(ch, false); st = if ch == '\\' { St::Text } else { St::Osc }; }
         }
     }
+}
+
+/// Visible width: characters, with escapes removed. Every glyph this module
+/// emits is one column wide in a monospace font (no wide chars, no combining
+/// marks), so char count is column count.
+pub fn vis(s: &str) -> usize {
+    let mut n = 0;
+    walk(s, |_, v| if v { n += 1 });
     n
 }
 
-/// Clip a (possibly coloured) string to at most `n` visible columns, keeping
-/// escapes intact and closing with a reset.
+/// The text alone - every escape removed.
+#[cfg_attr(not(test), allow(dead_code))]
+pub fn plain(s: &str) -> String {
+    let mut out = String::new();
+    walk(s, |ch, v| if v { out.push(ch) });
+    out
+}
+
+/// Clip a (possibly coloured, possibly linked) string to at most `n` visible
+/// columns, keeping escapes intact, closing any hyperlink the cut left open,
+/// and closing with a reset.
 pub fn clip(s: &str, n: usize) -> String {
     if vis(s) <= n { return s.to_string(); }
     let mut out = String::new();
     let mut seen = 0;
-    let mut in_esc = false;
-    for ch in s.chars() {
-        if in_esc {
-            out.push(ch);
-            if ch == 'm' { in_esc = false; }
-        } else if ch == '\x1b' {
-            in_esc = true;
-            out.push(ch);
-        } else {
-            if seen >= n { break; }
-            out.push(ch);
+    let mut stop = false;
+    walk(s, |ch, v| {
+        if stop { return; }
+        if v {
+            if seen >= n { stop = true; return; }
             seen += 1;
         }
-    }
+        out.push(ch);
+    });
+    if link_open(&out) { out.push_str(LINK_END); }
     out.push_str(r());
     out
+}
+
+const LINK_END: &str = "\x1b]8;;\x1b\\";
+
+/// Whether the last OSC 8 in `s` opened a link (carried a URL) rather than closed one.
+fn link_open(s: &str) -> bool {
+    let mut open = false;
+    let mut rest = s;
+    while let Some(i) = rest.find("\x1b]8;;") {
+        let after = &rest[i + 5..];
+        open = !(after.starts_with("\x1b\\") || after.starts_with('\x07'));
+        rest = after;
+    }
+    open
+}
+
+/// A terminal hyperlink (OSC 8): `text` that opens `url` on click in terminals
+/// that support it - Windows Terminal, VS Code, iTerm2, GNOME/VTE, kitty,
+/// WezTerm, foot, Konsole - and plain `text` everywhere else, including piped
+/// output, where no escape is ever emitted.
+pub fn link(url: &str, text: &str) -> String {
+    if on() { format!("\x1b]8;;{}\x1b\\{}{}", url, text, LINK_END) } else { text.to_string() }
+}
+
+/// A `file://` URL for a local path, in the form the terminal's host can open.
+/// Under WSL the path lives inside the distro, so the URL is the UNC form Windows
+/// understands - `file://wsl.localhost/<distro>/home/...` - which Explorer opens;
+/// elsewhere `file:///home/...`.
+pub fn file_url(p: &std::path::Path) -> String {
+    let path = p.to_string_lossy();
+    #[cfg(windows)]
+    let path = format!("/{}", path.replace('\\', "/"));
+    match std::env::var("WSL_DISTRO_NAME") {
+        Ok(d) if !d.is_empty() => format!("file://wsl.localhost/{}{}", pct(&d), pct(&path)),
+        _ => format!("file://{}", pct(&path)),
+    }
+}
+
+/// Percent-encode everything outside the URL-safe set; `/` stays a separator.
+fn pct(s: &str) -> String {
+    let mut out = String::new();
+    for b in s.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' | b'/' | b':' => out.push(b as char),
+            _ => out.push_str(&format!("%{:02X}", b)),
+        }
+    }
+    out
+}
+
+/// A directory, printed as itself and clickable where the terminal allows it.
+pub fn dir_link(p: &std::path::Path) -> String {
+    link(&file_url(p), &p.display().to_string())
 }
 
 /// ╔══▌ TITLE ▐════ sub ═╗  - and a blank row of air after it.
@@ -239,7 +307,7 @@ mod tests {
     fn seal_is_eight_lines_of_sixteen_columns_lit_where_the_digit_is_eight_or_more() {
         let l = seal_lines();
         assert!(l.iter().all(|x| vis(x) == 16));
-        let strip = |x: &str| { let mut s = String::new(); let mut e = false; for ch in x.chars() { if e { if ch == 'm' { e = false; } } else if ch == '\x1b' { e = true; } else { s.push(ch); } } s };
+        let strip = |x: &str| plain(x);
         for (r, line) in l.iter().enumerate() {
             let plain = strip(line);
             for c in 0..8 {
@@ -259,15 +327,38 @@ mod tests {
         }).collect()
     }
 
-    fn strip(s: &str) -> String {
-        let mut out = String::new();
-        let mut in_esc = false;
-        for ch in s.chars() {
-            if in_esc { if ch == 'm' { in_esc = false; } }
-            else if ch == '\x1b' { in_esc = true; }
-            else { out.push(ch); }
+    fn strip(s: &str) -> String { plain(s) }
+
+    #[test]
+    fn links_measure_as_their_text_and_never_widen_a_frame() {
+        // The URL has an 'm' in it on purpose: the old escape scanner stopped at
+        // the first 'm' and would have counted half a URL as visible text.
+        let url = "file://wsl.localhost/Ubuntu/home/mmxxv/.local/share/keyrx/matches";
+        let l = format!("\x1b]8;;{}\x1b\\matches\x1b]8;;\x1b\\", url);
+        assert_eq!(vis(&l), "matches".len());
+        assert_eq!(plain(&l), "matches");
+        let bel = format!("\x1b]8;;{}\x07matches\x1b]8;;\x07", url);
+        assert_eq!(vis(&bel), "matches".len());
+        for line in frame_lines(&format!("{}\n{}\n{}", top("T", &l), mid(&format!("  in {}", l)), bot(&format!("in {}", l)))) {
+            assert_eq!(strip(line).chars().count(), W, "ragged: {:?}", strip(line));
         }
-        out
+        // clipping through a link closes it before the reset, so the rest of the
+        // row can never be swallowed into the URL's click target
+        let long = format!("\x1b]8;;{}\x1b\\{}\x1b]8;;\x1b\\", url, "m".repeat(200));
+        let c = clip(&long, 10);
+        assert_eq!(vis(&c), 10);
+        assert!(c.ends_with(&format!("\x1b]8;;\x1b\\{}", r())), "{:?}", c);
+        assert_eq!(vis(&clip("abc", 10)), 3);
+    }
+
+    #[test]
+    fn file_urls_are_percent_encoded_and_wsl_aware() {
+        assert_eq!(pct("/home/me/a b/ü"), "/home/me/a%20b/%C3%BC");
+        let u = file_url(std::path::Path::new("/home/me/.local/share/keyrx/matches"));
+        match std::env::var("WSL_DISTRO_NAME") {
+            Ok(d) if !d.is_empty() => assert_eq!(u, format!("file://wsl.localhost/{}/home/me/.local/share/keyrx/matches", pct(&d))),
+            _ => assert_eq!(u, "file:///home/me/.local/share/keyrx/matches"),
+        }
     }
 
     #[test]
