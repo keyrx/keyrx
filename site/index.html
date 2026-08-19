@@ -405,18 +405,21 @@ function fit(){
 var booted=false;
 function rerender(){out.innerHTML='';start();}
 var INSTALL='cargo install keyrx && clear && keyrx';
-function installLine(){
-  var pad=Math.max(0,Math.floor((W-INSTALL.length)/2));
-  var d=line(' '.repeat(pad)+'[[y]]'+INSTALL+'[[/]]','cmd');
+function installBox(){
+  head('INSTALL',MOBILE?'':'one line, then the start screen');
+  var padn=Math.max(0,Math.floor((IN-INSTALL.length)/2));
+  var d=row(' '.repeat(padn)+'[[y]]'+INSTALL+'[[/]]');
   if(d&&d.getElementsByTagName){var b=d.getElementsByTagName('b');for(var i=0;i<b.length;i++){if(b[i].textContent===INSTALL){b[i].className='y inst';b[i].title='click to copy';break;}}}
+  row('');
+  if(MOBILE){row('  [[w]]Solana vanity addresses.[[/]]');row('  [[d]]20-60x faster. Keys for every wallet.[[/]]');}
+  else{row('  [[w]]Solana vanity addresses, 20-60x faster than solana-keygen grind[[/]]');
+       row('  [[d]]- and every match hands you the seed, the path, and the keypair in[[/]]');
+       row('  [[d]]both wallet-import forms. One Rust binary. No daemon, no network.[[/]]');}
+  foot(MOBILE?'tap the line to copy it':'click the line to copy it · Rust 1.85+ · MIT');
 }
 function start(){
   masthead('v0.2.7');
-  blank();installLine();blank();
-  if(MOBILE){line('  [[w]]Solana vanity addresses.[[/]]');line('  [[d]]20-60x faster. Keys for every wallet.[[/]]');}
-  else{line('  [[w]]Solana vanity addresses, 20-60x faster than solana-keygen grind[[/]]');
-       line('  [[d]]- and every match hands you the seed, the path, and the keypair in[[/]]');
-       line('  [[d]]both wallet-import forms. One Rust binary. No daemon, no network.[[/]]');}
+  blank();installBox();
   blank();
   head('START',MOBILE?'':'the whole tool, in one line each');
   kva('grind X',MOBILE?'try it here, live':'try it here, live - a real grind in this tab');
