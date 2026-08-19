@@ -56,7 +56,11 @@ const B58: &[u8; 58] = b"123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvw
 /// The mark above `--help` (see ui::SEAL), plain when piped.
 fn help_seal() -> String {
     let l = ui::seal_lines();
-    format!(" {}  keyRX\n {}\n {}  the mark is a record, sealed on chain\n {}", l[0], l[1], l[2], l[3])
+    let mut out = format!(" {}  keyRX", l[0]);
+    for (i, line) in l.iter().enumerate().skip(1) {
+        out.push_str(&format!("\n {}{}", line, if i == 4 { "  the mark is a record, sealed on chain" } else { "" }));
+    }
+    out
 }
 
 #[derive(Parser)]

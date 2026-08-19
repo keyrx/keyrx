@@ -2,6 +2,12 @@
 
 All notable changes to keyRX, newest first. Versions are the ones on crates.io.
 
+## 0.2.4 — 2026-08-18
+
+- The terminal mark at its true shape: sixteen columns by eight lines of full blocks (a text cell
+  is about twice as tall as it is wide, so the half-block version was twice as wide as the mark).
+  Same on the site's masthead. No functional change.
+
 ## 0.2.3 — 2026-08-18
 
 - Captions and file comments around the mark trimmed. No functional change.

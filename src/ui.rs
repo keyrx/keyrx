@@ -175,18 +175,16 @@ pub fn crit_line(text: &str) -> String {
 /// The same glyph is the site's favicon and the repository's avatar; here it is text.
 pub const SEAL: &str = "fbd454bdefee923628fcb6f24667b772ea942f176f9c7988b5e2d2264b335ac8";
 
-/// Four text lines, sixteen columns each (two columns per cell), coloured when stdout is a terminal.
-pub fn seal_lines() -> [String; 4] {
+/// Eight text lines, sixteen columns each (a lit cell is two full blocks, one grid row per line):
+/// a terminal cell is about twice as tall as it is wide, so 16 x 8 is the mark's true square.
+/// Coloured when stdout is a terminal.
+pub fn seal_lines() -> [String; 8] {
     let lit: Vec<bool> = SEAL.bytes().map(|b| (b as char).to_digit(16).unwrap_or(0) >= 8).collect();
-    let mut out: [String; 4] = Default::default();
-    for (p, line) in out.iter_mut().enumerate() {
+    let mut out: [String; 8] = Default::default();
+    for (row, line) in out.iter_mut().enumerate() {
         let mut s = String::new();
-        for c in 0..8 {
-            let (t, bt) = (lit[p * 16 + c], lit[p * 16 + 8 + c]);
-            let ch = match (t, bt) { (true, true) => "█", (true, false) => "▀", (false, true) => "▄", _ => " " };
-            s.push_str(ch); s.push_str(ch);
-        }
-        *line = format!("{}{}{}", if p < 2 { accent() } else { warn() }, s, r());
+        for c in 0..8 { s.push_str(if lit[row * 8 + c] { "██" } else { "  " }); }
+        *line = format!("{}{}{}", if row < 4 { accent() } else { warn() }, s, r());
     }
     out
 }
@@ -198,9 +196,9 @@ pub fn masthead(right: &str) {
     let rt = format!("{}{}{}", gry(), right, r());
     let gap = (W as isize - vis(&head) as isize - vis(&rt) as isize - 1).max(1) as usize;
     println!("\n{}{}{}", head, " ".repeat(gap), rt);
-    println!(" {}", seal[1]);
-    println!(" {}  {}the mark is a record, sealed on chain{}", seal[2], faint(), r());
-    println!(" {}", seal[3]);
+    for (i, l) in seal.iter().enumerate().skip(1) {
+        if i == 4 { println!(" {}  {}the mark is a record, sealed on chain{}", l, faint(), r()); } else { println!(" {}", l); }
+    }
     println!(" {}{}{}", faint(), "━".repeat(W - 2), r());
 }
 
@@ -209,15 +207,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn seal_is_four_lines_of_sixteen_columns_and_lit_where_the_digit_is_eight_or_more() {
+    fn seal_is_eight_lines_of_sixteen_columns_lit_where_the_digit_is_eight_or_more() {
         let l = seal_lines();
         assert!(l.iter().all(|x| vis(x) == 16));
-        // top-left cell: 'f' (15) is lit; row 1 col 0: 'e' from "…efee9…"? derive from the constant instead
-        let lit = |i: usize| SEAL.as_bytes()[i] as char >= '8';
-        let first = l[0].chars().filter(|c| !c.is_ascii_control()).collect::<String>();
-        let first: String = { let mut s = String::new(); let mut in_esc = false; for ch in first.chars() { if in_esc { if ch == 'm' { in_esc = false; } } else if ch == '\x1b' { in_esc = true; } else { s.push(ch); } } s };
-        let expect0 = match (lit(0), lit(8)) { (true, true) => '█', (true, false) => '▀', (false, true) => '▄', _ => ' ' };
-        assert_eq!(first.chars().next().unwrap(), expect0);
+        let strip = |x: &str| { let mut s = String::new(); let mut e = false; for ch in x.chars() { if e { if ch == 'm' { e = false; } } else if ch == '\x1b' { e = true; } else { s.push(ch); } } s };
+        for (r, line) in l.iter().enumerate() {
+            let plain = strip(line);
+            for c in 0..8 {
+                let lit = SEAL.as_bytes()[r * 8 + c] as char >= '8';
+                let cell: String = plain.chars().skip(c * 2).take(2).collect();
+                assert_eq!(cell, if lit { "██" } else { "  " }, "row {} col {}", r, c);
+            }
+        }
         assert_eq!(SEAL.bytes().filter(|b| (*b as char).to_digit(16).unwrap() >= 8).count(), 33);
     }
 
