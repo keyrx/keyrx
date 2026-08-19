@@ -201,7 +201,7 @@ pub const ABOUT: [&str; 4] = [
 
 pub fn masthead(right: &str) {
     let seal = seal_lines();
-    let name = format!("{}{}keyRX{}", b(), wht(), r());
+    let name = format!("{}{}keyRX{} {}|{} {}{}CLI{}", b(), wht(), r(), faint(), r(), b(), wht(), r());
     let head = format!(" {}  {}", seal[0], name);
     let rt = format!("{}{}{}", gry(), right, r());
     let gap = (W as isize - vis(&head) as isize - vis(&rt) as isize - 1).max(1) as usize;
