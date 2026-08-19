@@ -97,16 +97,16 @@ keyrx grind --ends-with MINT --indices 128</pre>
 </div></div>
 <div class="sr" id="sr" aria-live="polite"></div>
 <div id="keys" role="toolbar" aria-label="keys">
-  <b>1</b><i data-c="grind" role="button" tabindex="0">Grind</i>
-  <b>2</b><i data-c="what" role="button" tabindex="0">What</i>
-  <b>3</b><i data-c="install" role="button" tabindex="0">Install</i>
-  <b>4</b><i class="x" data-c="match" role="button" tabindex="0">A match</i>
-  <b>5</b><i data-c="wallets" role="button" tabindex="0">Wallets</i>
-  <b>6</b><i class="x" data-c="verified" role="button" tabindex="0">Verified</i>
-  <b>7</b><i data-c="donate" role="button" tabindex="0">Donate</i>
+  <b>F1</b><i data-c="grind" role="button" tabindex="0">Grind</i>
+  <b>F2</b><i data-c="what" role="button" tabindex="0">What</i>
+  <b>F3</b><i data-c="install" role="button" tabindex="0">Install</i>
+  <b>F4</b><i class="x" data-c="match" role="button" tabindex="0">A match</i>
+  <b>F5</b><i data-c="wallets" role="button" tabindex="0">Wallets</i>
+  <b>F6</b><i class="x" data-c="verified" role="button" tabindex="0">Verified</i>
+  <b>F7</b><i data-c="donate" role="button" tabindex="0">Donate</i>
   <span class="sp"></span>
-  <b>·</b><i data-c="github" role="button" tabindex="0">GitHub</i>
-  <b>·</b><i class="x" data-c="x" role="button" tabindex="0">X</i>
+  <b>F8</b><i data-c="github" role="button" tabindex="0">GitHub</i>
+  <b>F9</b><i class="x" data-c="x" role="button" tabindex="0">X</i>
 </div>
 <script>
 (function(){
@@ -231,7 +231,7 @@ function startGrind(pattern,ic){
     kv('seed',MOBILE?'-> [[d]]matches/'+pattern+'.txt[[/]]':'-> [[d]]a real grind writes it to matches/'+pattern+'.txt[[/]]');
     kv('keys',MOBILE?'-> [[d]]same file, both forms[[/]]':'-> [[d]]base58 + JSON array, same file[[/]]');
     row('');
-    prose('d','this browser toy shows only the address; the binary writes seed, path and both keys to a mode-0600 file. Try again: type  grind XYZ  or press 1');
+    prose('d','this browser toy shows only the address; the binary writes seed, path and both keys to a mode-0600 file. Try again: type  grind XYZ  or press F1');
     foot(MOBILE?'':'import and verify the address BEFORE funding - always');
     bottom();};
   worker.postMessage({pattern:pattern,ic:ic});bottom();
@@ -382,8 +382,10 @@ inp.addEventListener('input',function(){capGrind();resize();});resize();
 inp.addEventListener('keydown',function(e){if(e.key==='Enter'){var v=inp.value;inp.value='';resize();run(v);}});
 document.querySelectorAll('#keys i').forEach(function(t){t.addEventListener('click',function(){
   inp.value='';runNav(t.dataset.c);bottom();if(!MOBILE)inp.focus();});});
-addEventListener('keydown',function(e){var k={'1':'grind','2':'what','3':'install','4':'match','5':'wallets','6':'verified','7':'donate'}[e.key];
-  if(k&&document.activeElement!==inp){runNav(k);}});
+/* F1-F9 as the bar shows them, the way the CLI's siblings do it. F5 is reload in every browser and F1 is
+   help - a preventDefault so the key does what the bar says; F11 and F12 stay the browser's. */
+var FK={F1:'grind',F2:'what',F3:'install',F4:'match',F5:'wallets',F6:'verified',F7:'donate',F8:'github',F9:'x'};
+addEventListener('keydown',function(e){if(FK[e.key]&&!e.altKey&&!e.ctrlKey&&!e.metaKey){e.preventDefault();inp.value='';runNav(FK[e.key]);bottom();}});
 scr.addEventListener('click',function(e){if(!e.target.closest('a,[data-c]')&&(!MOBILE||e.target.closest('#prompt')))inp.focus();});
 
 /* ── fit: solve the type size for the grid, then VERIFY the render ─────── */
