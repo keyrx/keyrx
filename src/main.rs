@@ -614,6 +614,7 @@ fn cmd_show(file: Option<String>, with_seed: bool, with_key: bool) {
                 let stem = n.trim_end_matches(".txt");
                 println!("{}", ui::kv(stem, &format!("{} match(es)   keyrx show {}", cnt, stem)));
             }
+            if ui::links_on() { println!("{}", ui::mid("")); println!("{}", ui::note(&format!("{} (the path in the title)", ui::CLICK_HINT))); }
             println!("{}", ui::bot("every file is mode 0600 · seeds and keys inside"));
             println!();
             return;
@@ -845,6 +846,7 @@ fn cmd_start() {
     blank();
     println!("{}", kvw("file", &ui::dir_link(&matches_dir())));
     println!("{}", cont("named after the pattern: KEYRX.txt / KEYRX.ic.txt"));
+    if ui::links_on() { println!("{}", cont(ui::CLICK_HINT)); }
     println!("{}", ui::bot("keyrx show            lists the files · keyrx show KEYRX reads one"));
 
     println!("{}", ui::top("RECIPES", "pick the wallet you will import into"));
@@ -1167,6 +1169,7 @@ fn cmd_grind(
     println!("{}", ui::kv("threads", &format!("{} · {} indices/mnemonic · {}-word seeds", threads, indices, words)));
     println!("{}", ui::kv("matches ->", &format!("{}  (mode 0600)", out_link(&out))));
     println!("{}", ui::kv("stop after", &format!("{} match(es)", count)));
+    if ui::links_on() { println!("{}", ui::note(ui::CLICK_HINT)); }
     println!("{}", ui::bot(&format!("in {}", ui::dir_link(&matches_dir()))));
     println!();
 
@@ -1255,6 +1258,7 @@ fn cmd_grind(
                     println!("{}", ui::note("          -> this exact address, standalone, no clicks"));
                     for l in import_hint(style, h.index) { println!("{}", ui::note(&l)); }
                     println!("{}", ui::note("the OTHER accounts on this seed are ordinary addresses"));
+                    if ui::links_on() { println!("{}", ui::note(ui::CLICK_HINT)); }
                     println!("{}", ui::bot("import and verify the address BEFORE funding"));
                     println!();
                     if hits.fetch_add(1, Ordering::SeqCst) + 1 >= count as u64 {

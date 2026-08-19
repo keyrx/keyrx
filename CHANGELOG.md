@@ -2,6 +2,14 @@
 
 All notable changes to keyRX, newest first. Versions are the ones on crates.io.
 
+## 0.2.11 — 2026-08-19
+
+- One grey line says how the links work — `ctrl/cmd-click a path to open the folder` — in the GRIND
+  panel, the MATCH panel, `show`'s MATCH FILES and the start screen's `file` line. Terminals differ on
+  the modifier (Windows Terminal, VS Code, GNOME, Konsole: ctrl · iTerm2 and VS Code on a Mac: cmd ·
+  kitty, WezTerm: a plain click), so it names both. Printed only when links are being emitted - a
+  terminal without `NO_COLOR` - so piped output never mentions clicking.
+
 ## 0.2.10 — 2026-08-19
 
 - The matches folder is clickable. Wherever a panel prints it — the GRIND foot (`in …/keyrx/matches`),

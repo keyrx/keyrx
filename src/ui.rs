@@ -144,6 +144,15 @@ pub fn dir_link(p: &std::path::Path) -> String {
     link(&file_url(p), &p.display().to_string())
 }
 
+/// Whether links are being emitted at all (a terminal, no NO_COLOR) - the hint
+/// below is printed only then, so piped output never mentions clicking.
+pub fn links_on() -> bool { on() }
+
+/// The one line that explains the links. Terminals differ on the modifier -
+/// Windows Terminal, VS Code, GNOME and Konsole want ctrl, iTerm2 and VS Code on
+/// a Mac want cmd, kitty and WezTerm take a plain click - so it names both.
+pub const CLICK_HINT: &str = "ctrl/cmd-click a path to open the folder";
+
 /// ╔══▌ TITLE ▐════ sub ═╗  - and a blank row of air after it.
 pub fn top(title: &str, sub: &str) -> String {
     // geometry: ' ╔══' (4) + tabs + fill + tail + '╗' (1) == W, and W == IN + 3,
