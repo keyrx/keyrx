@@ -113,7 +113,7 @@ keyrx grind --ends-with KEYRX --indices 128</pre>
 /* The version the masthead shows. It must equal Cargo.toml's - a cargo test reads this
    file and fails the publish if the two ever drift (John, 2026-08-19: "always updated
    together"). The only place on the site a version is written. */
-var VERSION='0.2.13';
+var VERSION='0.3.0';
 var out=document.getElementById('out'),scr=document.getElementById('scr'),
     inp=document.getElementById('in'),prom=document.getElementById('prompt'),
     sr=document.getElementById('sr');
@@ -300,6 +300,7 @@ C.match=function(){blank();
   kv('keypair',MOBILE?'JSON array, for Solflare':'the same key as a JSON array - Solflare, solana-keygen');
   row('');
   prose('d','A key import lands on the exact address in one paste, standalone - a seed will not recover it, so the file IS the backup. Files are named after the pattern: KEYRX.txt.');
+  prose('d','--passphrase grinds with a BIP39 passphrase (the 25th word): prompted, hidden, never stored. The file then says so - the seed alone will not reach that address; the keys will. Import those by key.');
   foot(MOBILE?'':'~/.local/share/keyrx/matches/ · never the current directory');blank();};
 C.wallets=function(){blank();
   head('WALLETS','which route, which flags');

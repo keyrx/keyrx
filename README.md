@@ -83,6 +83,15 @@ Test only with 2-character targets. No mnemonic in any fixture, snapshot or
 committed file: the two pinned addresses derive from public constant entropy
 and are worthless by construction.
 
+`--passphrase` grinds with a BIP39 passphrase (the "25th word"): prompted
+on the terminal, hidden, typed twice; never read from a flag, a file or the
+environment, never stored, never printed. The match file records only that
+one was used — the seed alone will then NOT reach the address; the privkey
+and keypair lines will, standalone. Most browser wallets have no passphrase
+field on seed import, so a passphrase address is imported by KEY. `keyrx
+verify` checks the passphrase path against the BIP39 specification's own
+test vector ("TREZOR").
+
 ## Which wallet, which flags
 
 Every match writes five lines: `address`, `path`, `seed` (12 or 24 words -

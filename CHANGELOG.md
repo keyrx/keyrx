@@ -2,6 +2,20 @@
 
 All notable changes to keyRX, newest first. Versions are the ones on crates.io.
 
+## 0.3.0 — 2026-08-19
+
+- `grind --passphrase` — a BIP39 passphrase (the "25th word"). Prompted on the terminal, hidden, typed
+  twice; never read from a flag, a file or the environment; never stored, never printed. The grind
+  derives every candidate from `PBKDF2(mnemonic, "mnemonic" + passphrase)`, exactly as every wallet
+  that takes one does. The match file gains one line under the seed — `passphrase used - NOT stored:
+  the seed alone will not reach this address; the keys will` — the fact, never the passphrase; `show`
+  marks such matches; the MATCH panel and the GRIND panel say so. Most browser wallets have no
+  passphrase field on seed import: import the KEY, which is standalone.
+- `keyrx verify` now also checks the passphrase path against the BIP39 specification's first test
+  vector ("abandon … about" + "TREZOR" → the published seed), pinned; and the manual cross-check note
+  says what to type at solana-keygen's prompt for a passphrase grind.
+- Minor version bump because the match file format gained a line (older `show` ignores it).
+
 ## 0.2.13 — 2026-08-19
 
 - `keyrx estimate --count N` — when you intend to grind N matches, the ODDS panel adds "time to all

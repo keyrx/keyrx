@@ -146,6 +146,12 @@ enum Cmd {
         /// out of scrollback, tmux buffers, and anything reading your terminal.
         #[arg(long)]
         show_seed: bool,
+        /// Use a BIP39 passphrase (the "25th word"). Prompted, hidden, typed twice;
+        /// never stored, never printed. The seed alone will then NOT reach the
+        /// address - the keys in the match file will. Most browser wallets have no
+        /// passphrase field on seed import: import the KEY.
+        #[arg(long)]
+        passphrase: bool,
     },
 }
 
@@ -293,6 +299,10 @@ struct Hit {
     index: u32,
     address: String,
     mnemonic: Zeroizing<String>,
+    /// A BIP39 passphrase was used. The passphrase itself is never carried,
+    /// written, or printed - only the fact, so the file can say the seed
+    /// alone will not reach this address.
+    passphrase: bool,
     /// The wallet-import form: base58 of the 64-byte keypair (32-byte secret
     /// followed by the 32-byte public key) - what Phantom's "Import Private
     /// Key" pastes.
@@ -331,6 +341,7 @@ fn grind_loop(
     path: PathStyle,
     indices: u32,
     entropy_len: usize,
+    passphrase: &str,
     stop: &AtomicBool,
     counter: &AtomicU64,
     on_hit: &dyn Fn(Hit),
@@ -345,7 +356,9 @@ fn grind_loop(
             Ok(m) => m,
             Err(_) => continue,
         };
-        let seed = Zeroizing::new(mnemonic.to_seed(""));
+        // BIP39: seed = PBKDF2(mnemonic, "mnemonic" + passphrase). The passphrase is
+        // the only thing that changes here; every wallet that takes one does exactly this.
+        let seed = Zeroizing::new(mnemonic.to_seed(passphrase));
 
         // m/44'/501' is constant across every index -- compute once per mnemonic
         let (mut k, mut c) = master_key(seed.as_ref());
@@ -411,6 +424,7 @@ fn grind_loop(
                     index: idx,
                     address: bs58::encode(pk).into_string(),
                     mnemonic: Zeroizing::new(mnemonic.to_string()),
+                    passphrase: !passphrase.is_empty(),
                     privkey,
                     keypair_json,
                 });
@@ -637,16 +651,19 @@ fn cmd_show(file: Option<String>, with_seed: bool, with_key: bool) {
     let mut secrets: Vec<Secret> = Vec::new();
     for block in text.split("\n\n") {
         let mut addr = None; let mut path = None; let mut seed = None; let mut key = None; let mut kp = None;
+        let mut pass = false;
         for line in block.lines() {
             if let Some(v) = line.strip_prefix("address ") { addr = Some(v.trim()); }
             else if let Some(v) = line.strip_prefix("path ") { path = Some(v.trim()); }
             else if let Some(v) = line.strip_prefix("seed ") { seed = Some(v.trim()); }
             else if let Some(v) = line.strip_prefix("privkey ") { key = Some(v.trim()); }
             else if let Some(v) = line.strip_prefix("keypair ") { kp = Some(v.trim()); }
+            else if line.starts_with("passphrase used") { pass = true; }
         }
         if let (Some(a), Some(p)) = (addr, path) {
             n += 1;
             println!("{}", ui::mid(&format!("  {}{:>2}.{} {}{}{}  {}{}{}", ui::gry(), n, ui::r(), ui::wht(), a, ui::r(), ui::accent(), p, ui::r())));
+            if pass { println!("{}", ui::mid(&format!("      {}+ passphrase - the seed alone will not reach it; the keys will{}", ui::warn(), ui::r()))); }
             if with_seed || with_key {
                 secrets.push((n, a.to_string(), seed.map(str::to_string), key.map(str::to_string), kp.map(str::to_string)));
             }
@@ -680,6 +697,9 @@ fn cmd_show(file: Option<String>, with_seed: bool, with_key: bool) {
     println!();
 }
 
+/// Written under the seed when a passphrase was used - the fact, never the passphrase.
+const PASSPHRASE_LINE: &str = "\npassphrase used - NOT stored: the seed alone will not reach this address; the keys will";
+
 fn write_hit(out: &str, h: &Hit, style: PathStyle) -> std::io::Result<()> {
     let mut opts = std::fs::OpenOptions::new();
     opts.create(true).append(true);
@@ -691,10 +711,11 @@ fn write_hit(out: &str, h: &Hit, style: PathStyle) -> std::io::Result<()> {
     let mut f = opts.open(out)?;
     writeln!(
         f,
-        "address {}\npath    {}\nseed    {}\nprivkey {}\nkeypair {}\n",
+        "address {}\npath    {}\nseed    {}{}\nprivkey {}\nkeypair {}\n",
         h.address,
         path_str(style, h.index),
         h.mnemonic.as_str(),
+        if h.passphrase { PASSPHRASE_LINE } else { "" },
         h.privkey.as_str(),
         h.keypair_json.as_str()
     )
@@ -746,9 +767,9 @@ fn main() {
         Cmd::Bench { threads, indices, seconds } => cmd_bench(threads, indices, seconds),
         Cmd::Show { file, seeds, keys } => cmd_show(file, seeds, keys),
         Cmd::Donate => cmd_donate(),
-        Cmd::Grind { pattern, threads, indices, count, words, out, show_seed } => {
+        Cmd::Grind { pattern, threads, indices, count, words, out, show_seed, passphrase } => {
             let out = out.unwrap_or_else(|| default_out(&pattern));
-            cmd_grind(pattern, threads, indices, count, words, out, show_seed)
+            cmd_grind(pattern, threads, indices, count, words, out, show_seed, passphrase)
         }
     }
 }
@@ -895,6 +916,11 @@ fn cmd_start() {
     println!("{}", cont("All land in the one file. estimate --count N prints"));
     println!("{}", cont("the time to all N - each match is independent."));
     blank();
+    println!("{}", kvw("--passphrase", "BIP39 passphrase, the '25th word'. Prompted, hidden,"));
+    println!("{}", cont("twice; never stored or printed. The seed alone then"));
+    println!("{}", cont("does NOT reach the address - the keys do. Most browser"));
+    println!("{}", cont("wallets have no passphrase field: import the KEY."));
+    blank();
     println!("{}", kvw("--words 12|24", "mnemonic length. Default 12 - what Phantom generates"));
     println!("{}", cont("and what most people are used to. Every major wallet"));
     println!("{}", cont("imports either; 12 words is 128 bits, plenty."));
@@ -1028,6 +1054,15 @@ fn cmd_donate() {
     println!();
 }
 
+/// The BIP39 specification's first English test vector, with its passphrase.
+const BIP39_VECTOR_SEED: &str = "c55257c360c07c72029aebc1b53c05ed0362ada38ead3e3e9efa3708e53495531f09a6987599d18264c1e1c92f2cf141630c7a3c4ab7c81b2f001698e7463b04";
+fn bip39_passphrase_vector_holds() -> bool {
+    let mn = bip39::Mnemonic::from_entropy(&[0u8; 16]).unwrap();
+    let seed = mn.to_seed("TREZOR");
+    let hex: String = seed.iter().map(|b| format!("{:02x}", b)).collect();
+    mn.to_string() == "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about" && hex == BIP39_VECTOR_SEED
+}
+
 fn cmd_verify() {
     ui::masthead("verify");
     println!("{}", ui::top("SELF-TEST", "run this before trusting a result"));
@@ -1067,6 +1102,16 @@ fn cmd_verify() {
         std::process::exit(1);
     }
     println!("{}", ui::ok_line("derivation deterministic"));
+    // BIP39 with a passphrase: the specification's own first test vector
+    // (entropy 0x00 x16 = "abandon ... about", passphrase "TREZOR"). If the
+    // seed for it ever moves, --passphrase would be deriving the wrong tree.
+    if bip39_passphrase_vector_holds() {
+        println!("{}", ui::ok_line("BIP39 passphrase matches the spec vector  (\"TREZOR\", pinned)"));
+    } else {
+        println!("{}", ui::crit_line("BIP39 passphrase seed DOES NOT match the specification vector"));
+        println!("{}", ui::bot("STOP"));
+        std::process::exit(1);
+    }
     // The pinned solana-keygen answer for this public test entropy - checked
     // by hand on 2026-08-16 and locked as a test. If it ever moves, STOP.
     const XCHECK: &str = "8zzKEAB4VqnUchbsmAor9QzyVWVQFanQGJYQw8UQPh1j";
@@ -1095,6 +1140,7 @@ fn cmd_verify() {
     println!("{}", ui::mid(""));
     println!("{}", ui::note("run:  solana-keygen pubkey \"prompt://?full-path=m/44'/501'/0'/0'\""));
     println!("{}", ui::note("      paste the seed, empty passphrase - the two addresses must match"));
+    println!("{}", ui::note("      (a --passphrase grind: type the same passphrase at its prompt)"));
     println!("{}", ui::bot("if they differ, STOP"));
     println!();
 }
@@ -1182,7 +1228,7 @@ fn cmd_bench(threads: usize, indices: u32, seconds: u64) {
     std::thread::scope(|s| {
         for _ in 0..threads {
             let (m, stop, counter) = (Arc::clone(&m), Arc::clone(&stop), Arc::clone(&counter));
-            s.spawn(move || grind_loop(&m, PathStyle::Phantom, indices, 32, &stop, &counter, &|_| {}));
+            s.spawn(move || grind_loop(&m, PathStyle::Phantom, indices, 32, "", &stop, &counter, &|_| {}));
         }
         std::thread::sleep(Duration::from_secs(seconds));
         stop.store(true, Ordering::SeqCst);
@@ -1205,10 +1251,39 @@ fn cmd_bench(threads: usize, indices: u32, seconds: u64) {
     println!();
 }
 
+/// Ask for the BIP39 passphrase on the terminal, hidden, twice. Empty is
+/// refused (that is the default, and asking for it would only confuse the
+/// file's "passphrase used" line); a mismatch asks again.
+fn ask_passphrase() -> Zeroizing<String> {
+    if !std::io::IsTerminal::is_terminal(&std::io::stdin()) {
+        eprintln!("--passphrase needs a terminal to type it into (it is never read from a file, a flag, or the environment)");
+        std::process::exit(1);
+    }
+    println!();
+    println!("{}", ui::top("PASSPHRASE", "BIP39, the \"25th word\""));
+    println!("{}", ui::note("Typed twice, hidden. Never stored, never printed, never in the match file."));
+    println!("{}", ui::note("The seed alone will NOT reach the address without it - the keys will."));
+    println!("{}", ui::note("Most browser wallets have no passphrase field: import the KEY."));
+    println!("{}", ui::bot("lose the passphrase and the seed is just twelve words"));
+    loop {
+        let a = match rpassword::prompt_password("  passphrase: ") {
+            Ok(v) => Zeroizing::new(v),
+            Err(e) => { eprintln!("could not read the passphrase: {}", e); std::process::exit(1); }
+        };
+        if a.is_empty() { println!("{}", ui::warn_line("empty - run without --passphrase for the standard, passphrase-free seed")); continue; }
+        let b = match rpassword::prompt_password("  again:      ") {
+            Ok(v) => Zeroizing::new(v),
+            Err(e) => { eprintln!("could not read the passphrase: {}", e); std::process::exit(1); }
+        };
+        if *a != *b { println!("{}", ui::warn_line("they differ - again")); continue; }
+        return a;
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn cmd_grind(
     p: PatternArgs, threads: usize, indices: u32, count: usize,
-    words: usize, out: String, show_seed: bool,
+    words: usize, out: String, show_seed: bool, with_passphrase: bool,
 ) {
     let entropy_len = match words {
         12 => 16,
@@ -1263,6 +1338,10 @@ fn cmd_grind(
     struct Unlock(String);
     impl Drop for Unlock { fn drop(&mut self) { let _ = std::fs::remove_file(&self.0); } }
     let _unlock = Unlock(lock.clone());
+    // The passphrase, if asked for: typed twice, hidden, held in memory for the
+    // grind and zeroed after. Nothing writes it anywhere; the match file only
+    // records THAT one was used.
+    let passphrase: Arc<Zeroizing<String>> = Arc::new(if with_passphrase { ask_passphrase() } else { Zeroizing::new(String::new()) });
     ui::masthead("grind");
     println!("{}", ui::top("GRIND", "Ctrl-C stops after the current batch"));
     let pats: Vec<String> = m.suffixes.iter().map(|s| format!("*{}", String::from_utf8_lossy(s)))
@@ -1272,6 +1351,7 @@ fn cmd_grind(
     println!("{}", ui::kv("threads", &format!("{} · {} indices/mnemonic · {}-word seeds", threads, indices, words)));
     println!("{}", ui::kv("matches ->", &format!("{}  (mode 0600)", out_link(&out))));
     println!("{}", ui::kv("stop after", &format!("{} match(es)", count)));
+    if with_passphrase { println!("{}", ui::kv("passphrase", "used - not stored; the seed alone will not reach the address")); }
     if ui::links_on() { println!("{}", ui::note(ui::CLICK_HINT)); }
     println!("{}", ui::bot(&format!("in {}", ui::dir_link(&matches_dir()))));
     println!();
@@ -1321,8 +1401,9 @@ fn cmd_grind(
             let (m, stop, counter, hits) =
                 (Arc::clone(&m), Arc::clone(&stop), Arc::clone(&counter), Arc::clone(&hits));
             let out = out.clone();
+            let pass = Arc::clone(&passphrase);
             s.spawn(move || {
-                grind_loop(&m, style, indices, entropy_len, &stop, &counter, &|h| {
+                grind_loop(&m, style, indices, entropy_len, pass.as_str(), &stop, &counter, &|h| {
                     if let Err(e) = write_hit(&out, &h, style) {
                         // Never the terminal. A seed on stdout on the one path
                         // where the operator has lost control of the sink is
@@ -1361,6 +1442,7 @@ fn cmd_grind(
                     println!("{}", ui::note("          -> this exact address, standalone, no clicks"));
                     for l in import_hint(style, h.index) { println!("{}", ui::note(&l)); }
                     println!("{}", ui::note("the OTHER accounts on this seed are ordinary addresses"));
+                    if h.passphrase { println!("{}", ui::warn_line("passphrase used - the seed alone will NOT reach this; the keys will")); }
                     if ui::links_on() { println!("{}", ui::note(ui::CLICK_HINT)); }
                     println!("{}", ui::bot("import and verify the address BEFORE funding"));
                     println!();
@@ -1569,7 +1651,7 @@ mod tests {
         let stop = AtomicBool::new(false);
         let counter = AtomicU64::new(0);
         let found = std::sync::Mutex::new(None);
-        grind_loop(&m, PathStyle::Phantom, 64, 16, &stop, &counter, &|h| {
+        grind_loop(&m, PathStyle::Phantom, 64, 16, "", &stop, &counter, &|h| {
             *found.lock().unwrap() = Some((h.address.clone(), h.privkey.to_string()));
             stop.store(true, Ordering::SeqCst);
         });
@@ -1600,7 +1682,7 @@ mod tests {
         let stop = AtomicBool::new(false);
         let counter = AtomicU64::new(0);
         let found = std::sync::Mutex::new(None);
-        grind_loop(&m, PathStyle::Phantom, 64, 32, &stop, &counter, &|h| {
+        grind_loop(&m, PathStyle::Phantom, 64, 32, "", &stop, &counter, &|h| {
             *found.lock().unwrap() = Some((h.index, h.address.clone(), h.mnemonic.to_string()));
             stop.store(true, Ordering::SeqCst);
         });
@@ -1615,5 +1697,61 @@ mod tests {
         let kf = derive_hardened(&k, &c, 0).0;
         let re = bs58::encode(SigningKey::from_bytes(&kf).verifying_key().to_bytes()).into_string();
         assert_eq!(re, addr, "hit does not re-derive from its own mnemonic");
+    }
+
+    #[test]
+    fn the_bip39_passphrase_vector_holds_and_a_passphrase_changes_the_tree() {
+        assert!(bip39_passphrase_vector_holds());
+        let mn = bip39::Mnemonic::from_entropy(&[7u8; 32]).unwrap();
+        let addr_for = |pass: &str| {
+            let seed = mn.to_seed(pass);
+            let (k, c) = master_key(&seed);
+            let (k, c) = derive_hardened(&k, &c, 44);
+            let (k, c) = derive_hardened(&k, &c, 501);
+            let (k, c) = derive_hardened(&k, &c, 0);
+            let kf = derive_hardened(&k, &c, 0).0;
+            bs58::encode(SigningKey::from_bytes(&kf).verifying_key().to_bytes()).into_string()
+        };
+        assert_eq!(addr_for(""), "8zzKEAB4VqnUchbsmAor9QzyVWVQFanQGJYQw8UQPh1j", "the pinned passphrase-free answer");
+        assert_ne!(addr_for("x"), addr_for(""), "a passphrase must change the tree");
+        assert_eq!(addr_for("x"), addr_for("x"), "and deterministically");
+    }
+
+    #[test]
+    fn a_passphrase_grind_derives_with_the_passphrase_and_the_file_says_so() {
+        // The loop is handed a passphrase; the hit must re-derive ONLY with it,
+        // the Hit must carry the fact, and the match file must record the fact
+        // and nothing more - never the passphrase itself.
+        let m = Matcher::new(&pat(&["a"], &[], false)).unwrap();
+        let stop = AtomicBool::new(false);
+        let counter = AtomicU64::new(0);
+        let found = std::sync::Mutex::new(None);
+        grind_loop(&m, PathStyle::Phantom, 64, 16, "correct horse", &stop, &counter, &|h| {
+            *found.lock().unwrap() = Some(h);
+            stop.store(true, Ordering::SeqCst);
+        });
+        let h = found.into_inner().unwrap().expect("no hit");
+        assert!(h.passphrase);
+        let mnemonic = bip39::Mnemonic::parse_normalized(&h.mnemonic).unwrap();
+        let addr_for = |pass: &str| {
+            let seed = mnemonic.to_seed(pass);
+            let (k, c) = master_key(&seed);
+            let (k, c) = derive_hardened(&k, &c, 44);
+            let (k, c) = derive_hardened(&k, &c, 501);
+            let (k, c) = derive_hardened(&k, &c, h.index);
+            let kf = derive_hardened(&k, &c, 0).0;
+            bs58::encode(SigningKey::from_bytes(&kf).verifying_key().to_bytes()).into_string()
+        };
+        assert_eq!(addr_for("correct horse"), h.address, "the hit must derive WITH the passphrase");
+        assert_ne!(addr_for(""), h.address, "and the seed alone must NOT reach it");
+        let dir = std::env::temp_dir().join(format!("keyrx-pass-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let out = dir.join("a.txt");
+        write_hit(out.to_str().unwrap(), &h, PathStyle::Phantom).unwrap();
+        let text = std::fs::read_to_string(&out).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(text.contains("\npassphrase used - NOT stored"), "{}", text);
+        assert!(!text.contains("correct horse"), "the passphrase must never be written");
+        assert!(text.contains(&format!("address {}", h.address)));
     }
 }
