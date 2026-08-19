@@ -1288,6 +1288,18 @@ fn cmd_grind(
 mod tests {
     use super::*;
 
+    /// The site's masthead shows a version; it must be this crate's. `site/` is not
+    /// in the published tarball, so the check runs only in the repository - which is
+    /// where the publish workflow runs `cargo test` before it publishes anything.
+    #[test]
+    fn the_site_shows_this_version() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/site/index.html");
+        let Ok(site) = std::fs::read_to_string(path) else { return; };
+        let want = format!("var VERSION='{}';", env!("CARGO_PKG_VERSION"));
+        assert_eq!(site.matches(&want).count(), 1, "site/index.html must carry exactly one `{}`", want);
+        assert_eq!(site.matches("masthead('v0.").count(), 0, "the site writes the version in one place only - masthead('v'+VERSION), never a literal");
+    }
+
     /// The address solana-keygen derives for the [7u8; 32] test entropy at
     /// m/44'/501'/0'/0' -- cross-checked by hand on 2026-08-16 (`solana-keygen
     /// pubkey "prompt://?full-path=..."`, empty passphrase). This entropy is a

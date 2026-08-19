@@ -110,6 +110,10 @@ keyrx grind --ends-with KEYRX --indices 128</pre>
 </div>
 <script>
 (function(){
+/* The version the masthead shows. It must equal Cargo.toml's - a cargo test reads this
+   file and fails the publish if the two ever drift (John, 2026-08-19: "always updated
+   together"). The only place on the site a version is written. */
+var VERSION='0.2.11';
 var out=document.getElementById('out'),scr=document.getElementById('scr'),
     inp=document.getElementById('in'),prom=document.getElementById('prompt'),
     sr=document.getElementById('sr');
@@ -381,7 +385,7 @@ C.help=function(){blank();head('COMMANDS');
    ['verified','the proof'],['donate','optional, changes nothing'],['github','the repository'],['x','@keyrx_tech'],['cls','clear']]
    .forEach(function(c){row('  [[y]]'+pad(c[0],12)+'[[/]][[d]]'+c[1]+'[[/]]');});
   foot('the bar below does the same');blank();};
-C.cls=function(){out.innerHTML='';masthead('v0.2.9');blank();installBox();blank();};   // clear keeps the masthead and the install box - the screen, not the identity
+C.cls=function(){out.innerHTML='';masthead('v'+VERSION);blank();installBox();blank();};   // clear keeps the masthead and the install box - the screen, not the identity
 C.github=function(){window.open('https://github.com/keyrx/keyrx','_blank');};
 C.x=function(){window.open('https://x.com/keyrx_tech','_blank');};
 C['?']=C.help;C.clear=C.cls;
@@ -443,7 +447,7 @@ function installBox(){
   foot(MOBILE?'tap to copy · Rust 1.85+ · MIT':'click the line to copy it · Rust 1.85+ · MIT');
 }
 function start(){
-  masthead('v0.2.9');
+  masthead('v'+VERSION);
   blank();installBox();
   blank();
   head('START',MOBILE?'':'the whole tool, in one line each');
