@@ -33,10 +33,10 @@ PBKDF2. Suffix matching needs only the last N base58 characters.
     keyrx                                                               # start screen: every command and flag, explained
     keyrx verify                                                        # run first, always
     keyrx bench --indices 128                                           # measures AND saves the rate estimate uses
-    keyrx estimate --ends-with MINT                                     # measured; what --ignore-case and --indices 128 buy
-    keyrx grind --ends-with MINT --words 12 --indices 8 --out mint.txt  # Phantom
-    keyrx grind --ends-with MINT --indices 128 --out mint.txt           # Solflare
-    keyrx show MINT --keys                                              # the private key, for Phantom 'Import Private Key'
+    keyrx estimate --ends-with KEYRX                                     # measured; what --ignore-case and --indices 128 buy
+    keyrx grind --ends-with KEYRX --words 12 --indices 8 --out mint.txt  # Phantom
+    keyrx grind --ends-with KEYRX --indices 128 --out mint.txt           # Solflare
+    keyrx show KEYRX --keys                                              # the private key, for Phantom 'Import Private Key'
 
 While grinding, one line rewrites in place every 2s: candidates tried, rate,
 elapsed, time to the 50% and 90% marks. Every match prints its address, path
@@ -105,9 +105,9 @@ generates); every major wallet imports 12 or 24.
 
 `~/.local/share/keyrx/matches/` (or `$XDG_DATA_HOME/keyrx/matches/`), a
 mode-0700 directory of its own - never the current directory. Each file is
-mode 0600 and named after the pattern: `--ends-with MINT` -> `MINT.txt`,
-`--ignore-case` -> `MINT.ic.txt`, several patterns join with `+`. `--out`
-overrides. `keyrx show` lists the files; `keyrx show MINT` reads one
+mode 0600 and named after the pattern: `--ends-with KEYRX` -> `KEYRX.txt`,
+`--ignore-case` -> `KEYRX.ic.txt`, several patterns join with `+`. `--out`
+overrides. `keyrx show` lists the files; `keyrx show KEYRX` reads one
 (`--seeds` / `--keys` reveal the secrets).
 
 ## Known behaviour (unchanged from the reference, by instruction)

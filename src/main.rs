@@ -23,9 +23,9 @@
 //   keyrx                                  <- start screen: everything explained
 //   keyrx verify                           <- run this first, always
 //   keyrx bench --indices 128
-//   keyrx estimate --ends-with MINT
-//   keyrx grind --ends-with MINT --indices 128
-//   keyrx show MINT --keys
+//   keyrx estimate --ends-with KEYRX
+//   keyrx grind --ends-with KEYRX --indices 128
+//   keyrx show KEYRX --keys
 
 mod ui;
 
@@ -102,7 +102,7 @@ enum Cmd {
     /// List matches - addresses and paths; seeds and keys withheld by default.
     /// With no FILE, lists every match file in the matches directory.
     Show {
-        /// A match file, or a bare pattern name (MINT -> matches/MINT.txt).
+        /// A match file, or a bare pattern name (KEYRX -> matches/KEYRX.txt).
         file: Option<String>,
         /// Also print the seed phrases. Off by default.
         #[arg(long)]
@@ -132,7 +132,7 @@ enum Cmd {
         #[arg(long, default_value_t = 12)]
         words: usize,
         /// Output file for matches (created mode 0600). Default: a file named
-        /// after the pattern in the matches directory - MINT -> .../matches/MINT.txt
+        /// after the pattern in the matches directory - KEYRX -> .../matches/KEYRX.txt
         #[arg(long)]
         out: Option<String>,
         /// Also print the seed phrase to stdout. Off by default so seeds stay
@@ -150,7 +150,7 @@ struct PatternArgs {
     /// Prefix to match. Repeatable. Costs more than a suffix.
     #[arg(long = "starts-with")]
     starts_with: Vec<String>,
-    /// Case-insensitive matching. Roughly 2^letters more likely: MINT goes from
+    /// Case-insensitive matching. Roughly 2^letters more likely: KEYRX goes from
     /// 1 in 11.3M to 1 in 707K.
     #[arg(long)]
     ignore_case: bool,
@@ -438,8 +438,8 @@ fn matches_dir() -> std::path::PathBuf {
         .unwrap_or_else(|| std::path::PathBuf::from("matches"))
 }
 
-/// The pattern names the file: --ends-with MINT -> MINT.txt; several patterns
-/// join with '+'; prefixes carry a trailing '_' so MINT_ (prefix) and MINT
+/// The pattern names the file: --ends-with KEYRX -> KEYRX.txt; several patterns
+/// join with '+'; prefixes carry a trailing '_' so KEYRX_ (prefix) and KEYRX
 /// (suffix) do not collide; case-insensitive adds '.ic'.
 fn default_out(p: &PatternArgs) -> String {
     let mut parts: Vec<String> = Vec::new();
@@ -452,7 +452,7 @@ fn default_out(p: &PatternArgs) -> String {
 }
 
 /// A path for the eye: files under the tool's own data dir print as
-/// `matches/MINT.txt`; anything else prints whole. The full path is always
+/// `matches/KEYRX.txt`; anything else prints whole. The full path is always
 /// in the foot of the panel that names the file.
 fn short_path(p: &str) -> String {
     let dir = matches_dir();
@@ -545,7 +545,7 @@ fn cmd_show(file: Option<String>, with_seed: bool, with_key: bool) {
     let file = match file {
         Some(f) if std::path::Path::new(&f).exists() => f,
         Some(f) => {
-            // a bare pattern name: MINT -> matches/MINT.txt
+            // a bare pattern name: KEYRX -> matches/KEYRX.txt
             let cand = matches_dir().join(format!("{}.txt", f.trim_end_matches(".txt")));
             if cand.exists() { cand.to_string_lossy().into_owned() }
             else {
@@ -769,7 +769,7 @@ fn cmd_start() {
     println!("{}", kvw("--starts-with P", "prefix. Repeatable. Slower: needs the full address."));
     blank();
     println!("{}", kvw("--ignore-case", "match either case. ~2^letters more likely:"));
-    println!("{}", cont("MINT goes from 1 in 11.3M to 1 in 707K."));
+    println!("{}", cont("KEYRX goes from 1 in 656M to 1 in 20.5M."));
     blank();
     println!("{}", kvw("--path phantom", "m/44'/501'/N'/0'   Phantom, Solflare default"));
     println!("{}", kvw("--path legacy", "m/44'/501'/N'      Solflare custom path"));
@@ -779,7 +779,7 @@ fn cmd_start() {
 
     println!("{}", ui::top("GRIND FLAGS", ""));
     println!("{}", kvw("--out FILE", "where matches go. Created mode 0600. Default: a file"));
-    println!("{}", cont("named after the pattern - MINT -> matches/MINT.txt"));
+    println!("{}", cont("named after the pattern - KEYRX -> matches/KEYRX.txt"));
     blank();
     println!("{}", kvw("--count N", "stop after N matches. Default 1. May return a"));
     println!("{}", cont("couple more when threads hit at once - all valid."));
@@ -832,8 +832,8 @@ fn cmd_start() {
     println!("{}", cont("will not recover them - the file IS the backup."));
     blank();
     println!("{}", kvw("file", &format!("{}", matches_dir().display())));
-    println!("{}", cont("named after the pattern: MINT.txt / MINT.ic.txt"));
-    println!("{}", ui::bot("keyrx show            lists the files · keyrx show MINT reads one"));
+    println!("{}", cont("named after the pattern: KEYRX.txt / KEYRX.ic.txt"));
+    println!("{}", ui::bot("keyrx show            lists the files · keyrx show KEYRX reads one"));
 
     println!("{}", ui::top("RECIPES", "pick the wallet you will import into"));
     let cmd = |c: &str| println!("{}", ui::mid(&format!("    {}{}{}", ui::accent(), c, ui::r())));
@@ -841,37 +841,37 @@ fn cmd_start() {
     let wal = |w: &str, t: &str| println!("{}", ui::mid(&format!("  {}{}{}{}  {}{}{}",
         ui::b(), ui::wht(), w, ui::r(), ui::gry(), t, ui::r())));
     wal("Any wallet", "key import - the simplest route, exact address");
-    cmd("keyrx grind --ends-with MINT --indices 128");
-    sub("keyrx show MINT --keys: base58 for Phantom, JSON array for");
+    cmd("keyrx grind --ends-with KEYRX --indices 128");
+    sub("keyrx show KEYRX --keys: base58 for Phantom, JSON array for");
     sub("Solflare. Standalone; keep the file - a seed will not recover it.");
     blank();
     wal("Phantom", "by seed - the address inside a recoverable HD wallet");
-    cmd("keyrx grind --ends-with MINT --words 12 --indices 8");
+    cmd("keyrx grind --ends-with KEYRX --words 12 --indices 8");
     sub("import the 12 words, then 'add account' until the address shows");
     sub("(0-7 clicks). Slower to find: about 4x the wide grind.");
     blank();
     wal("Solflare", "by seed - takes a custom path, so the grind runs wide");
-    cmd("keyrx grind --ends-with MINT --indices 128");
+    cmd("keyrx grind --ends-with KEYRX --indices 128");
     sub("import the words, choose the exact path the match printed.");
     blank();
-    wal("Either", "case-insensitive: 16x more likely for MINT");
-    cmd("keyrx grind --ends-with MINT --ignore-case --indices 8");
-    sub("matches mint, Mint, MINT, mInT... - only an exact-case grind");
-    sub("guarantees the letters print exactly MINT.");
+    wal("Either", "case-insensitive: 32x more likely for KEYRX");
+    cmd("keyrx grind --ends-with KEYRX --ignore-case --indices 8");
+    sub("matches keyrx, Keyrx, KEYRX, kEyRx... - only an exact-case grind");
+    sub("guarantees the letters print exactly KEYRX.");
     blank();
     wal("Prefix", "the address STARTS with your letters");
-    cmd("keyrx grind --starts-with Mint --indices 128");
+    cmd("keyrx grind --starts-with Key --indices 128");
     sub("slower per candidate: a prefix needs the whole address encoded,");
     sub("a suffix only its last N characters. Same odds per letter.");
-    sub("Repeatable, and combinable: --starts-with Mint --ends-with RX");
+    sub("Repeatable, and combinable: --starts-with Key --ends-with RX");
     println!("{}", ui::bot("estimate first: it prints the odds for THIS machine"));
 
     println!("{}", ui::top("A TYPICAL SESSION", ""));
     cmd("keyrx verify");
     cmd("keyrx bench --indices 128");
-    cmd("keyrx estimate --ends-with MINT");
-    cmd("keyrx grind --ends-with MINT --indices 128");
-    cmd("keyrx show MINT --keys");
+    cmd("keyrx estimate --ends-with KEYRX");
+    cmd("keyrx grind --ends-with KEYRX --indices 128");
+    cmd("keyrx show KEYRX --keys");
     blank();
     println!("{}", ui::warn_line("import and verify the address BEFORE funding."));
     println!("{}", ui::warn_line("the match file holds seed and keys. Treat it like a key - it is one."));
@@ -1454,10 +1454,10 @@ mod tests {
 
     #[test]
     fn default_out_names_the_file_after_the_pattern() {
-        let d = default_out(&pat(&["MINT"], &[], false));
-        assert!(d.ends_with("/matches/MINT.txt"), "{}", d);
-        let d = default_out(&pat(&["MINT"], &["Ab"], true));
-        assert!(d.ends_with("/matches/MINT+Ab_.ic.txt"), "{}", d);
+        let d = default_out(&pat(&["KEYRX"], &[], false));
+        assert!(d.ends_with("/matches/KEYRX.txt"), "{}", d);
+        let d = default_out(&pat(&["KEYRX"], &["Ab"], true));
+        assert!(d.ends_with("/matches/KEYRX+Ab_.ic.txt"), "{}", d);
     }
 
     #[test]

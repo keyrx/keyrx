@@ -2,6 +2,13 @@
 
 All notable changes to keyRX, newest first. Versions are the ones on crates.io.
 
+## 0.2.9 — 2026-08-19
+
+- Every example pattern is now `KEYRX` (and `Key` for a prefix). The old example, `MINT`, contains an
+  `I`, which base58 does not have — so the very command the start screen suggested could never be
+  ground. The tool refused it correctly; the examples did not. Odds in the ignore-case note updated
+  for five letters (1 in 656M → 1 in 20.5M, 32x). No functional change.
+
 ## 0.2.8 — 2026-08-19
 
 - The masthead title reads `keyRX | CLI`. No functional change.

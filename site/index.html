@@ -53,7 +53,7 @@ b{font-weight:400}
 .pan>div{padding:0 .1em}
 a{color:var(--cyan);text-decoration:none;border-bottom:1px dotted rgba(90,166,201,.5)}
 a:hover{color:var(--white)}
-.addr,.inst{cursor:pointer;border-bottom:1px dotted rgba(201,151,79,.45)}
+.addr,.inst,.cmdcopy{cursor:pointer;border-bottom:1px dotted rgba(90,166,201,.45)}
 #prompt{display:flex;align-items:center;gap:.6em;margin-top:.9em;color:var(--yellow)}
 #in{background:transparent;border:0;outline:0;color:var(--white);font:inherit;
   caret-color:transparent;width:1ch;padding:0}
@@ -89,7 +89,7 @@ noscript div{white-space:normal;max-width:68ch;color:var(--gray);padding:1em 0}
   Phantom, JSON array for Solflare). One Rust binary. No daemon, no service, no network.</p>
   <pre>cargo install keyrx && clear && keyrx
 keyrx verify
-keyrx grind --ends-with MINT --indices 128</pre>
+keyrx grind --ends-with KEYRX --indices 128</pre>
   <p><a href="https://github.com/keyrx/keyrx">github.com/keyrx/keyrx</a></p>
 </div></noscript>
 <div id="out" aria-live="polite"></div>
@@ -265,13 +265,13 @@ C.what=function(){blank();
 C.install=function(){blank();
   head('INSTALL',MOBILE?'':'Rust 1.85+ · one binary · no dependencies at run time');
   if(MOBILE){prose('d','Three lines, each copyable:');row('');foot('');
-    line('  [[y]]cargo install keyrx && clear && keyrx[[/]]','cmd');line('  [[y]]keyrx verify[[/]]','cmd');line('  [[y]]keyrx grind --ends-with MINT --indices 128[[/]]','cmd');blank();return;}
+    line('  [[y]]cargo install keyrx && clear && keyrx[[/]]','cmd');line('  [[y]]keyrx verify[[/]]','cmd');line('  [[y]]keyrx grind --ends-with KEYRX --indices 128[[/]]','cmd');blank();return;}
   row('  [[y]]$[[/]] cargo install keyrx && clear && keyrx  [[d]]install, then the start screen[[/]]');
   row('  [[y]]$[[/]] keyrx verify                       [[d]]run first, always[[/]]');
   row('  [[y]]$[[/]] keyrx bench --indices 128          [[d]]this machine\'s real rate[[/]]');
-  row('  [[y]]$[[/]] keyrx estimate --ends-with MINT     [[d]]odds, from that rate[[/]]');
-  row('  [[y]]$[[/]] keyrx grind --ends-with MINT --indices 128');
-  row('  [[y]]$[[/]] keyrx show MINT --keys              [[d]]base58 + JSON array[[/]]');
+  row('  [[y]]$[[/]] keyrx estimate --ends-with KEYRX     [[d]]odds, from that rate[[/]]');
+  row('  [[y]]$[[/]] keyrx grind --ends-with KEYRX --indices 128');
+  row('  [[y]]$[[/]] keyrx show KEYRX --keys              [[d]]base58 + JSON array[[/]]');
   row('');
   note('or from source:  git clone https://github.com/keyrx/keyrx && cd keyrx');
   note('                 RUSTFLAGS="-C target-cpu=native" cargo install --path .');
@@ -284,24 +284,30 @@ C.match=function(){blank();
   kv('privkey',MOBILE?'base58, for Phantom':'base58 keypair - Phantom "Import Private Key"');
   kv('keypair',MOBILE?'JSON array, for Solflare':'the same key as a JSON array - Solflare, solana-keygen');
   row('');
-  prose('d','A key import lands on the exact address in one paste, standalone - a seed will not recover it, so the file IS the backup. Files are named after the pattern: MINT.txt.');
+  prose('d','A key import lands on the exact address in one paste, standalone - a seed will not recover it, so the file IS the backup. Files are named after the pattern: KEYRX.txt.');
   foot(MOBILE?'':'~/.local/share/keyrx/matches/ · never the current directory');blank();};
 C.wallets=function(){blank();
   head('WALLETS','which route, which flags');
   function wal(w,t){if(MOBILE){row('  [[w]]'+w+'[[/]]');prose('d',t);}else row('  [[w]]'+w+'[[/]]  [[d]]'+t+'[[/]]');}
-  function cmd(c){if(MOBILE){foot('');line('  [[c]]'+c+'[[/]]','cmd');pan();row('');}else row('    [[c]]'+c+'[[/]]');}
+  function cmd(c){
+    if(!MOBILE){row('    [[c]]'+c+'[[/]]');return;}
+    // phone: the command stays INSIDE the box, split at a flag boundary into rows that fit the grid;
+    // a tap on either row copies the whole command
+    var parts=[],cur='';c.split(' ').forEach(function(w){var nx=cur?cur+' '+w:w;if(vis(nx)>IN-4&&cur){parts.push(cur);cur=w;}else cur=nx;});if(cur)parts.push(cur);
+    parts.forEach(function(pt,i){var d=row((i?'    ':'  ')+'[[c]]'+pt+'[[/]]');
+      if(d&&d.getElementsByTagName){var b=d.getElementsByTagName('b');for(var k=0;k<b.length;k++){if(b[k].textContent===pt){b[k].className='c cmdcopy';b[k].setAttribute('data-cmd',c);b[k].title='tap to copy';break;}}}});}
   wal('Any wallet','key import - simplest, exact address');
-  cmd('keyrx grind --ends-with MINT --indices 128');
-  prose('d','keyrx show MINT --keys: base58 for Phantom, JSON array for Solflare. Standalone; keep the file.');row('');
+  cmd('keyrx grind --ends-with KEYRX --indices 128');
+  prose('d','keyrx show KEYRX --keys: base58 for Phantom, JSON array for Solflare. Standalone; keep the file.');row('');
   wal('Phantom','by seed - inside a recoverable HD wallet');
-  cmd('keyrx grind --ends-with MINT --words 12 --indices 8');
+  cmd('keyrx grind --ends-with KEYRX --words 12 --indices 8');
   prose('d','import the 12 words, then "add account" until the address shows (0-7 clicks). ~4x slower to find.');row('');
   wal('Solflare','by seed - takes a custom path');
-  cmd('keyrx grind --ends-with MINT --indices 128');
+  cmd('keyrx grind --ends-with KEYRX --indices 128');
   prose('d','import the words, choose the exact path the match printed.');row('');
   wal('Prefix','the address STARTS with your letters');
-  cmd('keyrx grind --starts-with Mint --indices 128');
-  prose('d','slower per candidate - a prefix needs the whole address encoded, a suffix only its last N characters. Same odds per letter. Combinable: --starts-with Mint --ends-with RX.');
+  cmd('keyrx grind --starts-with Key --indices 128');
+  prose('d','slower per candidate - a prefix needs the whole address encoded, a suffix only its last N characters. Same odds per letter. Combinable: --starts-with Key --ends-with RX.');
   foot('estimate first: it prints the odds for YOUR machine');blank();};
 C.verified=function(){blank();
   head('VERIFIED',MOBILE?'':'not asserted - proven, on 2026-08-16, and pinned as tests');
@@ -339,6 +345,8 @@ C.donate=function(){blank();
 out.addEventListener('click',function(e){
   var c=e.target.closest&&e.target.closest('b.inst');
   if(c){navigator.clipboard.writeText(INSTALL).then(function(){blank();line('  [[g]]Copied[[/]] [[d]]- paste it in a terminal[[/]]');blank();bottom();});return;}
+  var cc=e.target.closest&&e.target.closest('b.cmdcopy');
+  if(cc){navigator.clipboard.writeText(cc.getAttribute('data-cmd')).then(function(){blank();line('  [[g]]Copied[[/]] [[d]]- the whole command[[/]]');blank();bottom();});return;}
   var t=e.target.closest&&e.target.closest('b.addr');if(!t||!DONATE_SOL)return;
   navigator.clipboard.writeText(DONATE_SOL).then(function(){blank();line('  [[g]]Copied[[/]] [[d]]- Solana address[[/]]');blank();bottom();});});
 C.grind=function(arg){var p=(arg||'').trim();var ic=false;
@@ -346,9 +354,9 @@ C.grind=function(arg){var p=(arg||'').trim();var ic=false;
   if(!p){blank();
     head('TRY IT','a real grind, in this tab');
     prose('d','Type a pattern and watch it find an address that ends with it. Real random keys, real base58, plain JavaScript on one thread - a toy next to the Rust binary, and honest about it.');row('');
-    if(MOBILE){kva('','grind ab   [[d]]seconds[[/]]');kva('','grind MINT [[d]]1 in 11.3M[[/]]');kva('','grind ab -i [[d]]any case[[/]]');}
+    if(MOBILE){kva('','grind ab   [[d]]seconds[[/]]');kva('','grind KEYRX [[d]]1 in 11.3M[[/]]');kva('','grind ab -i [[d]]any case[[/]]');}
     else{kva('','grind ab          [[d]]two letters: seconds[[/]]');
-    kva('','grind MINT        [[d]]four: 1 in 11.3M - go make coffee[[/]]');
+    kva('','grind KEYRX        [[d]]four: 1 in 11.3M - go make coffee[[/]]');
     kva('','grind key -i      [[d]]case-insensitive[[/]]');}
     row('');
     prose('d','Nothing leaves your browser. The address shown is real but the toy keeps no key - and you should never fund an address from a web page anyway.');
@@ -364,7 +372,7 @@ C.help=function(){blank();head('COMMANDS');
    ['verified','the proof'],['donate','optional, changes nothing'],['github','the repository'],['x','@keyrx_tech'],['cls','clear']]
    .forEach(function(c){row('  [[y]]'+pad(c[0],12)+'[[/]][[d]]'+c[1]+'[[/]]');});
   foot('the bar below does the same');blank();};
-C.cls=function(){out.innerHTML='';masthead('v0.2.8');blank();installBox();blank();};   // clear keeps the masthead and the install box - the screen, not the identity
+C.cls=function(){out.innerHTML='';masthead('v0.2.9');blank();installBox();blank();};   // clear keeps the masthead and the install box - the screen, not the identity
 C.github=function(){window.open('https://github.com/keyrx/keyrx','_blank');};
 C.x=function(){window.open('https://x.com/keyrx_tech','_blank');};
 C['?']=C.help;C.clear=C.cls;
@@ -425,7 +433,7 @@ function installBox(){
   foot(MOBILE?'tap the line to copy it':'click the line to copy it · Rust 1.85+ · MIT');
 }
 function start(){
-  masthead('v0.2.8');
+  masthead('v0.2.9');
   blank();installBox();
   blank();
   head('START',MOBILE?'':'the whole tool, in one line each');

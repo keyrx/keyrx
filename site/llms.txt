@@ -18,8 +18,8 @@ as plain text.
     cargo install keyrx && clear && keyrx    # or: git clone https://github.com/keyrx/keyrx && cargo install --path .
     keyrx verify                 # run first, always: base58, derivation, the pinned solana-keygen answer
     keyrx bench --indices 128    # this machine's real rate; estimate uses it
-    keyrx grind --ends-with MINT --indices 128
-    keyrx show MINT --keys       # base58 (Phantom) + JSON array (Solflare); seeds/keys withheld by default
+    keyrx grind --ends-with KEYRX --indices 128
+    keyrx show KEYRX --keys       # base58 (Phantom) + JSON array (Solflare); seeds/keys withheld by default
 
 ## What a match writes
 
