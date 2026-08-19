@@ -260,7 +260,7 @@ C.install=function(){blank();
   head('INSTALL',MOBILE?'':'Rust 1.85+ · one binary · no dependencies at run time');
   if(MOBILE){prose('d','Three lines, each copyable:');row('');foot('');
     line('  [[y]]cargo install keyrx && clear && keyrx[[/]]','cmd');line('  [[y]]keyrx verify[[/]]','cmd');line('  [[y]]keyrx grind --ends-with MINT --indices 128[[/]]','cmd');blank();return;}
-  row('  [[y]]$[[/]] cargo install keyrx && clear && keyrx  [[d]]install, clean screen, the start screen[[/]]');
+  row('  [[y]]$[[/]] cargo install keyrx && clear && keyrx  [[d]]install, then the start screen[[/]]');
   row('  [[y]]$[[/]] keyrx verify                       [[d]]run first, always[[/]]');
   row('  [[y]]$[[/]] keyrx bench --indices 128          [[d]]this machine\'s real rate[[/]]');
   row('  [[y]]$[[/]] keyrx estimate --ends-with MINT     [[d]]odds, from that rate[[/]]');
