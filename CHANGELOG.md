@@ -2,6 +2,17 @@
 
 All notable changes to keyRX, newest first. Versions are the ones on crates.io.
 
+## 0.2.12 — 2026-08-19
+
+- `keyrx --update` — the install line, `cargo install keyrx && clear && keyrx`, as one flag. It finds
+  cargo ($CARGO, PATH, $CARGO_HOME/bin, ~/.cargo/bin), runs `cargo install keyrx` with cargo's own
+  output on screen ("already installed" means you have the latest), then clears the screen and starts
+  the freshly installed keyrx, so the first thing you see is the new start screen with the new version
+  on it. Without cargo it prints the rustup line and the install line and exits 1. Listed in the
+  COMMANDS panel and on the site's INSTALL panel.
+- The site's masthead version is one constant, and a cargo test pins it to Cargo.toml: a release can
+  no longer publish with keyrx.tech a version behind (0.2.10 did, for an hour).
+
 ## 0.2.11 — 2026-08-19
 
 - One grey line says how the links work — `ctrl/cmd-click a path to open the folder` — in the GRIND

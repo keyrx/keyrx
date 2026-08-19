@@ -113,7 +113,7 @@ keyrx grind --ends-with KEYRX --indices 128</pre>
 /* The version the masthead shows. It must equal Cargo.toml's - a cargo test reads this
    file and fails the publish if the two ever drift (John, 2026-08-19: "always updated
    together"). The only place on the site a version is written. */
-var VERSION='0.2.11';
+var VERSION='0.2.12';
 var out=document.getElementById('out'),scr=document.getElementById('scr'),
     inp=document.getElementById('in'),prom=document.getElementById('prompt'),
     sr=document.getElementById('sr');
@@ -282,6 +282,7 @@ C.install=function(){blank();
   crow('keyrx estimate --ends-with KEYRX','odds, from that rate');
   crow('keyrx grind --ends-with KEYRX --indices 128','');
   crow('keyrx show KEYRX --keys','base58 + JSON array');
+  crow('keyrx --update','the same line, as a flag');
   row('');
   if(MOBILE){note('or from source:');note('git clone github.com/keyrx/keyrx');note('cd keyrx');note('RUSTFLAGS="-C target-cpu=native" \\');note('  cargo install --path .');note('# . = the clone you just entered');
     foot('keyrx alone prints the start screen');blank();return;}

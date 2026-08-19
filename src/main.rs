@@ -69,6 +69,10 @@ fn help_seal() -> String {
 struct Cli {
     #[command(subcommand)]
     cmd: Option<Cmd>,
+
+    /// Update: `cargo install keyrx`, then clear, then keyrx - the install line as one flag.
+    #[arg(long)]
+    update: bool,
 }
 
 #[derive(Subcommand)]
@@ -711,7 +715,9 @@ fn quantiles(prob: f64, rate: f64) {
 // ---------------------------------------------------------------- main
 
 fn main() {
-    let cmd = match Cli::parse().cmd {
+    let cli = Cli::parse();
+    if cli.update { cmd_update(); return; }
+    let cmd = match cli.cmd {
         Some(c) => c,
         None => { cmd_start(); return; }
     };
@@ -731,6 +737,74 @@ fn main() {
 /// The start screen: `keyrx` with no arguments. Every command, every flag,
 /// and the two ideas you need - what a path index is, and why --indices
 /// trades speed for where the match lands.
+/// `keyrx --update`: the install line - cargo install keyrx && clear && keyrx -
+/// as one flag. cargo does the work with its own output on screen; if it ends
+/// clean, the screen is cleared and the freshly installed keyrx starts, so the
+/// first thing you see is the new start screen with the new version on it.
+fn cmd_update() {
+    ui::masthead(&format!("v{}", env!("CARGO_PKG_VERSION")));
+    let Some(cargo) = find_cargo() else {
+        println!("{}", ui::top("UPDATE", ""));
+        println!("{}", ui::crit_line("cargo is not on PATH - keyrx is installed and updated by cargo."));
+        println!("{}", ui::note("install Rust from https://rustup.rs (one command), then:"));
+        println!("{}", ui::note("cargo install keyrx && clear && keyrx"));
+        println!("{}", ui::bot(""));
+        println!();
+        std::process::exit(1);
+    };
+    println!("{}", ui::top("UPDATE", "cargo install keyrx && clear && keyrx"));
+    println!("{}", ui::kv("running", &format!("{} install keyrx", cargo.display())));
+    println!("{}", ui::note("cargo's output follows - \"already installed\" means you have the latest"));
+    println!("{}", ui::bot("then the screen clears and the new keyrx starts"));
+    println!();
+    let status = std::process::Command::new(&cargo).arg("install").arg("keyrx").status();
+    match status {
+        Ok(st) if st.success() => {}
+        Ok(st) => { eprintln!("cargo install keyrx exited with {}", st); std::process::exit(st.code().unwrap_or(1)); }
+        Err(e) => { eprintln!("could not run {}: {}", cargo.display(), e); std::process::exit(1); }
+    }
+    // the binary cargo just wrote: <cargo root>/bin/keyrx, or whatever is running
+    // us if that cannot be found (a dev build started from a clone, say)
+    let bin = installed_keyrx().unwrap_or_else(|| std::env::current_exe().unwrap_or_else(|_| "keyrx".into()));
+    if std::io::IsTerminal::is_terminal(&std::io::stdout()) { print!("\x1b[2J\x1b[H"); }
+    let _ = std::io::Write::flush(&mut std::io::stdout());
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        let err = std::process::Command::new(&bin).exec();
+        eprintln!("could not start {}: {}", bin.display(), err);
+        std::process::exit(1);
+    }
+    #[cfg(not(unix))]
+    {
+        let code = std::process::Command::new(&bin).status().map(|s| s.code().unwrap_or(0)).unwrap_or(1);
+        std::process::exit(code);
+    }
+}
+
+/// cargo, wherever rustup put it: $CARGO (set when run under cargo), then PATH,
+/// then $CARGO_HOME/bin, then ~/.cargo/bin.
+fn find_cargo() -> Option<std::path::PathBuf> {
+    let exe = if cfg!(windows) { "cargo.exe" } else { "cargo" };
+    if let Some(c) = std::env::var_os("CARGO") { let p = std::path::PathBuf::from(c); if p.is_file() { return Some(p); } }
+    if let Some(path) = std::env::var_os("PATH") {
+        for d in std::env::split_paths(&path) { let p = d.join(exe); if p.is_file() { return Some(p); } }
+    }
+    cargo_home().map(|h| h.join("bin").join(exe)).filter(|p| p.is_file())
+}
+
+/// Where `cargo install` writes binaries: $CARGO_INSTALL_ROOT/bin, else $CARGO_HOME/bin, else ~/.cargo/bin.
+fn installed_keyrx() -> Option<std::path::PathBuf> {
+    let exe = if cfg!(windows) { "keyrx.exe" } else { "keyrx" };
+    let root = std::env::var_os("CARGO_INSTALL_ROOT").map(std::path::PathBuf::from).or_else(cargo_home)?;
+    Some(root.join("bin").join(exe)).filter(|p| p.is_file())
+}
+
+fn cargo_home() -> Option<std::path::PathBuf> {
+    if let Some(h) = std::env::var_os("CARGO_HOME") { return Some(std::path::PathBuf::from(h)); }
+    std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map(|h| std::path::PathBuf::from(h).join(".cargo"))
+}
+
 fn cmd_start() {
     ui::masthead(&format!("v{}", env!("CARGO_PKG_VERSION")));
     let n = ui::note;
@@ -773,6 +847,9 @@ fn cmd_start() {
     println!("{}", cont("seeds withheld. --seeds prints them too."));
     blank();
     println!("{}", kvw("donate", "optional, and it changes nothing."));
+    blank();
+    println!("{}", kvw("--update", "cargo install keyrx && clear && keyrx, as one flag."));
+    println!("{}", cont("cargo prints its work; then the new start screen."));
     println!("{}", ui::bot("every command takes --help"));
 
     println!("{}", ui::top("PATTERN FLAGS", "estimate and grind"));
