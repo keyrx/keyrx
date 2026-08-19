@@ -175,11 +175,11 @@ function sealLines(){var out=[];
 var ABOUT=['Solana vanity address grinder.','One seed, unlimited addresses, keys for every wallet.','Offline. Open. Verified.','The mark is a record. What it seals comes next.'];
 function masthead(right){
   var rt='[[d]]'+right+'[[/]]',h='[[w]]keyRX[[/]] [[f]]|[[/]] [[w]]CLI[[/]]';
-  if(MOBILE){var sl=sealLines();   // the same 16x8 seal as the desktop - the true square; the words go under it
-    line(' '+sl[0]+'  '+h+' '.repeat(Math.max(1,W-16-2-vis(h)-vis(rt)-2))+rt);
-    for(var i=1;i<8;i++)line(' '+sl[i]);
-    line(' [[d]]'+ABOUT[0]+'[[/]]');line(' [[d]]One seed, unlimited addresses,[[/]]');line(' [[d]]keys for every wallet.[[/]]');
-    line(' [[d]]'+ABOUT[2]+'[[/]]');line(' [[f]]The mark is a record.[[/]]');line(' [[f]]What it seals comes next.[[/]]');
+  if(MOBILE){var sl=sealLines();   // the same 16x8 seal as the desktop; the words beside it, wrapped to the phone grid
+    var side=['[[d]]Solana vanity address[[/]]','[[d]]grinder. One seed,[[/]]','[[d]]unlimited addresses,[[/]]','[[d]]keys for every wallet.[[/]]','[[d]]Offline. Open. Verified.[[/]]','[[f]]The mark is a record.[[/]]',''];
+    line(' '+sl[0]+' '+h+' '.repeat(Math.max(1,W-16-1-vis(h)-vis(rt)-2))+rt);
+    for(var i=1;i<8;i++)line(' '+sl[i]+(side[i-1]?' '+side[i-1]:''));
+    line(' [[f]]What it seals comes next.[[/]]');
     var lf=' [[d]]keyRX.tech[[/]]',rf='[[d]]dev@keyrx.tech[[/]]';line(lf+' '.repeat(Math.max(1,W-vis(lf)-vis(rf)-1))+rf);}
   else{var sl=sealLines();
     line(' '+sl[0]+'  '+h+' '.repeat(Math.max(1,W-vis(sl[0])-2-vis(h)-vis(rt)-2))+rt);
