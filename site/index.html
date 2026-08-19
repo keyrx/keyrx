@@ -266,12 +266,13 @@ C.install=function(){blank();
   head('INSTALL',MOBILE?'':'Rust 1.85+ · one binary · no dependencies at run time');
   if(MOBILE){prose('d','Three lines, each copyable:');row('');foot('');
     line('  [[y]]cargo install keyrx && clear && keyrx[[/]]','cmd');line('  [[y]]keyrx verify[[/]]','cmd');line('  [[y]]keyrx grind --ends-with KEYRX --indices 128[[/]]','cmd');blank();return;}
-  row('  [[y]]$[[/]] cargo install keyrx && clear && keyrx  [[d]]install, then the start screen[[/]]');
-  row('  [[y]]$[[/]] keyrx verify                       [[d]]run first, always[[/]]');
-  row('  [[y]]$[[/]] keyrx bench --indices 128          [[d]]this machine\'s real rate[[/]]');
-  row('  [[y]]$[[/]] keyrx estimate --ends-with KEYRX     [[d]]odds, from that rate[[/]]');
-  row('  [[y]]$[[/]] keyrx grind --ends-with KEYRX --indices 128');
-  row('  [[y]]$[[/]] keyrx show KEYRX --keys              [[d]]base58 + JSON array[[/]]');
+  function crow(c,n){row('  [[y]]$[[/]] '+pad(c,44)+(n?'[[d]]'+n+'[[/]]':''));}   // one note column, whatever the command's length
+  crow('cargo install keyrx && clear && keyrx','then the start screen');
+  crow('keyrx verify','run first, always');
+  crow('keyrx bench --indices 128','this machine\'s real rate');
+  crow('keyrx estimate --ends-with KEYRX','odds, from that rate');
+  crow('keyrx grind --ends-with KEYRX --indices 128','');
+  crow('keyrx show KEYRX --keys','base58 + JSON array');
   row('');
   note('or from source:  git clone https://github.com/keyrx/keyrx && cd keyrx');
   note('                 RUSTFLAGS="-C target-cpu=native" cargo install --path .');
