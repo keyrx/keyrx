@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>keyRX — Solana vanity addresses, keys for every wallet</title>
-<meta name="description" content="keyrx grinds Solana vanity addresses 20-60x faster than solana-keygen and hands you the seed, the path and the keypair in both wallet-import forms. One Rust binary. No daemon, no service, no network.">
+<meta name="description" content="Solana vanity address grinder. One seed, unlimited addresses, keys for every wallet. Offline. Open. Verified. The mark is a record. What it seals comes next.">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' blob:; style-src 'unsafe-inline'; font-src data:; img-src 'self' data:; worker-src blob:; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <link rel="canonical" href="https://keyrx.tech/">
@@ -15,7 +15,7 @@
 <meta property="og:image" content="https://keyrx.tech/og.png">
 <meta name="twitter:card" content="summary_large_image">
 <meta property="og:title" content="keyRX — vanity addresses, keys for every wallet">
-<meta property="og:description" content="Try the grind in your browser. Nothing leaves it.">
+<meta property="og:description" content="Solana vanity address grinder. One seed, unlimited addresses, keys for every wallet. Offline. Open. Verified. The mark is a record. What it seals comes next.">
 <meta property="og:url" content="https://keyrx.tech/">
 <style>
 /* The frame is only square if every glyph agrees on its width. System monos
@@ -400,7 +400,7 @@ function fit(){
 var booted=false;
 function rerender(){out.innerHTML='';start();}
 function start(){
-  masthead('v0.2.4');
+  masthead('v0.2.5');
   blank();
   if(MOBILE){line('  [[w]]Solana vanity addresses.[[/]]');line('  [[d]]20-60x faster. Keys for every wallet.[[/]]');}
   else{line('  [[w]]Solana vanity addresses, 20-60x faster than solana-keygen grind[[/]]');

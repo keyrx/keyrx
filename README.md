@@ -3,8 +3,8 @@
 </p>
 
 <p align="center">
-  <em>Solana vanity addresses in minutes, not hours.</em><br>
-  <sub>One seed · walk the account index · every match written once, mode 0600 · verified against solana-keygen</sub>
+  <em>Solana vanity address grinder. One seed, unlimited addresses, keys for every wallet. Offline. Open. Verified. The mark is a record. What it seals comes next.</em><br>
+  <sub>one seed · walk the account index · every match written once, mode 0600 · verified against solana-keygen</sub>
 </p>
 
 <p align="center">

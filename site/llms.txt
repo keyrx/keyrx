@@ -1,6 +1,8 @@
 # keyrx
 
-> Solana vanity address grinder. One seed phrase is a tree of addresses; keyrx
+> Solana vanity address grinder. One seed, unlimited addresses, keys for every wallet. Offline. Open. Verified. The mark is a record. What it seals comes next.
+>
+> One seed phrase is a tree of addresses; keyrx
 > derives the expensive prefix once and walks the account index - 20-60x the
 > throughput of `solana-keygen grind --use-mnemonic`. Every match writes the
 > address, its derivation path, the seed phrase, and the keypair in both

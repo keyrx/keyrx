@@ -2,6 +2,11 @@
 
 All notable changes to keyRX, newest first. Versions are the ones on crates.io.
 
+## 0.2.5 — 2026-08-18
+
+- One line, everywhere: the crate description, `--help`, the README tagline, the site's description
+  and llms.txt now read the same sentence. No functional change.
+
 ## 0.2.4 — 2026-08-18
 
 - The terminal mark at its true shape: sixteen columns by eight lines of full blocks (a text cell
