@@ -359,7 +359,7 @@ C.help=function(){blank();head('COMMANDS');
    ['verified','the proof'],['donate','optional, changes nothing'],['github','the repository'],['x','@keyrx_tech'],['cls','clear']]
    .forEach(function(c){row('  [[y]]'+pad(c[0],12)+'[[/]][[d]]'+c[1]+'[[/]]');});
   foot('the bar below does the same');blank();};
-C.cls=function(){out.innerHTML='';masthead('v0.2.7');blank();installBox();blank();};   // clear keeps the masthead and the install box - the screen, not the identity
+C.cls=function(){out.innerHTML='';masthead('v0.2.8');blank();installBox();blank();};   // clear keeps the masthead and the install box - the screen, not the identity
 C.github=function(){window.open('https://github.com/keyrx/keyrx','_blank');};
 C.x=function(){window.open('https://x.com/keyrx_tech','_blank');};
 C['?']=C.help;C.clear=C.cls;
@@ -420,7 +420,7 @@ function installBox(){
   foot(MOBILE?'tap the line to copy it':'click the line to copy it · Rust 1.85+ · MIT');
 }
 function start(){
-  masthead('v0.2.7');
+  masthead('v0.2.8');
   blank();installBox();
   blank();
   head('START',MOBILE?'':'the whole tool, in one line each');

@@ -2,6 +2,10 @@
 
 All notable changes to keyRX, newest first. Versions are the ones on crates.io.
 
+## 0.2.8 — 2026-08-19
+
+- The masthead title reads `keyRX | CLI`. No functional change.
+
 ## 0.2.7 — 2026-08-18
 
 - The masthead's bottom line: keyRX.tech at the text column, dev@keyrx.tech at the right edge —
