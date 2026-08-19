@@ -382,7 +382,7 @@ inp.addEventListener('input',function(){capGrind();resize();});resize();
 inp.addEventListener('keydown',function(e){if(e.key==='Enter'){var v=inp.value;inp.value='';resize();run(v);}});
 document.querySelectorAll('#keys i').forEach(function(t){t.addEventListener('click',function(){
   inp.value='';runNav(t.dataset.c);bottom();if(!MOBILE)inp.focus();});});
-/* F1-F9 as the bar shows them, the way the CLI's siblings do it. F5 is reload in every browser and F1 is
+/* F1-F9 as the bar shows them, the way the CLI's siblings do it. (Pages redeploy 2026-08-19.) F5 is reload in every browser and F1 is
    help - a preventDefault so the key does what the bar says; F11 and F12 stay the browser's. */
 var FK={F1:'grind',F2:'what',F3:'install',F4:'match',F5:'wallets',F6:'verified',F7:'donate',F8:'github',F9:'x'};
 addEventListener('keydown',function(e){if(FK[e.key]&&!e.altKey&&!e.ctrlKey&&!e.metaKey){e.preventDefault();inp.value='';runNav(FK[e.key]);bottom();}});
