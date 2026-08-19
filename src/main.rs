@@ -88,6 +88,9 @@ enum Cmd {
         threads: usize,
         #[arg(long, default_value_t = 64)]
         indices: u32,
+        /// How many matches you intend to grind (`grind --count N`): adds the time to all N.
+        #[arg(long, default_value_t = 1)]
+        count: usize,
     },
 
     /// Measure actual throughput on this machine.
@@ -699,6 +702,22 @@ fn write_hit(out: &str, h: &Hit, style: PathStyle) -> std::io::Result<()> {
 
 /// Time-to-first-match rows, framed. The 50% line carries the accent: it is
 /// the number the operator plans around.
+/// Time to ALL of n matches. Each match is an independent wait with mean
+/// 1/(prob*rate), so the total is Gamma(n, mean): its mean is exactly n times
+/// the first match's, and its spread narrows as n grows. The 50% and 90%
+/// rows use the Wilson-Hilferty approximation to the Gamma quantile, which is
+/// within about a percent for n >= 2 (n == 1 uses the exact rows above).
+fn quantiles_n(prob: f64, rate: f64, n: usize) {
+    let k = n as f64;
+    let mean_one = 1.0 / prob / rate;
+    for (label, z) in [("50%", 0.0f64), ("90%", 1.2815516)] {
+        let q = k * (1.0 - 1.0 / (9.0 * k) + z * (1.0 / (9.0 * k)).sqrt()).powi(3);
+        let row = if label == "50%" { ui::kv_accent(label, &fmt_dur(q * mean_one)) } else { ui::kv(label, &fmt_dur(q * mean_one)) };
+        println!("{}", row);
+    }
+    println!("{}", ui::kv("mean", &format!("{}   ({} x the mean above)", fmt_dur(k * mean_one), n)));
+}
+
 fn quantiles(prob: f64, rate: f64) {
     for (label, q) in [("50%", 0.5f64), ("90%", 0.9), ("99%", 0.99)] {
         let n = (1.0 - q).ln() / (1.0 - prob).ln();
@@ -723,7 +742,7 @@ fn main() {
     };
     match cmd {
         Cmd::Verify => cmd_verify(),
-        Cmd::Estimate { pattern, threads, indices } => cmd_estimate(pattern, threads, indices),
+        Cmd::Estimate { pattern, threads, indices, count } => cmd_estimate(pattern, threads, indices, count),
         Cmd::Bench { threads, indices, seconds } => cmd_bench(threads, indices, seconds),
         Cmd::Show { file, seeds, keys } => cmd_show(file, seeds, keys),
         Cmd::Donate => cmd_donate(),
@@ -873,6 +892,8 @@ fn cmd_start() {
     blank();
     println!("{}", kvw("--count N", "stop after N matches. Default 1. May return a"));
     println!("{}", cont("couple more when threads hit at once - all valid."));
+    println!("{}", cont("All land in the one file. estimate --count N prints"));
+    println!("{}", cont("the time to all N - each match is independent."));
     blank();
     println!("{}", kvw("--words 12|24", "mnemonic length. Default 12 - what Phantom generates"));
     println!("{}", cont("and what most people are used to. Every major wallet"));
@@ -1078,7 +1099,7 @@ fn cmd_verify() {
     println!();
 }
 
-fn cmd_estimate(p: PatternArgs, threads: usize, indices: u32) {
+fn cmd_estimate(p: PatternArgs, threads: usize, indices: u32, count: usize) {
     let m = match Matcher::new(&p) {
         Ok(m) => m,
         Err(e) => { eprintln!("error: {}", e); std::process::exit(1); }
@@ -1106,6 +1127,11 @@ fn cmd_estimate(p: PatternArgs, threads: usize, indices: u32) {
     println!("{}", ui::mid(""));
     println!("{}", ui::note("time to first match"));
     quantiles(prob, rate);
+    if count > 1 {
+        println!("{}", ui::mid(""));
+        println!("{}", ui::note(&format!("time to all {} matches  (grind --count {} - each one is independent)", count, count)));
+        quantiles_n(prob, rate, count);
+    }
     println!("{}", ui::bot(if measured.is_some() { "from this machine's own bench" } else { "theoretical - ran 2.6x optimistic on real hardware" }));
 
     // The levers, as numbers.

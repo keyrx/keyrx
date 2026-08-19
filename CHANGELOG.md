@@ -2,6 +2,14 @@
 
 All notable changes to keyRX, newest first. Versions are the ones on crates.io.
 
+## 0.2.13 — 2026-08-19
+
+- `keyrx estimate --count N` — when you intend to grind N matches, the ODDS panel adds "time to all
+  N matches": 50% / 90% / mean, each match an independent wait, so the mean is exactly N times the
+  first match's and the spread narrows as N grows (Gamma quantiles, Wilson–Hilferty). The start
+  screen's `--count N` entry says so and says all N land in the one file. The site's INSTALL panel
+  shows `keyrx grind --ends-with KEYRX --count 10  # ten of them, one file`.
+
 ## 0.2.12 — 2026-08-19
 
 - `keyrx --update` — the install line, `cargo install keyrx && clear && keyrx`, as one flag. It finds
