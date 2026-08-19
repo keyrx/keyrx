@@ -1,24 +1,18 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-label="keyRX">
   <title>keyRX</title>
   <!--
-    The seal of the flagship record - the first keyRX/KEYRX launch through keyRX Deploy: token keyRX
-    (KEYRX), deployed by the wallet ending in KEYRX at the mint ending in KEYRX, on devnet, the list
-    published on chain before the token existed. This mark is that record's manifest hash:
+    The seal: sixty-four hex digits of a hash, sealed on chain during a devnet systems check.
 
-      manifest sha256 fbd454bdefee923628fcb6f24667b772ea942f176f9c7988b5e2d2264b335ac8
-      mint            DH3EVN49g3EazPWfBUkKGc1Qa3JJZiFNKKrywSkKEYRX
-      record          https://deploy.keyrx.tech/DH3EVN49g3EazPWfBUkKGc1Qa3JJZiFNKKrywSkKEYRX
+      sha256 fbd454bdefee923628fcb6f24667b772ea942f176f9c7988b5e2d2264b335ac8
 
-    Anyone can re-derive it:
-      curl -sO https://deploy.keyrx.tech/verify.py
-      curl -sO https://deploy.keyrx.tech/records/DH3EVN49g3EazPWfBUkKGc1Qa3JJZiFNKKrywSkKEYRX/manifest.json
-      python3 verify.py hash manifest.json
+    What the hash is of will be said when the time comes; the pattern is derivable from the digits
+    alone with the rule below.
 
     Sixty-four hex digits on an 8x8 grid, one per cell, row by row; a cell is
-    lit when its digit is 8 or above - the same rule that draws the seal of
-    every deployment record. The pattern is the truth and never changes; the
+    lit when its digit is 8 or above -
+    a seal. The pattern is the truth and never changes; the
     dressing is free: rows 0-3 in the site's blue, rows 4-7 in its amber (the
-    keyRX capsule's bow and bit), each tile a small cylinder, one soft shadow
+    two tones keyRX has always used - blue and amber), each tile a small cylinder, one soft shadow
     under the whole glyph, inset inside the inscribed circle. Regenerate with
     assets/make_mark.py; rasterise with assets/render_svg.cjs.
   -->

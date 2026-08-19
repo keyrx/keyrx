@@ -119,19 +119,10 @@ keep `--indices` low if Phantom is the target; Solflare takes custom paths.
 
 ## The mark
 
-The mark is a record. It is the seal of the first launch made through
-[keyRX Deploy](https://deploy.keyrx.tech) — the keyRX/KEYRX token, deployed by a wallet ending in
-`KEYRX` at a mint ending in `KEYRX`, on devnet as a systems check, its declaration published on chain
-before the token existed. Sixty-four hex digits of that record's manifest hash on an 8×8 grid, a cell
-lit where the digit is 8 or above — the same rule that draws the seal of every deployment record.
-Anyone can re-derive it:
-
-    curl -sO https://deploy.keyrx.tech/verify.py
-    curl -sO https://deploy.keyrx.tech/records/DH3EVN49g3EazPWfBUkKGc1Qa3JJZiFNKKrywSkKEYRX/manifest.json
-    python3 verify.py hash manifest.json      # sha256 fbd454bd…4b335ac8 — the mark
-
-The CLI prints it above the start screen; `assets/logo.svg` is the source (`assets/make_mark.py`
-generates it from the hash); every raster is cut from that file.
+The mark is a record, sealed on chain: sixty-four hex digits of a hash on an 8×8 grid, a cell lit
+where the digit is 8 or above; the upper half blue, the lower half amber. The CLI prints it above the
+start screen. `assets/logo.svg` is the source (`assets/make_mark.py` draws it from the hash) and every
+raster is cut from that file. What the record is will be said when the time comes.
 
 ## Changelog
 
@@ -141,5 +132,5 @@ generates it from the hash); every raster is cut from that file.
 
 MIT — use it, fork it, ship it, sell it. The code is yours under that licence, and
 with it the look: anyone may build a grinder that frames its panels the same way.
-The **name**, the **mark** (the seal of the first keyRX Deploy launch), and the files under `assets/` are not part of
+The **name**, the **mark**, and the files under `assets/` are not part of
 the grant — see [TRADEMARK.md](TRADEMARK.md) and `assets/LICENSE`. Forks rebrand.

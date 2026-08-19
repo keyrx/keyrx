@@ -3,7 +3,7 @@
 //   PW=<path to playwright> node assets/render_banner.cjs --font /path/JetBrainsMono-Regular.ttf \
 //        --display /path/outfit-600.woff2 --text /path/outfit-400.woff2
 // Writes assets/x-header-1500x500.png and site/og.png (1200x630). Words (the wordmark, the tagline)
-// are set in Outfit - the same face keyRX Deploy uses for everything a person wrote; values and the
+// are set in Outfit; values and the
 // panel stay in JetBrains Mono. The fonts are not committed.
 const fs = require('fs'), path = require('path');
 const { chromium } = require(process.env.PW || 'playwright');
@@ -16,7 +16,7 @@ const TAG = (arg('--tag') || 'Solana vanity addresses\nkeys for every wallet').r
 const MONO_LINE = arg('--mono') || null; // an optional third line in the CLI face, e.g. "cargo install keyrx"
 const OUT = arg('--out') || null;
 // the top band carries the mark's own hash (--no-tape to drop it); two CLI lines sit under the tagline
-// (--no-cmds); --addr swaps them for the flagship deployer's address and how it was ground
+// (--no-cmds); --addr swaps them for the KEYRX address line and how it was ground
 const TAPE = !args.includes('--no-tape'), ADDR = args.includes('--addr'), CMDS = !args.includes('--no-cmds');
 // one band for the three objects: everything is centred on y = 250. The text block is measured (wordmark,
 // tagline lines, the mono lines) and its top set so its middle sits on the band; the mark and the panel
@@ -85,7 +85,7 @@ html,body{margin:0;width:1500px;height:500px;overflow:hidden;background:#091228;
 <div class="mark">${svg}</div>
 <div class="word">key<b>RX</b></div>
 <div class="tag">${TAG}</div>${MONO_LINE ? `<div class="mono">${MONO_LINE}</div>` : ''}
-${TAPE ? `<div class="tape">the mark is a record · sha256 <b>fbd454bdefee923628fcb6f24667b772ea942f176f9c7988b5e2d2264b335ac8</b> · the first keyRX Deploy launch — a devnet systems check, sealed</div>` : ''}
+${TAPE ? `<div class="tape">the mark is a record · sha256 <b>fbd454bdefee923628fcb6f24667b772ea942f176f9c7988b5e2d2264b335ac8</b> · sealed on chain during a devnet systems check</div>` : ''}
 ${ADDR ? `<div class="addr">5VCK9C…VUd29wtK<b>EYRX</b>  one seed · 128 addresses · 14 min</div>` : ''}
 ${CMDS ? `<div class="cmds"><b>$</b> cargo install keyrx
 <b>$</b> keyrx grind --ends-with KEYRX --indices 128</div>` : ''}

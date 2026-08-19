@@ -53,10 +53,10 @@ const B58: &[u8; 58] = b"123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvw
 
 // ---------------------------------------------------------------- CLI
 
-/// The mark above `--help`: the seal of the first keyRX Deploy launch (see ui::SEAL), plain when piped.
+/// The mark above `--help` (see ui::SEAL), plain when piped.
 fn help_seal() -> String {
     let l = ui::seal_lines();
-    format!(" {}  keyRX\n {}\n {}  the mark is a record: the first keyRX Deploy launch, sealed\n {}", l[0], l[1], l[2], l[3])
+    format!(" {}  keyRX\n {}\n {}  the mark is a record, sealed on chain\n {}", l[0], l[1], l[2], l[3])
 }
 
 #[derive(Parser)]

@@ -164,10 +164,9 @@ function group(n){return Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/
 function fmtDur(s){if(!isFinite(s)||s<0)return '--';if(s<90)return Math.round(s)+'s';if(s<5400)return (s/60).toFixed(1)+'m';if(s<172800)return (s/3600).toFixed(1)+'h';return (s/86400).toFixed(1)+'d';}
 
 /* ── masthead ─────────────────────────────────────────────────────────── */
-/* the mark: the seal of the flagship keyRX Deploy record - manifest sha256 of the first keyRX/KEYRX
-   launch (mint DH3EVN…KEYRX, devnet). 64 hex digits on an 8x8 grid, a cell lit where the digit is 8
-   or above; here two grid rows per text line in half-blocks: rows 0-3 cyan, 4-7 amber. Same rule as
-   every record's seal on deploy.keyrx.tech; the same glyph the CLI prints and the site's favicon shows. */
+/* the mark: a seal, sealed on chain. 64 hex digits on an 8x8 grid, a cell lit where the digit is 8
+   or above; here two grid rows per text line in half-blocks: rows 0-3 cyan, 4-7 amber. The same
+   glyph the CLI prints and the site's favicon shows. */
 var SEAL='fbd454bdefee923628fcb6f24667b772ea942f176f9c7988b5e2d2264b335ac8';
 function sealLines(){var out=[];
   for(var p=0;p<4;p++){var s='';for(var c=0;c<8;c++){var t=parseInt(SEAL[p*16+c],16)>=8,b=parseInt(SEAL[p*16+8+c],16)>=8;
@@ -178,7 +177,7 @@ function masthead(right){
   if(MOBILE){var h1='[[c]]▐▌[[/]] '+head;line(' '+h1+' '.repeat(Math.max(1,W-vis(h1)-vis(rt)-2))+rt);}
   else{var sl=sealLines();
     line(' '+sl[0]+'  '+head+' '.repeat(Math.max(1,W-vis(sl[0])-2-vis(head)-vis(rt)-2))+rt);
-    line(' '+sl[1]);line(' '+sl[2]+'  [[f]]the mark is a record: the first keyRX Deploy launch, sealed[[/]]');line(' '+sl[3]);}
+    line(' '+sl[1]);line(' '+sl[2]+'  [[f]]the mark is a record, sealed on chain[[/]]');line(' '+sl[3]);}
   line(' [[f]]'+'━'.repeat(W-2)+'[[/]]');
 }
 
@@ -400,7 +399,7 @@ function fit(){
 var booted=false;
 function rerender(){out.innerHTML='';start();}
 function start(){
-  masthead('v0.2.2');
+  masthead('v0.2.3');
   blank();
   if(MOBILE){line('  [[w]]Solana vanity addresses.[[/]]');line('  [[d]]20-60x faster. Keys for every wallet.[[/]]');}
   else{line('  [[w]]Solana vanity addresses, 20-60x faster than solana-keygen grind[[/]]');

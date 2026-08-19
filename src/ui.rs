@@ -170,10 +170,8 @@ pub fn crit_line(text: &str) -> String {
 }
 
 /// The masthead: ▐▌ keyRX  one mnemonic, unlimited addresses     right-hand note
-/// The mark: the seal of the flagship keyRX Deploy record - the manifest sha256 of the first
-/// keyRX/KEYRX launch (mint DH3EVN…KEYRX, devnet). Sixty-four hex digits on an 8x8 grid, a cell
-/// lit where the digit is 8 or above - the rule that draws the seal of every deployment record on
-/// deploy.keyrx.tech. Two grid rows per text line in half-blocks: rows 0-3 blue, rows 4-7 amber.
+/// The mark: a seal, sealed on chain. Sixty-four hex digits on an 8x8 grid, a cell lit where the
+/// digit is 8 or above. Two grid rows per text line in half-blocks: rows 0-3 blue, rows 4-7 amber.
 /// The same glyph is the site's favicon and the repository's avatar; here it is text.
 pub const SEAL: &str = "fbd454bdefee923628fcb6f24667b772ea942f176f9c7988b5e2d2264b335ac8";
 
@@ -201,7 +199,7 @@ pub fn masthead(right: &str) {
     let gap = (W as isize - vis(&head) as isize - vis(&rt) as isize - 1).max(1) as usize;
     println!("\n{}{}{}", head, " ".repeat(gap), rt);
     println!(" {}", seal[1]);
-    println!(" {}  {}the mark is a record: the first keyRX Deploy launch, sealed{}", seal[2], faint(), r());
+    println!(" {}  {}the mark is a record, sealed on chain{}", seal[2], faint(), r());
     println!(" {}", seal[3]);
     println!(" {}{}{}", faint(), "━".repeat(W - 2), r());
 }

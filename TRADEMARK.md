@@ -9,7 +9,7 @@ trademarks, and nothing here licenses one.
 ## What this covers
 
 - The name **keyRX**, in any capitalisation or spacing
-- The keyRX logo - the seal mark, drawn from the manifest hash of the first keyRX Deploy launch - and any mark used to identify this project
+- The keyRX logo - the seal mark - and any mark used to identify this project
 - The domain **keyrx.tech** and the account **@keyRX**
 - The files under `assets/` — logo, wordmark, banner, favicons. They carry
   their own notice (`assets/LICENSE`) and are **not** part of the MIT grant.

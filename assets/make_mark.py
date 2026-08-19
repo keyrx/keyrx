@@ -1,17 +1,16 @@
 #!/usr/bin/env python3
-"""The keyRX Deploy mark, generated from a record's hash - the SVG is the only source; rasters come from it.
+"""The keyRX mark, generated from a hash - the SVG is the only source; rasters come from it.
 
     python3 assets/make_mark.py <sha256 hex64> [--label "..."] [--out assets/logo.svg]
 
 Sixty-four hex digits on an 8x8 grid, one per cell, row by row; a cell is lit when its digit is 8 or
-above. That is the same rule that draws the seal of every deployment record's manifest, so the mark
-IS a record's seal. Rows 0-3 in the site's blue, rows 4-7 in its amber; each tile a small cylinder,
+above - a seal. Rows 0-3 in the site's blue, rows 4-7 in its amber; each tile a small cylinder,
 one soft shadow under the whole glyph; the glyph inset so nothing falls outside the inscribed circle
 (it survives a round avatar crop on any ground). Stdlib only.
 """
 import argparse, sys
 
-def make(hexhash: str, label: str, title: str = "keyRX Deploy") -> str:
+def make(hexhash: str, label: str, title: str = "keyRX") -> str:
     h = hexhash.strip().lower()
     if len(h) != 64 or any(c not in "0123456789abcdef" for c in h):
         sys.exit("need a 64-char lowercase hex sha256")
@@ -25,8 +24,8 @@ def make(hexhash: str, label: str, title: str = "keyRX Deploy") -> str:
         out.append('    ' + line if line else '')
     out.append('')
     out.append('    Sixty-four hex digits on an 8x8 grid, one per cell, row by row; a cell is')
-    out.append('    lit when its digit is 8 or above - the same rule that draws the seal of')
-    out.append('    every deployment record. The pattern is the truth and never changes; the')
+    out.append('    lit when its digit is 8 or above -')
+    out.append('    a seal. The pattern is the truth and never changes; the')
     out.append('    dressing is free: rows 0-3 in the site\'s blue, rows 4-7 in its amber (the')
     out.append('    two tones keyRX has always used - blue and amber), each tile a small cylinder, one soft shadow')
     out.append('    under the whole glyph, inset inside the inscribed circle. Regenerate with')
@@ -56,9 +55,9 @@ def make(hexhash: str, label: str, title: str = "keyRX Deploy") -> str:
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("sha256")
-    ap.add_argument("--label", default="The seal of a deployment record's manifest.")
+    ap.add_argument("--label", default="A seal of a hash.")
     ap.add_argument("--out", default="assets/logo.svg")
-    ap.add_argument("--title", default="keyRX Deploy")
+    ap.add_argument("--title", default="keyRX")
     a = ap.parse_args()
     svg = make(a.sha256, a.label, a.title)
     with open(a.out, "w", encoding="utf-8") as f:
