@@ -65,20 +65,20 @@ html,body{margin:0;width:1500px;height:500px;overflow:hidden;background:#091228;
   repeating-linear-gradient(0deg, rgba(255,255,255,.016) 0 1px, transparent 1px 4px)}
 .w{position:absolute;opacity:.10;filter:saturate(.4)}
 .w svg{width:100%;height:100%}
-.mark{position:absolute;left:${Math.round(210 - MARK / 2)}px;top:${Math.round(250 - MARK / 2)}px;width:${MARK}px;height:${MARK}px}
+.mark{position:absolute;left:${Math.round(196 - MARK / 2)}px;top:${Math.round(250 - MARK / 2)}px;width:${MARK}px;height:${MARK}px}
 .mark svg{width:100%;height:100%;filter:drop-shadow(0 10px 18px rgba(1,4,14,.6))}
-.word{position:absolute;left:432px;top:${Y_WORD}px;font-family:KXDisplay,sans-serif;font-size:${WORD}px;line-height:1;letter-spacing:-.015em;color:#dbe3f2}
+.word{position:absolute;left:400px;top:${Y_WORD}px;font-family:KXDisplay,sans-serif;font-size:${WORD}px;line-height:1;letter-spacing:-.015em;color:#dbe3f2}
 .word b{font-weight:inherit;color:#c9974f}
-.tag{position:absolute;left:436px;top:${Y_TAG}px;font-family:KXText,sans-serif;font-size:${TAGPX}px;line-height:1.5;color:#8a98b6;white-space:pre}
-.mono{position:absolute;left:438px;top:${Y_MONO}px;font-family:KXMono,monospace;font-size:22px;color:#5aa6c9;white-space:pre}
+.tag{position:absolute;left:404px;top:${Y_TAG}px;font-family:KXText,sans-serif;font-size:${TAGPX}px;line-height:1.5;color:#8a98b6;white-space:pre}
+.mono{position:absolute;left:406px;top:${Y_MONO}px;font-family:KXMono,monospace;font-size:22px;color:#5aa6c9;white-space:pre}
 .panel{position:absolute;left:936px;top:${250 - 148}px;width:490px;height:296px;background:#0e1b3c;border:1px solid #22345f;box-shadow:0 12px 40px rgba(1,4,14,.55)}
 .panel pre{margin:0;padding:12px 0 0 8px;font-size:19px;line-height:31.5px;color:#8a98b6;white-space:pre}
 .b{color:#5aa6c9}.wt{color:#dbe3f2}.am{color:#c9974f}
 .tape{position:absolute;left:0;right:0;top:20px;text-align:center;font-family:KXMono,monospace;font-size:14px;letter-spacing:.02em;color:#3a4a70;white-space:pre}
 .tape b{font-weight:400;color:#4d6390}
-.addr{position:absolute;left:438px;top:${Y_MONO}px;font-family:KXMono,monospace;font-size:19px;color:#5f7196;white-space:pre}
+.addr{position:absolute;left:406px;top:${Y_MONO}px;font-family:KXMono,monospace;font-size:19px;color:#5f7196;white-space:pre}
 .addr b{font-weight:400;color:#c9974f}
-.cmds{position:absolute;left:438px;top:${Y_MONO}px;font-family:KXMono,monospace;font-size:18px;line-height:1.6;color:#5f7196;white-space:pre}
+.cmds{position:absolute;left:406px;top:${Y_MONO}px;font-family:KXMono,monospace;font-size:18px;line-height:1.6;color:#5f7196;white-space:pre}
 .cmds b{font-weight:400;color:#5aa6c9}
 </style></head><body>
 <div class="field"></div>${waters}
