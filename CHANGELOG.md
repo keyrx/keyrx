@@ -2,6 +2,12 @@
 
 All notable changes to keyRX, newest first. Versions are the ones on crates.io.
 
+## 0.3.3 — 2026-08-19
+
+- A TYPICAL SESSION: every row is one line again, command column then note, with at least one column of
+  air before the border (indent 2, gutter 3). The three notes that were trimmed to fit say what they
+  meant. No functional change.
+
 ## 0.3.2 — 2026-08-19
 
 - A TYPICAL SESSION: three notes were a character or two past the frame and clipped (the room
