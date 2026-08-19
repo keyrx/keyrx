@@ -18,6 +18,14 @@ const OUT = arg('--out') || null;
 // the top band carries the mark's own hash (--no-tape to drop it); two CLI lines sit under the tagline
 // (--no-cmds); --addr swaps them for the flagship deployer's address and how it was ground
 const TAPE = !args.includes('--no-tape'), ADDR = args.includes('--addr'), CMDS = !args.includes('--no-cmds');
+// one band for the three objects: everything is centred on y = 250. The text block is measured (wordmark,
+// tagline lines, the mono lines) and its top set so its middle sits on the band; the mark and the panel
+// are centred on it too, so the three read as one row rather than three things that happen to be near.
+const TAGLINES = TAG.split('\n').length, MONO_N = (MONO_LINE ? 1 : 0) + (ADDR ? 1 : 0) + (CMDS ? 2 : 0);
+const H_WORD = WORD, H_TAG = TAGPX * 1.5 * TAGLINES, H_MONO = MONO_N ? MONO_N * 18 * 1.6 : 0;
+const GAP1 = 14, GAP2 = MONO_N ? 16 : 0;
+const H_TEXT = H_WORD + GAP1 + H_TAG + GAP2 + H_MONO;
+const Y_WORD = Math.round(250 - H_TEXT / 2), Y_TAG = Math.round(Y_WORD + H_WORD + GAP1), Y_MONO = Math.round(Y_TAG + H_TAG + GAP2);
 if (!fontPath || !displayPath || !textPath) { console.error('need --font <JetBrains Mono ttf> --display <Outfit 600 woff2> --text <Outfit 400 woff2>'); process.exit(2); }
 const root = path.join(__dirname, '..');
 const svg = fs.readFileSync(path.join(__dirname, 'logo.svg'), 'utf8');
@@ -59,25 +67,25 @@ html,body{margin:0;width:1500px;height:500px;overflow:hidden;background:#091228;
 .w svg{width:100%;height:100%}
 .mark{position:absolute;left:${Math.round(210 - MARK / 2)}px;top:${Math.round(250 - MARK / 2)}px;width:${MARK}px;height:${MARK}px}
 .mark svg{width:100%;height:100%;filter:drop-shadow(0 10px 18px rgba(1,4,14,.6))}
-.word{position:absolute;left:432px;top:${Math.round(250 - WORD * 0.62 - TAGPX * 1.5 - (MONO_LINE ? 22 : 0))}px;font-family:KXDisplay,sans-serif;font-size:${WORD}px;line-height:1;letter-spacing:-.015em;color:#dbe3f2}
+.word{position:absolute;left:432px;top:${Y_WORD}px;font-family:KXDisplay,sans-serif;font-size:${WORD}px;line-height:1;letter-spacing:-.015em;color:#dbe3f2}
 .word b{font-weight:inherit;color:#c9974f}
-.tag{position:absolute;left:436px;top:${Math.round(250 - WORD * 0.62 - TAGPX * 1.5 - (MONO_LINE ? 22 : 0) + WORD * 1.12)}px;font-family:KXText,sans-serif;font-size:${TAGPX}px;line-height:1.5;color:#8a98b6;white-space:pre}
-.mono{position:absolute;left:438px;top:${Math.round(250 - WORD * 0.62 - TAGPX * 1.5 - 22 + WORD * 1.12 + TAGPX * 1.5 * (TAG.split('\n').length) + 14)}px;font-family:KXMono,monospace;font-size:22px;color:#5aa6c9;white-space:pre}
-.panel{position:absolute;left:936px;top:100px;width:490px;height:296px;background:#0e1b3c;border:1px solid #22345f;box-shadow:0 12px 40px rgba(1,4,14,.55)}
+.tag{position:absolute;left:436px;top:${Y_TAG}px;font-family:KXText,sans-serif;font-size:${TAGPX}px;line-height:1.5;color:#8a98b6;white-space:pre}
+.mono{position:absolute;left:438px;top:${Y_MONO}px;font-family:KXMono,monospace;font-size:22px;color:#5aa6c9;white-space:pre}
+.panel{position:absolute;left:936px;top:${250 - 148}px;width:490px;height:296px;background:#0e1b3c;border:1px solid #22345f;box-shadow:0 12px 40px rgba(1,4,14,.55)}
 .panel pre{margin:0;padding:12px 0 0 8px;font-size:19px;line-height:31.5px;color:#8a98b6;white-space:pre}
 .b{color:#5aa6c9}.wt{color:#dbe3f2}.am{color:#c9974f}
-.tape{position:absolute;left:0;right:0;top:20px;text-align:center;font-family:KXMono,monospace;font-size:15px;letter-spacing:.06em;color:#3a4a70;white-space:pre}
+.tape{position:absolute;left:0;right:0;top:20px;text-align:center;font-family:KXMono,monospace;font-size:14px;letter-spacing:.02em;color:#3a4a70;white-space:pre}
 .tape b{font-weight:400;color:#4d6390}
-.addr{position:absolute;left:438px;top:${Math.round(250 - WORD * 0.62 - TAGPX * 1.5 + WORD * 1.12 + TAGPX * 1.5 * TAG.split('\n').length + 22)}px;font-family:KXMono,monospace;font-size:19px;color:#5f7196;white-space:pre}
+.addr{position:absolute;left:438px;top:${Y_MONO}px;font-family:KXMono,monospace;font-size:19px;color:#5f7196;white-space:pre}
 .addr b{font-weight:400;color:#c9974f}
-.cmds{position:absolute;left:438px;top:${Math.round(250 - WORD * 0.62 - TAGPX * 1.5 + WORD * 1.12 + TAGPX * 1.5 * TAG.split('\n').length + 22)}px;font-family:KXMono,monospace;font-size:18px;line-height:1.6;color:#5f7196;white-space:pre}
+.cmds{position:absolute;left:438px;top:${Y_MONO}px;font-family:KXMono,monospace;font-size:18px;line-height:1.6;color:#5f7196;white-space:pre}
 .cmds b{font-weight:400;color:#5aa6c9}
 </style></head><body>
 <div class="field"></div>${waters}
 <div class="mark">${svg}</div>
 <div class="word">key<b>RX</b></div>
 <div class="tag">${TAG}</div>${MONO_LINE ? `<div class="mono">${MONO_LINE}</div>` : ''}
-${TAPE ? `<div class="tape">the mark is a record · sha256 <b>fbd454bdefee923628fcb6f24667b772ea942f176f9c7988b5e2d2264b335ac8</b> · the first keyRX Deploy launch, sealed</div>` : ''}
+${TAPE ? `<div class="tape">the mark is a record · sha256 <b>fbd454bdefee923628fcb6f24667b772ea942f176f9c7988b5e2d2264b335ac8</b> · the first keyRX Deploy launch — a devnet systems check, sealed</div>` : ''}
 ${ADDR ? `<div class="addr">5VCK9C…VUd29wtK<b>EYRX</b>  one seed · 128 addresses · 14 min</div>` : ''}
 ${CMDS ? `<div class="cmds"><b>$</b> cargo install keyrx
 <b>$</b> keyrx grind --ends-with KEYRX --indices 128</div>` : ''}
