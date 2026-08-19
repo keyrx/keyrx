@@ -189,15 +189,29 @@ pub fn seal_lines() -> [String; 8] {
     out
 }
 
+/// The one line, wrapped beside the seal (the seal is 16 columns; the text has the rest).
+pub const ABOUT: [&str; 4] = [
+    "Solana vanity address grinder.",
+    "One seed, unlimited addresses, keys for every wallet.",
+    "Offline. Open. Verified.",
+    "The mark is a record. What it seals comes next.",
+];
+
 pub fn masthead(right: &str) {
     let seal = seal_lines();
-    let name = format!("{}{}keyRX{}  {}vanity addresses, keys for every wallet{}", b(), wht(), r(), gry(), r());
+    let name = format!("{}{}keyRX{}", b(), wht(), r());
     let head = format!(" {}  {}", seal[0], name);
     let rt = format!("{}{}{}", gry(), right, r());
     let gap = (W as isize - vis(&head) as isize - vis(&rt) as isize - 1).max(1) as usize;
     println!("\n{}{}{}", head, " ".repeat(gap), rt);
     for (i, l) in seal.iter().enumerate().skip(1) {
-        if i == 4 { println!(" {}  {}the mark is a record, sealed on chain{}", l, faint(), r()); } else { println!(" {}", l); }
+        match i {
+            1 => println!(" {}  {}{}{}", l, gry(), ABOUT[0], r()),
+            2 => println!(" {}  {}{}{}", l, gry(), ABOUT[1], r()),
+            3 => println!(" {}  {}{}{}", l, gry(), ABOUT[2], r()),
+            5 => println!(" {}  {}{}{}", l, faint(), ABOUT[3], r()),
+            _ => println!(" {}", l),
+        }
     }
     println!(" {}{}{}", faint(), "━".repeat(W - 2), r());
 }
@@ -205,6 +219,12 @@ pub fn masthead(right: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_about_lines_fit_beside_the_seal() {
+        for l in ABOUT { assert!(l.len() <= W - 1 - 16 - 2, "{}", l); }
+        assert_eq!(ABOUT.join(" "), "Solana vanity address grinder. One seed, unlimited addresses, keys for every wallet. Offline. Open. Verified. The mark is a record. What it seals comes next.");
+    }
 
     #[test]
     fn seal_is_eight_lines_of_sixteen_columns_lit_where_the_digit_is_eight_or_more() {

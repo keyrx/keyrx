@@ -2,6 +2,11 @@
 
 All notable changes to keyRX, newest first. Versions are the ones on crates.io.
 
+## 0.2.6 — 2026-08-18
+
+- The one line now sits beside the seal on the start screen and above `--help`, and on the site's
+  masthead. No functional change.
+
 ## 0.2.5 — 2026-08-18
 
 - One line, everywhere: the crate description, `--help`, the README tagline, the site's description

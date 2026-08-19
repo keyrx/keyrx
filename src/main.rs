@@ -58,13 +58,14 @@ fn help_seal() -> String {
     let l = ui::seal_lines();
     let mut out = format!(" {}  keyRX", l[0]);
     for (i, line) in l.iter().enumerate().skip(1) {
-        out.push_str(&format!("\n {}{}", line, if i == 4 { "  the mark is a record, sealed on chain" } else { "" }));
+        let t = match i { 1 => ui::ABOUT[0], 2 => ui::ABOUT[1], 3 => ui::ABOUT[2], 5 => ui::ABOUT[3], _ => "" };
+        out.push_str(&format!("\n {}{}{}", line, if t.is_empty() { "" } else { "  " }, t));
     }
     out
 }
 
 #[derive(Parser)]
-#[command(name = "keyrx", version, about = "Solana vanity address grinder. One seed, unlimited addresses, keys for every wallet. Offline. Open. Verified. The mark is a record. What it seals comes next.", before_help = help_seal())]
+#[command(name = "keyrx", version, about = "Solana BIP39 vanity address grinder", before_help = help_seal())]
 struct Cli {
     #[command(subcommand)]
     cmd: Option<Cmd>,

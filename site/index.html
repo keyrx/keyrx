@@ -172,13 +172,14 @@ var SEAL='fbd454bdefee923628fcb6f24667b772ea942f176f9c7988b5e2d2264b335ac8';
 function sealLines(){var out=[];
   for(var r=0;r<8;r++){var s='';for(var c=0;c<8;c++)s+=parseInt(SEAL[r*8+c],16)>=8?'██':'  ';
     out.push('[['+(r<4?'c':'y')+']]'+s+'[[/]]');}return out;}
+var ABOUT=['Solana vanity address grinder.','One seed, unlimited addresses, keys for every wallet.','Offline. Open. Verified.','The mark is a record. What it seals comes next.'];
 function masthead(right){
-  var head='[[w]]keyRX[[/]]  [[d]]'+(MOBILE?'vanity addresses':'vanity addresses, keys for every wallet')+'[[/]]';
   var rt='[[d]]'+right+'[[/]]';
-  if(MOBILE){var h1='[[c]]▐▌[[/]] '+head;line(' '+h1+' '.repeat(Math.max(1,W-vis(h1)-vis(rt)-2))+rt);}
-  else{var sl=sealLines();
-    line(' '+sl[0]+'  '+head+' '.repeat(Math.max(1,W-vis(sl[0])-2-vis(head)-vis(rt)-2))+rt);
-    for(var i=1;i<8;i++)line(' '+sl[i]+(i===4?'  [[f]]the mark is a record, sealed on chain[[/]]':''));}
+  if(MOBILE){var h1='[[c]]▐▌[[/]] [[w]]keyRX[[/]]  [[d]]vanity addresses[[/]]';line(' '+h1+' '.repeat(Math.max(1,W-vis(h1)-vis(rt)-2))+rt);}
+  else{var sl=sealLines(),h='[[w]]keyRX[[/]]';
+    line(' '+sl[0]+'  '+h+' '.repeat(Math.max(1,W-vis(sl[0])-2-vis(h)-vis(rt)-2))+rt);
+    var side={1:'[[d]]'+ABOUT[0]+'[[/]]',2:'[[d]]'+ABOUT[1]+'[[/]]',3:'[[d]]'+ABOUT[2]+'[[/]]',5:'[[f]]'+ABOUT[3]+'[[/]]'};
+    for(var i=1;i<8;i++)line(' '+sl[i]+(side[i]?'  '+side[i]:''));}
   line(' [[f]]'+'━'.repeat(W-2)+'[[/]]');
 }
 
@@ -400,7 +401,7 @@ function fit(){
 var booted=false;
 function rerender(){out.innerHTML='';start();}
 function start(){
-  masthead('v0.2.5');
+  masthead('v0.2.6');
   blank();
   if(MOBILE){line('  [[w]]Solana vanity addresses.[[/]]');line('  [[d]]20-60x faster. Keys for every wallet.[[/]]');}
   else{line('  [[w]]Solana vanity addresses, 20-60x faster than solana-keygen grind[[/]]');
