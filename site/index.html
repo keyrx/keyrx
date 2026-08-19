@@ -270,7 +270,7 @@ C.what=function(){blank();
 C.install=function(){blank();
   head('INSTALL',MOBILE?'':'Rust 1.85+ · one binary · no dependencies at run time');
   function crow(c,n){
-    if(!MOBILE){row('  [[y]]$[[/]] '+pad(c,44)+(n?'[[d]]# '+n+'[[/]]':''));return;}   // one note column, shell-comment style
+    if(!MOBILE){row('  [[y]]$[[/]] '+pad(c,46)+(n?'[[d]]# '+n+'[[/]]':''));return;}   // one note column, shell-comment style; 46 = the longest command + two spaces, so a # never touches a command
     // phone: the command on its own row (split at a flag boundary if it must), the note beneath as a comment; tap copies the command
     var parts=[],cur='';c.split(' ').forEach(function(w){var nx=cur?cur+' '+w:w;if(vis(nx)>IN-3&&cur){parts.push(cur);cur=w;}else cur=nx;});if(cur)parts.push(cur);
     parts.forEach(function(pt,i){var d=row((i?'   ':' [[y]]$[[/]] ')+'[[y]]'+pt+'[[/]]');
