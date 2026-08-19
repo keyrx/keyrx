@@ -278,7 +278,7 @@ C.install=function(){blank();
     if(n)row('   [[d]]# '+n+'[[/]]');}
   crow('cargo install keyrx && clear && keyrx','then the start screen');
   crow('keyrx verify','run first, always');
-  crow('keyrx bench --indices 128','this machine\'s real rate');
+  crow('keyrx bench --indices 128','this box\'s rate, saved');
   crow('keyrx estimate --ends-with KEYRX --count 10','odds; time to one & ten');
   crow('keyrx grind --ends-with KEYRX --indices 128','the real thing');
   crow('keyrx grind --ends-with KEYRX --count 10','ten of them, one file');
@@ -288,7 +288,7 @@ C.install=function(){blank();
   crow('keyrx grind --ends-with KEYRX --ignore-case','any case, 32x likelier');
   crow('keyrx show','every match file');
   crow('keyrx show KEYRX --keys','one file, keys revealed');
-  crow('keyrx --update','latest, then this screen');
+  crow('keyrx --update','the latest, then this');
   row('');
   if(MOBILE){note('or from source:');note('git clone github.com/keyrx/keyrx');note('cd keyrx');note('RUSTFLAGS="-C target-cpu=native" \\');note('  cargo install --path .');note('# . = the clone you just entered');
     foot('keyrx alone prints the start screen');blank();return;}
