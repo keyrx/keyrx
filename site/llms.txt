@@ -16,16 +16,24 @@ as plain text.
 ## Install
 
     cargo install keyrx && clear && keyrx    # or: git clone https://github.com/keyrx/keyrx && cargo install --path .
-    keyrx verify                 # run first, always: base58, derivation, the pinned solana-keygen answer
+    keyrx verify                 # run first, always: base58, derivation, the pinned solana-keygen answer, the BIP39 passphrase vector
     keyrx bench --indices 128    # this machine's real rate; estimate uses it
+    keyrx estimate --ends-with KEYRX --count 10    # odds; time to one match and to all ten
     keyrx grind --ends-with KEYRX --indices 128
-    keyrx show KEYRX --keys       # base58 (Phantom) + JSON array (Solflare); seeds/keys withheld by default
+    keyrx grind --ends-with KEYRX --count 10       # ten matches, one file
+    keyrx grind --ends-with KEYRX --indices 8      # Phantom by seed: the match is at most 8 "add account" clicks away
+    keyrx grind --ends-with KEYRX --passphrase     # BIP39 passphrase: prompted, hidden, never stored; import that address by key
+    keyrx grind --starts-with Key --ends-with RX   # both ends; --ignore-case for any case (32x likelier for five letters)
+    keyrx show                   # every match file; keyrx show KEYRX --keys reads one (seeds/keys withheld by default)
+    keyrx --update               # cargo install keyrx && clear && keyrx, as one flag
 
 ## What a match writes
 
 Five lines, in a mode-0600 file inside a mode-0700 directory of its own
-(~/.local/share/keyrx/matches/, named after the pattern): address, path,
-seed, privkey (base58 keypair), keypair (JSON byte array). A key import lands
+(~/.local/share/keyrx/matches/, named after the pattern; every printed path
+is a terminal hyperlink that opens the folder): address, path, seed, privkey
+(base58 keypair), keypair (JSON byte array) - and, for a --passphrase grind,
+one line saying so: the seed alone will not reach that address, the keys will. A key import lands
 on the exact address in one paste as a standalone account - the file IS the
 backup. Importing the seed instead places the address inside a recoverable
 HD wallet at the printed path; Phantom reaches account N by N "add account"
