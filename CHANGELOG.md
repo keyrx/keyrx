@@ -2,6 +2,13 @@
 
 All notable changes to keyRX, newest first. Versions are the ones on crates.io.
 
+## 0.3.1 — 2026-08-19
+
+- The start screen's A TYPICAL SESSION panel now shows the variations, each with a one-line note:
+  verify · bench · `estimate --count 10` · grind · `--count 10` · `--indices 8` for Phantom ·
+  `--passphrase` · `--starts-with Key --ends-with RX` · `--ignore-case` · `show` · `show --keys` ·
+  `--update`. The site's INSTALL panel gained the `--passphrase` line. No functional change.
+
 ## 0.3.0 — 2026-08-19
 
 - `grind --passphrase` — a BIP39 passphrase (the "25th word"). Prompted on the terminal, hidden, typed

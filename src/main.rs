@@ -1004,12 +1004,28 @@ fn cmd_start() {
     sub("Repeatable, and combinable: --starts-with Key --ends-with RX");
     println!("{}", ui::bot("estimate first: it prints the odds for THIS machine"));
 
-    println!("{}", ui::top("A TYPICAL SESSION", ""));
-    cmd("keyrx verify");
-    cmd("keyrx bench --indices 128");
-    cmd("keyrx estimate --ends-with KEYRX");
-    cmd("keyrx grind --ends-with KEYRX --indices 128");
-    cmd("keyrx show KEYRX --keys");
+    println!("{}", ui::top("A TYPICAL SESSION", "and the variations, in the order you reach for them"));
+    // command, then a grey note: beside it when the row has room, beneath it when not
+    let step = |c: &str, n: &str| {
+        if 4 + c.chars().count() + 3 + n.chars().count() <= ui::IN {
+            println!("{}", ui::mid(&format!("    {}{:<44}{}   {}# {}{}", ui::accent(), c, ui::r(), ui::gry(), n, ui::r())));
+        } else {
+            cmd(c);
+            println!("{}", ui::mid(&format!("    {}# {}{}", ui::gry(), n, ui::r())));
+        }
+    };
+    step("keyrx verify", "once per machine");
+    step("keyrx bench --indices 128", "this box's rate, saved");
+    step("keyrx estimate --ends-with KEYRX --count 10", "odds; time to one & ten");
+    step("keyrx grind --ends-with KEYRX --indices 128", "the real thing");
+    step("keyrx grind --ends-with KEYRX --count 10", "ten of them, one file");
+    step("keyrx grind --ends-with KEYRX --indices 8", "Phantom: 8 clicks max");
+    step("keyrx grind --ends-with KEYRX --passphrase", "a 25th word, prompted");
+    step("keyrx grind --starts-with Key --ends-with RX", "both ends at once");
+    step("keyrx grind --ends-with KEYRX --ignore-case", "any case, 32x likelier");
+    step("keyrx show", "every match file");
+    step("keyrx show KEYRX --keys", "one file, keys revealed");
+    step("keyrx --update", "latest, then this screen");
     blank();
     println!("{}", ui::warn_line("import and verify the address BEFORE funding."));
     println!("{}", ui::warn_line("the match file holds seed and keys. Treat it like a key - it is one."));
