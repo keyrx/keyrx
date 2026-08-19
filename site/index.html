@@ -265,9 +265,13 @@ C.what=function(){blank();
   blank();};
 C.install=function(){blank();
   head('INSTALL',MOBILE?'':'Rust 1.85+ · one binary · no dependencies at run time');
-  if(MOBILE){prose('d','Three lines, each copyable:');row('');foot('');
-    line('  [[y]]cargo install keyrx && clear && keyrx[[/]]','cmd');line('  [[y]]keyrx verify[[/]]','cmd');line('  [[y]]keyrx grind --ends-with KEYRX --indices 128[[/]]','cmd');blank();return;}
-  function crow(c,n){row('  [[y]]$[[/]] '+pad(c,44)+(n?'[[d]]# '+n+'[[/]]':''));}   // one note column, shell-comment style, whatever the command's length
+  function crow(c,n){
+    if(!MOBILE){row('  [[y]]$[[/]] '+pad(c,44)+(n?'[[d]]# '+n+'[[/]]':''));return;}   // one note column, shell-comment style
+    // phone: the command on its own row (split at a flag boundary if it must), the note beneath as a comment; tap copies the command
+    var parts=[],cur='';c.split(' ').forEach(function(w){var nx=cur?cur+' '+w:w;if(vis(nx)>IN-3&&cur){parts.push(cur);cur=w;}else cur=nx;});if(cur)parts.push(cur);
+    parts.forEach(function(pt,i){var d=row((i?'   ':' [[y]]$[[/]] ')+'[[y]]'+pt+'[[/]]');
+      if(d&&d.getElementsByTagName){var b=d.getElementsByTagName('b');for(var k=0;k<b.length;k++){if(b[k].textContent===pt){b[k].className='y cmdcopy';b[k].setAttribute('data-cmd',c);b[k].title='tap to copy';break;}}}});
+    if(n)row('   [[d]]# '+n+'[[/]]');}
   crow('cargo install keyrx && clear && keyrx','then the start screen');
   crow('keyrx verify','run first, always');
   crow('keyrx bench --indices 128','this machine\'s real rate');
@@ -275,6 +279,8 @@ C.install=function(){blank();
   crow('keyrx grind --ends-with KEYRX --indices 128','');
   crow('keyrx show KEYRX --keys','base58 + JSON array');
   row('');
+  if(MOBILE){note('or from source:');note('git clone github.com/keyrx/keyrx');note('cd keyrx');note('RUSTFLAGS="-C target-cpu=native" \\');note('  cargo install --path .');note('# . = the clone you just entered');
+    foot('keyrx alone prints the start screen');blank();return;}
   note('or from source:  git clone https://github.com/keyrx/keyrx && cd keyrx');
   note('                 RUSTFLAGS="-C target-cpu=native" cargo install --path .');
   note('                 # . = the clone you just entered · tuned to this CPU');
@@ -429,11 +435,12 @@ function installBox(){
   var d=row(' '.repeat(padn)+'[[y]]'+INSTALL+'[[/]]');
   if(d&&d.getElementsByTagName){var b=d.getElementsByTagName('b');for(var i=0;i<b.length;i++){if(b[i].textContent===INSTALL){b[i].className='y inst';b[i].title='click to copy';break;}}}
   row('');
-  if(MOBILE){row('  [[w]]Solana vanity addresses.[[/]]');row('  [[d]]20-60x faster. Keys for every wallet.[[/]]');}
+  if(MOBILE){wrapWords('Solana vanity addresses, 20-60x faster than solana-keygen grind',IN-4).forEach(function(l){row('  [[w]]'+l+'[[/]]');});
+    wrapWords('- and every match hands you the seed, the path, and the keypair in both wallet-import forms. One Rust binary. No daemon, no network.',IN-4).forEach(function(l){row('  [[d]]'+l+'[[/]]');});}
   else{row('  [[w]]Solana vanity addresses, 20-60x faster than solana-keygen grind[[/]]');
        row('  [[d]]- and every match hands you the seed, the path, and the keypair in[[/]]');
        row('  [[d]]both wallet-import forms. One Rust binary. No daemon, no network.[[/]]');}
-  foot(MOBILE?'tap the line to copy it':'click the line to copy it · Rust 1.85+ · MIT');
+  foot(MOBILE?'tap to copy · Rust 1.85+ · MIT':'click the line to copy it · Rust 1.85+ · MIT');
 }
 function start(){
   masthead('v0.2.9');
@@ -441,7 +448,7 @@ function start(){
   blank();
   head('START',MOBILE?'':'the whole tool, in one line each');
   kva('grind X',MOBILE?'try it here, live':'try it here, live - a real grind in this tab');
-  kva('install',MOBILE?'three lines':'three lines to your machine');
+  kva('install',MOBILE?'to your machine':'the six commands, in order');
   kva('what',MOBILE?'the idea':'the idea, and THE 128');
   kva('match',MOBILE?'the file it writes':'the five lines a match writes');
   kva('wallets',MOBILE?'which route':'Phantom, Solflare, any - which flags');
