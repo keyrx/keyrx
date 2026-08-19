@@ -148,8 +148,9 @@ function foot(n){row('');
 function bar(p,w){var full=Math.round(p/100*w),col=p>=90?'r':p>=70?'y':p>=1?'g':'f';
   if(p>0)full=Math.max(1,full);var cap=(full>0&&full<w)?'▌':'';
   return '[['+col+']]'+'█'.repeat(full)+cap+'[[/]][[f]]'+'░'.repeat(w-full-cap.length)+'[[/]]';}
-function kv(k,v){
-  var kw=MOBILE?9:11;
+function kv(k,v,w){
+  var kw=w||(MOBILE?9:11);
+  if(vis(k)>=kw)kw=vis(k)+2;   // a key that fills the column pushes the value over: never jam them together
   if(vis(k)+vis(v)+2<=IN-2){row('  [[d]]'+pad(k,kw)+'[[/]][[w]]'+v+'[[/]]');return;}
   // too long for one row: key, then the value wrapped beneath
   row('  [[d]]'+k+'[[/]]');
@@ -255,8 +256,8 @@ C.what=function(){blank();
   if(!MOBILE){
     head('THE 128','what --indices means and why it matters');
     prose('d','One seed phrase is a TREE of addresses, not one address. Wallets number the branches: account 0, 1, 2 ... - the N\' in m/44\'/501\'/N\'/0\'. Turning a phrase into the tree\'s root costs ~1.2 ms; stepping to the next branch ~21 us. --indices is how many branches you check per phrase:');row('');
-    kv('--indices 8','1.2 ms + 8 x 21 us    =   8 candidates per ~1.4 ms');
-    kv('--indices 128','1.2 ms + 128 x 21 us  = 128 candidates per ~3.9 ms');
+    kv('--indices 8','1.2 ms + 8 x 21 us    =   8 candidates per ~1.4 ms',15);
+    kv('--indices 128','1.2 ms + 128 x 21 us  = 128 candidates per ~3.9 ms',15);
     row('');
     prose('d','The match lands on ANY branch you checked. That only matters if you import the SEED: Solflare takes the path, Phantom clicks "add account" N times. Import the KEY instead and the index never matters - grind wide.');
     foot('Private key: --indices 128  ·  Seed into Phantom: --indices 8');
@@ -266,7 +267,7 @@ C.install=function(){blank();
   head('INSTALL',MOBILE?'':'Rust 1.85+ · one binary · no dependencies at run time');
   if(MOBILE){prose('d','Three lines, each copyable:');row('');foot('');
     line('  [[y]]cargo install keyrx && clear && keyrx[[/]]','cmd');line('  [[y]]keyrx verify[[/]]','cmd');line('  [[y]]keyrx grind --ends-with KEYRX --indices 128[[/]]','cmd');blank();return;}
-  function crow(c,n){row('  [[y]]$[[/]] '+pad(c,44)+(n?'[[d]]'+n+'[[/]]':''));}   // one note column, whatever the command's length
+  function crow(c,n){row('  [[y]]$[[/]] '+pad(c,44)+(n?'[[d]]# '+n+'[[/]]':''));}   // one note column, shell-comment style, whatever the command's length
   crow('cargo install keyrx && clear && keyrx','then the start screen');
   crow('keyrx verify','run first, always');
   crow('keyrx bench --indices 128','this machine\'s real rate');
@@ -276,6 +277,7 @@ C.install=function(){blank();
   row('');
   note('or from source:  git clone https://github.com/keyrx/keyrx && cd keyrx');
   note('                 RUSTFLAGS="-C target-cpu=native" cargo install --path .');
+  note('                 # . = the clone you just entered · tuned to this CPU');
   foot('keyrx (the command) alone prints a start screen that explains every flag');blank();};
 C.match=function(){blank();
   head('WHAT A MATCH WRITES',MOBILE?'':'five lines, mode 0600, in a directory of their own');
