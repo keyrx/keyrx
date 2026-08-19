@@ -2,6 +2,11 @@
 
 All notable changes to keyRX, newest first. Versions are the ones on crates.io.
 
+## 0.3.2 — 2026-08-19
+
+- A TYPICAL SESSION: three notes were a character or two past the frame and clipped (the room
+  check counted the gutter wrong). Every note now ends inside the border. No functional change.
+
 ## 0.3.1 — 2026-08-19
 
 - The start screen's A TYPICAL SESSION panel now shows the variations, each with a one-line note:
