@@ -2,6 +2,14 @@
 
 All notable changes to keyRX, newest first. Versions are the ones on crates.io.
 
+## 0.3.4 — 2026-08-20
+
+- Release hygiene, no change to the binary: from this release on, publishing yanks the release
+  before it (and anything listed in `ops/yank.txt`: 0.3.0, 0.3.1, 0.3.2 go with this one), so a
+  fresh `cargo install keyrx` can only land on the newest. A yank never deletes a version or breaks
+  an existing install or lockfile; it only stops new installs of a superseded one. If you pinned an
+  old version on purpose, `keyrx --update` brings you forward.
+
 ## 0.3.3 — 2026-08-19
 
 - A TYPICAL SESSION: every row is one line again, command column then note, with at least one column of

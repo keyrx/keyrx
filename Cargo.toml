@@ -1,6 +1,6 @@
 [package]
 name = "keyrx"
-version = "0.3.3"
+version = "0.3.4"
 edition = "2021"
 rust-version = "1.85"
 description = "Solana vanity address grinder. One seed, unlimited addresses, keys for every wallet. Offline. Open. Verified. The mark is a record. What it seals comes next."

@@ -121,6 +121,9 @@ overrides. `keyrx show` lists the files; `keyrx show KEYRX` reads one
 
 ## Known behaviour (unchanged from the reference, by instruction)
 
+Superseded releases are yanked on crates.io when a new one publishes (never deleted; an
+existing install keeps working). `keyrx --update` keeps you on the newest.
+
 `--count N` may return slightly more than N matches: several threads can
 hit before the stop flag propagates. Every extra match is written and
 valid. Phantom walks account indices sequentially when adding accounts, so
