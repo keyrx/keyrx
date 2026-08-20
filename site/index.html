@@ -352,26 +352,28 @@ C.wallets=function(){blank();
   prose('d','slower per candidate - a prefix needs the whole address encoded, a suffix only its last N characters. Same odds per letter. Combinable: --starts-with Key --ends-with RX.');
   foot('estimate first: it prints the odds for YOUR machine');blank();};
 C.evm=function(){blank();
-  head('EVM',MOBILE?'':'Ethereum, Base, Arbitrum, Polygon, BNB: one key for all · 0.4.0');
-  prose('d','--chain evm grinds a 0x address - forty hex digits - the same way keyRX grinds a Solana one: one seed phrase, the expensive step once, then the tree walked. secp256k1 in the BIP44 tree at m/44\'/60\'/0\'/0/N, the path MetaMask, Rabby, Ledger Live and Trezor Suite all walk; the address is keccak-256 of the public key, written in EIP-55 case. One key is every EVM chain.');row('');
+  head('EVM',MOBILE?'':'Ethereum, Base, Arbitrum, Polygon, BNB: one key for all');
+  // the CLI's EVM panel, row for row: a key column of 16 and values that fit beside it; on
+  // the phone each key heads a short paragraph instead, because nothing fits beside anything
+  function L(k,lines){if(MOBILE){if(k)row('  [[w]]'+k+'[[/]]');prose('d',lines.join(' '));}else{lines.forEach(function(l,i){kv(i?'':k,l,16);});}}
+  L('--chain evm',['a 0x address: forty hex digits. secp256k1 in the BIP44','tree at m/44\'/60\'/0\'/0/N - the path MetaMask, Rabby,','Ledger Live, Trezor Suite walk. One key, every chain.']);row('');
+  L('patterns',['0-9 and a-f. Matched in ANY case by default: hex has','no case of its own. 0x is allowed in front of a prefix.']);
+  L('--checksum',['the letters must ALSO come out in EIP-55 case exactly','as you typed them. Each letter halves the odds: rarer,','and it shows. estimate prints both numbers.']);row('');
+  L('import',['MetaMask/Rabby: Import account -> Private key, paste','the 0x hex in the file - exact address, standalone.','Or the seed, then \'add account\' N times (account N+1).']);row('');
+  L('files',['matches/evm/<pattern>.txt  ·  keyrx show evm/<pattern>']);
+  L('measured',['333,501 addresses/sec on 28 threads (11,911 per thread);','six hex in under a minute, eight in hours. bench yours.']);
+  L('verify',['the abandon mnemonic, EIP-55\'s examples, private key 1,','and the test seed against an independent implementation.']);row('');
   function crow(c,n){
     if(!MOBILE){row('  [[y]]$[[/]] '+pad(c,46)+(n?'[[d]]# '+n+'[[/]]':''));return;}
     var parts=[],cur='';c.split(' ').forEach(function(w){var nx=cur?cur+' '+w:w;if(vis(nx)>IN-3&&cur){parts.push(cur);cur=w;}else cur=nx;});if(cur)parts.push(cur);
     parts.forEach(function(pt,i){var d=row((i?'   ':' [[y]]$[[/]] ')+'[[y]]'+pt+'[[/]]');
       if(d&&d.getElementsByTagName){var b=d.getElementsByTagName('b');for(var k=0;k<b.length;k++){if(b[k].textContent===pt){b[k].className='y cmdcopy';b[k].setAttribute('data-cmd',c);b[k].title='tap to copy';break;}}}});
     if(n)row('   [[d]]# '+n+'[[/]]');}
-  crow('keyrx bench --chain evm','this box\'s EVM rate, saved');
+  crow('keyrx bench --chain evm','the EVM rate, saved');
   crow('keyrx estimate --chain evm --ends-with dead','odds; hex, any case');
   crow('keyrx grind --chain evm --ends-with dead','0x…dead, MetaMask/Rabby');
-  crow('keyrx grind --chain evm --ends-with DeAd --checksum','EIP-55 case as typed');
+  crow('keyrx grind --chain evm --ends-with DeAd','add --checksum: DeAd');
   crow('keyrx show evm/dead --keys','the 0x hex private key');
-  row('');
-  kv('patterns',MOBILE?'0-9 a-f, any case':'0-9 and a-f, matched in ANY case by default: hex has no case of its own. 0x may lead a prefix.',11);
-  kv('--checksum',MOBILE?'EIP-55 case as typed':'the letters must ALSO land in EIP-55 case as typed - a coin flip per letter; estimate prints both.',11);
-  kv('import',MOBILE?'MetaMask/Rabby: key':'MetaMask/Rabby: Import account -> Private key, paste the 0x hex - the exact address on every chain.',11);
-  kv('files',MOBILE?'matches/evm/':'matches/evm/<pattern>.txt - four lines; keyrx show evm/<pattern> reads one.',11);
-  kv('measured',MOBILE?'333,501/s on 28 thr':'333,501 addresses/sec on a 28-thread desktop (11,911 per thread); six hex in under a minute, eight in hours.',11);
-  kv('verify',MOBILE?'pinned, independent':'the abandon mnemonic, EIP-55\'s examples, private key 1, and the test seed against an independent implementation.',11);
   foot('the 25th word, --count, --out, --words work the same on both chains');blank();};
 C.verified=function(){blank();
   head('VERIFIED',MOBILE?'':'not asserted - proven, on 2026-08-16, and pinned as tests');
