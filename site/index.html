@@ -115,7 +115,7 @@ keyrx grind --ends-with KEYRX --indices 128</pre>
 /* The version the masthead shows. It must equal Cargo.toml's - a cargo test reads this
    file and fails the publish if the two ever drift (John, 2026-08-19: "always updated
    together"). The only place on the site a version is written. */
-var VERSION='0.4.3';
+var VERSION='0.4.4';
 var out=document.getElementById('out'),scr=document.getElementById('scr'),
     inp=document.getElementById('in'),prom=document.getElementById('prompt'),
     sr=document.getElementById('sr');
@@ -334,7 +334,7 @@ C.wallets=function(){blank();
       if(d&&d.getElementsByTagName){var b=d.getElementsByTagName('b');for(var k=0;k<b.length;k++){if(b[k].textContent===pt){b[k].className='c cmdcopy';b[k].setAttribute('data-cmd',c);b[k].title='tap to copy';break;}}}});}
   wal('Any wallet','key import - simplest, exact address');
   cmd('keyrx grind --ends-with KEYRX --indices 128');
-  prose('d','keyrx show KEYRX --keys: base58 for Phantom, JSON array for Solflare. Standalone; keep the file.');row('');
+  prose('d','keyrx show KEYRX --keys: base58 for Phantom, JSON array for Solflare. Standalone; keep the file. A wallet must exist first (any seed; it never sees this key): the key import ADDS an account.');row('');
   wal('Phantom','by seed - inside a recoverable HD wallet');
   cmd('keyrx grind --ends-with KEYRX --words 12 --indices 8');
   prose('d','import the 12 words, then "add account" until the address shows (0-7 clicks). ~4x slower to find.');row('');
@@ -346,7 +346,7 @@ C.wallets=function(){blank();
   prose('d','prompted, hidden, never stored. The seed alone will not reach that address; the privkey will, and most browser wallets have no passphrase field on seed import anyway.');row('');
   wal('EVM','MetaMask, Rabby, Ledger Live - one key, every EVM chain');
   cmd('keyrx grind --chain evm --ends-with dead');
-  prose('d','hex, any case by default (hex has none of its own); 0x may lead a prefix. The match file carries the 0x hex private key: MetaMask/Rabby Import account -> Private key, the exact address on every chain. --checksum: the letters must also land in EIP-55 case as typed - each letter halves the odds; estimate prints both.');row('');
+  prose('d','hex, any case by default (hex has none of its own); 0x may lead a prefix. The match file carries the 0x hex private key. MetaMask/Rabby: a wallet must exist first (any seed; it never sees this key), then account menu -> Import account -> Private key: the exact address on every EVM chain, including any network you add. Or import THIS seed as the wallet and "add account" N times. --checksum: the letters must also land in EIP-55 case as typed - each letter halves the odds; estimate prints both.');row('');
   wal('Prefix','the address STARTS with your letters');
   cmd('keyrx grind --starts-with Key --indices 128');
   prose('d','slower per candidate - a prefix needs the whole address encoded, a suffix only its last N characters. Same odds per letter. Combinable: --starts-with Key --ends-with RX.');
@@ -359,7 +359,7 @@ C.evm=function(){blank();
   L('--chain evm',['a 0x address: forty hex digits. secp256k1 in the BIP44','tree at m/44\'/60\'/0\'/0/N - the path MetaMask, Rabby,','Ledger Live, Trezor Suite walk. One key, every chain.']);row('');
   L('patterns',['0-9 and a-f. Matched in ANY case by default: hex has','no case of its own. 0x is allowed in front of a prefix.']);
   L('--checksum',['the letters must ALSO come out in EIP-55 case exactly','as you typed them. Each letter halves the odds: rarer,','and it shows. estimate prints both numbers.']);row('');
-  L('import',['MetaMask/Rabby: Import account -> Private key, paste','the 0x hex in the file - exact address, standalone.','Or the seed, then \'add account\' N times (account N+1).']);row('');
+  L('import',['MetaMask/Rabby: a wallet must exist first (any seed; it','never sees this key). Then account menu -> Import account','-> Private key -> the 0x hex: this address, every chain.','Or import THIS seed as the wallet, then \'add account\' N','times: account N+1 is this one.']);row('');
   L('files',['matches/evm/<pattern>.txt  ·  keyrx show evm/<pattern>']);
   L('measured',['333,501 addresses/sec on 28 threads (11,911 per thread);','six hex in under a minute, eight in hours. bench yours.']);
   L('verify',['the abandon mnemonic, EIP-55\'s examples, private key 1,','and the test seed against an independent implementation.']);row('');

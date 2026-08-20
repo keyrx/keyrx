@@ -121,7 +121,10 @@ restores the whole tree), `privkey` (the base58 64-byte keypair - what
 **Phantom "Import Private Key"** pastes) and `keypair` (the same 64 bytes as a
 JSON array `[1,2,...]` - what **Solflare** and `solana-keygen` import). A key
 import lands on the exact address in one paste as a standalone account - the
-index never matters, so grind wide (`--indices 128`). Standalone means a seed
+index never matters, so grind wide (`--indices 128`). One thing every wallet
+hides: a fresh Phantom or MetaMask insists on a seed phrase first and only then
+offers an import; the wallet must exist (any seed, it never sees this key), and
+the key import ADDS an account to it. Standalone means a seed
 will not recover it: the match file *is* the backup. Verified both ways: a
 ground base58 key converted to bytes, and the JSON line copied verbatim, each
 fed to `solana-keygen pubkey` print the identical address.
@@ -151,9 +154,11 @@ per letter, and `estimate` prints both numbers.
 
 A match writes four lines under `matches/evm/<pattern>.txt`: `address`
 (EIP-55), `path`, `seed`, and `privkey` as the `0x` hex every EVM wallet
-imports. **MetaMask / Rabby:** Import account → Private key, paste it: the
-exact address, standalone, on every chain. Or import the seed and "add
-account" N times (account N+1). `keyrx show` lists EVM files as
+imports. **MetaMask / Rabby:** a wallet must exist first (any seed; it never
+sees this key); then account menu → Import account → Private key, paste it: the
+exact address, standalone, on every EVM chain, including any network you add to
+the wallet. Or import THIS seed as the wallet and "add account" N times
+(account N+1 is the one). `keyrx show` lists EVM files as
 `evm/<pattern>`; `keyrx show evm/dead --keys` reads one. `--passphrase`,
 `--count`, `--out`, `--words` work the same on both chains; `--path` is
 Solana-only.

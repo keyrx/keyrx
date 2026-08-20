@@ -2,6 +2,15 @@
 
 All notable changes to keyRX, newest first. Versions are the ones on crates.io.
 
+## 0.4.4 — 2026-08-21
+
+- Import steps said plainly, on both chains: a fresh Phantom or MetaMask insists on a seed phrase
+  first and only then offers a private-key import, so every place that says "import the key" now
+  says "a wallet must exist first (any seed; it never sees this key), then the key import ADDS an
+  account"; and the seed route says "import THIS seed as the wallet, then 'add account' N times:
+  account N+1 is the one". MATCH panel, import hints, the EVM panel, THE 128, RECIPES, README and
+  the site's WALLETS and EVM sections. No functional change.
+
 ## 0.4.3 — 2026-08-21
 
 - A TYPICAL SESSION: every row is one line again. The `--checksum` example was the one command

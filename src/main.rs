@@ -768,19 +768,19 @@ fn path_for(chain: Chain, style: PathStyle, idx: u32) -> String {
 fn import_hint(chain: Chain, style: PathStyle, idx: u32) -> Vec<String> {
     if chain == Chain::Evm {
         return if idx == 0 {
-            vec!["Seed:     MetaMask, Rabby, Ledger Live - this is the FIRST account".to_string()]
+            vec!["Seed:     or THIS seed as the wallet - this is its FIRST account".to_string()]
         } else {
-            vec![format!("Seed:     MetaMask/Rabby: 'add account' {} time(s) = account #{}", idx, idx + 1)]
+            vec![format!("Seed:     or THIS seed as the wallet, 'add account' {}x = account #{}", idx, idx + 1)]
         };
     }
     match style {
         PathStyle::Phantom => {
             if idx == 0 {
-                vec!["Seed:     Phantom or Solflare - this is the FIRST account".to_string()]
+                vec!["Seed:     or THIS seed as the wallet (Phantom, Solflare) - its FIRST account".to_string()]
             } else {
                 vec![
-                    format!("Seed:     Solflare custom path {}", path_str(style, idx)),
-                    format!("          Phantom via seed = 'add account' {} time(s) (account #{})", idx, idx + 1),
+                    format!("Seed:     or THIS seed as the wallet - Solflare path {}", path_str(style, idx)),
+                    format!("          Phantom: 'add account' {}x = account #{}", idx, idx + 1),
                 ]
             }
         }
@@ -1170,9 +1170,11 @@ fn cmd_start() {
     println!("{}", cont("as you typed them. Each letter halves the odds: rarer,"));
     println!("{}", cont("and it shows. estimate prints both numbers."));
     blank();
-    println!("{}", kvw("import", "MetaMask/Rabby: Import account -> Private key, paste"));
-    println!("{}", cont("the 0x hex in the file - exact address, standalone."));
-    println!("{}", cont("Or the seed, then 'add account' N times (account N+1)."));
+    println!("{}", kvw("import", "MetaMask/Rabby: a wallet must exist first (any seed; it"));
+    println!("{}", cont("never sees this key). Then: account menu -> Import"));
+    println!("{}", cont("account -> Private key -> the 0x hex: this address,"));
+    println!("{}", cont("every chain. Or import THIS seed as the wallet, then"));
+    println!("{}", cont("'add account' N times: account N+1 is this one."));
     blank();
     println!("{}", kvw("files", "matches/evm/<pattern>.txt  ·  keyrx show evm/<pattern>"));
     println!("{}", kvw("rate", "keyrx bench --chain evm. secp256k1 costs more per"));
@@ -1223,8 +1225,8 @@ fn cmd_start() {
     println!("{}", n("clicking 'add account' 97 times."));
     blank();
     println!("{}", n("Or skip the tree entirely: every match also writes its PRIVATE KEY,"));
-    println!("{}", n("and Phantom's 'Import Private Key' lands on the address in one"));
-    println!("{}", n("paste, standalone. Then the index never matters - grind wide."));
+    println!("{}", n("and Phantom's 'Import Private Key' (once a wallet exists) lands on the"));
+    println!("{}", n("address in one paste, standalone. The index never matters - grind wide."));
     blank();
     head("Private key: --indices 128  ·  Seed into Phantom: --indices 8");
     blank();
@@ -1266,6 +1268,7 @@ fn cmd_start() {
     cmd("keyrx grind --ends-with KEYRX --indices 128");
     sub("keyrx show KEYRX --keys: base58 for Phantom, JSON array for");
     sub("Solflare. Standalone; keep the file - a seed will not recover it.");
+    sub("A wallet must exist first (any seed); the key import ADDS an account.");
     blank();
     wal("Phantom", "by seed - the address inside a recoverable HD wallet");
     cmd("keyrx grind --ends-with KEYRX --words 12 --indices 8");
@@ -1290,7 +1293,8 @@ fn cmd_start() {
     wal("EVM", "MetaMask, Rabby, Ledger Live - one key, every EVM chain");
     cmd("keyrx grind --chain evm --ends-with dead --indices 128");
     sub("hex, any case: 0x...dead, 0x...DEAD, 0x...DeAd all count. keyrx show");
-    sub("evm/dead --keys: the 0x hex for MetaMask/Rabby Import account.");
+    sub("evm/dead --keys: the 0x hex. MetaMask/Rabby need a wallet first;");
+    sub("then account menu -> Import account -> Private key: an added account.");
     blank();
     wal("EVM, EIP-55", "the letters land in checksum case exactly as typed");
     cmd("keyrx grind --chain evm --ends-with DeAd --checksum");
@@ -1830,14 +1834,17 @@ fn cmd_grind(
                         Chain::Sol => {
                             println!("{}", ui::kv("keys", &format!("-> {}   base58 + JSON array (show --keys)", out_link(&out))));
                             println!("{}", ui::mid(""));
-                            println!("{}", ui::note("Key:      Phantom pastes the base58 · Solflare imports the JSON array"));
+                            println!("{}", ui::note("Key:      Phantom: a wallet must exist first (any seed; it never sees"));
+                            println!("{}", ui::note("          this key). Then: menu -> Add/Connect Wallet -> Import Private"));
+                            println!("{}", ui::note("          Key -> paste the base58. Solflare: import the JSON keypair."));
                             println!("{}", ui::note("          -> this exact address, standalone, no clicks"));
                         }
                         Chain::Evm => {
                             println!("{}", ui::kv("key", &format!("-> {}   hex private key (show --keys)", out_link(&out))));
                             println!("{}", ui::mid(""));
-                            println!("{}", ui::note("Key:      MetaMask/Rabby: Import account -> Private key: the 0x hex"));
-                            println!("{}", ui::note("          -> this exact address on every EVM chain, standalone"));
+                            println!("{}", ui::note("Key:      MetaMask/Rabby: a wallet must exist first (any seed; it never"));
+                            println!("{}", ui::note("          sees this key). Then: account menu -> Import account ->"));
+                            println!("{}", ui::note("          Private key -> paste the 0x hex: this address, every chain"));
                         }
                     }
                     for l in import_hint(h.chain, style, h.index) { println!("{}", ui::note(&l)); }
