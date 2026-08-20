@@ -35,6 +35,7 @@ jobs:
           fail=0
           for v in $WANT; do
             echo "yanking keyrx $v"
-            cargo yank --vers "$v" || { echo "::error::crates.io refused to yank $v - see the line above (is the token an OWNER's, scoped yank on keyrx?)"; fail=1; }
+            # the crate is NAMED: this job checks nothing out, so there is no Cargo.toml to infer it from
+            cargo yank keyrx --vers "$v" || { echo "::error::crates.io refused to yank $v - see the line above (is the token an OWNER's, scoped yank on keyrx?)"; fail=1; }
           done
           exit $fail
