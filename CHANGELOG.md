@@ -2,6 +2,19 @@
 
 All notable changes to keyRX, newest first. Versions are the ones on crates.io.
 
+## 0.4.1 — 2026-08-21
+
+- The full EVM pass on the start screen: COMMANDS names both chains and the per-chain `bench`;
+  THE 128 says what a branch costs on secp256k1 and why `--indices` buys less there; WHAT A MATCH
+  WRITES carries the EVM four-line block as rows; RECIPES gains EVM (key import) and EVM EIP-55
+  (`--checksum`); A TYPICAL SESSION gains `bench --chain evm` and `show evm/dead --keys`; `verify`
+  and `show` help texts name both chains; `estimate --chain evm` without a bench says what its model
+  is anchored to. DONATE gains an EVM address slot, empty until the ground wallet is set and shown
+  only then; the ask reads "a Sol or two, or some ETH". No change to grinding, matching, or files.
+- keyrx.tech: F8 is EVM (GitHub and X move to F9 and F10), with an EVM section carrying the session
+  commands, the measured numbers and the verify line; THE 128 and WHAT A MATCH WRITES carry the EVM
+  lines; DONATE has the same slot with click-to-copy for either address.
+
 ## 0.4.0 — 2026-08-20
 
 - **`--chain evm`**: Ethereum and every EVM chain (Base, Arbitrum, Optimism, Polygon, BNB, Avalanche
