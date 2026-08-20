@@ -19,8 +19,10 @@
 a 13-hour median. keyRX: 13 minutes, a match.** Same machine, same odds - measured, not
 estimated. (A five-letter grind the old way ran 50 hours here and found nothing.)
 
-Solana BIP39 vanity address grinder. Standalone terminal tool — no daemon,
-no service, no network. Replaces `solana-keygen grind --use-mnemonic`.
+Solana and EVM BIP39 vanity address grinder. Standalone terminal tool — no daemon,
+no service, no network. Replaces `solana-keygen grind --use-mnemonic`; on EVM it
+does the same thing for Ethereum, Base, Arbitrum, Optimism, Polygon, BNB and every
+chain that shares the key format (one key is every one of them).
 
 Why it is fast: one mnemonic yields unlimited addresses. Derive to
 m/44'/501' once, then walk the account index; each extra candidate costs
@@ -37,6 +39,10 @@ PBKDF2. Suffix matching needs only the last N base58 characters.
     keyrx grind --ends-with KEYRX --words 12 --indices 8 --out mint.txt  # Phantom
     keyrx grind --ends-with KEYRX --indices 128 --out mint.txt           # Solflare
     keyrx show KEYRX --keys                                              # the private key, for Phantom 'Import Private Key'
+    keyrx estimate --chain evm --ends-with dead                          # EVM: hex, any case by default
+    keyrx grind --chain evm --ends-with dead                             # 0x...dead; the key imports into MetaMask/Rabby
+    keyrx grind --chain evm --starts-with 0xc0ffee --checksum            # the letters in EIP-55 case as typed, too
+    keyrx show evm/dead --keys                                           # the 0x hex private key
 
 While grinding, one line rewrites in place every 2s: candidates tried, rate,
 elapsed, time to the 50% and 90% marks. Every match prints its address, path
@@ -70,6 +76,22 @@ eyeballed. Colour drops out entirely when stdout is not a terminal.
   331,793/sec at 128 (24.4×), 437,811/sec at 256 (32.2×). Per core: 9,495–15,636
   vs 284 baseline (33–55×).
 - `cargo clippy --all-targets` clean; 10 tests green.
+
+## Verified on 2026-08-20 (EVM)
+
+- The "abandon … about" mnemonic derives its published first account
+  `0x9858EfFD…EcaEda94` and key at `m/44'/60'/0'/0/0`; EIP-55's four specification
+  examples round-trip; private key 1 is `0x7E5F4552…9395Bdf`. All pinned as `#[test]`s.
+- **Independent cross-check**: the same `[7u8; 32]` test seed at indices 0, 1, 2 and 7,
+  and with the passphrase "correct horse", derived by a separate implementation (node
+  crypto + `@noble/curves` + `@noble/hashes`, a different language and libraries) gives
+  the identical addresses and keys; pinned.
+- **Two ground hits re-derive**: `grind --chain evm --ends-with dead --count 2` found
+  two matches in about a second (317,800 candidates); both re-derived, address and key,
+  by that independent implementation from the match file alone.
+- Bench (28 threads, 64 indices): 333,501/sec, 11,911/sec/thread; the Solana loop on
+  the same box and settings: 498,030/sec, 17,787/sec/thread.
+- `cargo clippy --all-targets` clean; 41 tests green; every framed line measured.
 
 ## Secrets
 
@@ -110,12 +132,46 @@ it reaches account N by clicking "add account" N times - so a seed-into-Phantom
 grind should use `--indices 8`. `--words` defaults to 12 (what Phantom
 generates); every major wallet imports 12 or 24.
 
+## EVM (`--chain evm`, 0.4.0)
+
+Same idea, other curve. One mnemonic pays PBKDF2 once; the BIP44 tree
+`m/44'/60'/0'/0/N` is walked at one HMAC-SHA512 plus one secp256k1 scalar
+multiplication per candidate, and the address is the last twenty bytes of
+keccak-256 over the public key, written in EIP-55 case. Measured on the
+development machine: about 11,900 candidates/sec per thread at 64 indices,
+two thirds of the Ed25519 rate; a six-hex-digit suffix is under a minute on
+a desktop, eight is hours. `keyrx bench --chain evm` measures yours and
+`estimate --chain evm` reads it (its own file: the two loops cost nothing
+alike).
+
+Patterns are hex, `0-9 a-f`, matched in **any case by default** because hex
+has no case of its own; `0x` may lead a prefix. `--checksum` asks for more:
+the letters must also come out in EIP-55 case exactly as typed, a coin flip
+per letter, and `estimate` prints both numbers.
+
+A match writes four lines under `matches/evm/<pattern>.txt`: `address`
+(EIP-55), `path`, `seed`, and `privkey` as the `0x` hex every EVM wallet
+imports. **MetaMask / Rabby:** Import account → Private key, paste it: the
+exact address, standalone, on every chain. Or import the seed and "add
+account" N times (account N+1). `keyrx show` lists EVM files as
+`evm/<pattern>`; `keyrx show evm/dead --keys` reads one. `--passphrase`,
+`--count`, `--out`, `--words` work the same on both chains; `--path` is
+Solana-only.
+
+`keyrx verify` checks the EVM path against the "abandon … about" mnemonic's
+published first account and key, this tool's own public test seed at four
+indices against an independent implementation (node crypto + noble), the
+four EIP-55 specification examples, and private key 1; and prints the manual
+cross-check (`cast wallet address --mnemonic … --mnemonic-index 0`, or a
+throwaway MetaMask).
+
 ## Where matches go
 
 `~/.local/share/keyrx/matches/` (or `$XDG_DATA_HOME/keyrx/matches/`), a
 mode-0700 directory of its own - never the current directory. Each file is
 mode 0600 and named after the pattern: `--ends-with KEYRX` -> `KEYRX.txt`,
-`--ignore-case` -> `KEYRX.ic.txt`, several patterns join with `+`. `--out`
+`--ignore-case` -> `KEYRX.ic.txt`, several patterns join with `+`. EVM files
+sit under `matches/evm/` (`dead.txt`, `--checksum` -> `DeAd.cs.txt`). `--out`
 overrides. `keyrx show` lists the files; `keyrx show KEYRX` reads one
 (`--seeds` / `--keys` reveal the secrets).
 

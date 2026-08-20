@@ -1,4 +1,4 @@
-// keyRX -- Solana vanity address grinder
+// keyRX -- Solana and EVM vanity address grinder
 //
 // Standalone terminal tool. No daemon, no service, no network.
 //
@@ -27,6 +27,7 @@
 //   keyrx grind --ends-with KEYRX --indices 128
 //   keyrx show KEYRX --keys
 
+mod evm;
 mod ui;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
@@ -65,7 +66,7 @@ fn help_seal() -> String {
 }
 
 #[derive(Parser)]
-#[command(name = "keyrx", version, about = "Solana BIP39 vanity address grinder", before_help = help_seal())]
+#[command(name = "keyrx", version, about = "Solana and EVM BIP39 vanity address grinder", before_help = help_seal())]
 struct Cli {
     #[command(subcommand)]
     cmd: Option<Cmd>,
@@ -95,6 +96,9 @@ enum Cmd {
 
     /// Measure actual throughput on this machine.
     Bench {
+        /// Which loop to measure: sol (Ed25519) or evm (secp256k1). Saved per chain.
+        #[arg(long, value_enum, default_value_t = Chain::Sol)]
+        chain: Chain,
         #[arg(long, default_value_t = num_threads())]
         threads: usize,
         #[arg(long, default_value_t = 64)]
@@ -169,9 +173,27 @@ struct PatternArgs {
     ignore_case: bool,
     /// Derivation path style. phantom = m/44'/501'/N'/0' (Phantom, Solflare
     /// default); legacy = m/44'/501'/N' (Solflare custom). Pick the wallet you
-    /// will import into.
+    /// will import into. Solana only: EVM is always m/44'/60'/0'/0/N.
     #[arg(long, value_enum, default_value_t = PathStyle::Phantom)]
     path: PathStyle,
+    /// Which chain's addresses. sol: Solana, base58, Ed25519 at m/44'/501'.
+    /// evm: Ethereum and every EVM chain (Base, Arbitrum, Optimism, Polygon,
+    /// BNB...), hex, secp256k1 at m/44'/60'/0'/0/N - one key, every one of them.
+    #[arg(long, value_enum, default_value_t = Chain::Sol)]
+    chain: Chain,
+    /// EVM only: the letters a-f in your pattern must ALSO match the address's
+    /// EIP-55 checksum casing as typed. Hex has no case of its own, so without
+    /// this a pattern matches any case; with it each letter halves the odds.
+    #[arg(long)]
+    checksum: bool,
+}
+
+#[derive(Copy, Clone, ValueEnum, PartialEq, Debug)]
+enum Chain {
+    /// Solana: base58 address, Ed25519, SLIP-0010 at m/44'/501'/N'/0'
+    Sol,
+    /// Ethereum and every EVM chain: hex address, secp256k1, BIP44 m/44'/60'/0'/0/N
+    Evm,
 }
 
 #[derive(Copy, Clone, ValueEnum, PartialEq)]
@@ -232,9 +254,12 @@ fn b58_suffix(pubkey: &[u8; 32], n: usize, out: &mut [u8]) {
 // ---------------------------------------------------------------- matching
 
 struct Matcher {
+    chain: Chain,
     suffixes: Vec<Vec<u8>>,
     prefixes: Vec<Vec<u8>>,
     ignore_case: bool,
+    /// EVM: the typed case of a-f must match EIP-55 casing. Off: hex is matched in any case.
+    checksum: bool,
     max_suffix: usize,
     needs_full: bool,
 }
@@ -244,6 +269,8 @@ impl Matcher {
         if p.ends_with.is_empty() && p.starts_with.is_empty() {
             return Err("need at least one --ends-with or --starts-with".into());
         }
+        if p.chain == Chain::Evm { return Self::new_evm(p); }
+        if p.checksum { return Err("--checksum is EIP-55, an EVM thing - add --chain evm".into()); }
         let check = |s: &String| -> Result<Vec<u8>, String> {
             if s.is_empty() {
                 return Err("empty pattern".into());
@@ -262,11 +289,42 @@ impl Matcher {
             return Err("suffix longer than 16 chars".into());
         }
         Ok(Matcher {
+            chain: Chain::Sol,
             needs_full: !prefixes.is_empty(),
             max_suffix,
             suffixes,
             prefixes,
             ignore_case: p.ignore_case,
+            checksum: false,
+        })
+    }
+
+    /// EVM patterns: hex digits, `0x` allowed only at the front of a prefix. Stored
+    /// lowercase unless --checksum, when the typed case is the thing being asked for.
+    fn new_evm(p: &PatternArgs) -> Result<Self, String> {
+        if p.checksum && p.ignore_case {
+            return Err("--checksum binds the typed case to EIP-55; --ignore-case frees it - pick one".into());
+        }
+        let keep = p.checksum;
+        let check = |s: &String, is_prefix: bool| -> Result<Vec<u8>, String> {
+            let body = evm::check_pattern(s, is_prefix)?;
+            if body.len() > 40 { return Err("longer than an address (40 hex digits)".into()); }
+            Ok(if keep { body.into_bytes() } else { body.to_ascii_lowercase().into_bytes() })
+        };
+        let suffixes: Vec<_> = p.ends_with.iter().map(|s| check(s, false)).collect::<Result<_, _>>()?;
+        let prefixes: Vec<_> = p.starts_with.iter().map(|s| check(s, true)).collect::<Result<_, _>>()?;
+        let max_suffix = suffixes.iter().map(|s| s.len()).max().unwrap_or(0);
+        if max_suffix > 16 {
+            return Err("suffix longer than 16 chars".into());
+        }
+        Ok(Matcher {
+            chain: Chain::Evm,
+            needs_full: !prefixes.is_empty(),
+            max_suffix,
+            suffixes,
+            prefixes,
+            ignore_case: !p.checksum,
+            checksum: p.checksum,
         })
     }
 
@@ -275,8 +333,44 @@ impl Matcher {
         if self.ignore_case { a.eq_ignore_ascii_case(b) } else { a == b }
     }
 
+    /// EVM: does this address match? `lower` is its forty lowercase hex digits. The
+    /// any-case test is the cheap one and runs first; only a candidate that passes it
+    /// pays for the EIP-55 casing, and only when --checksum asked for it.
+    #[inline]
+    fn evm_hit(&self, lower: &[u8; 40], addr: &[u8; 20]) -> bool {
+        let mut cand = false;
+        for s in &self.suffixes {
+            if lower[40 - s.len()..].eq_ignore_ascii_case(s) { cand = true; break; }
+        }
+        if !cand {
+            for p in &self.prefixes {
+                if lower[..p.len()].eq_ignore_ascii_case(p) { cand = true; break; }
+            }
+        }
+        if !cand { return false; }
+        if !self.checksum { return true; }
+        let cs = evm::eip55(addr);
+        let cs = &cs.as_bytes()[2..];
+        for s in &self.suffixes {
+            if &cs[40 - s.len()..] == s.as_slice() { return true; }
+        }
+        for p in &self.prefixes {
+            if &cs[..p.len()] == p.as_slice() { return true; }
+        }
+        false
+    }
+
     /// Per-candidate hit probability.
     fn probability(&self) -> f64 {
+        if self.chain == Chain::Evm {
+            // sixteen digits, any case - unless --checksum, when every letter must also
+            // land on its EIP-55 case, a coin flip each
+            let one = |pat: &Vec<u8>| -> f64 {
+                let letters = if self.checksum { pat.iter().filter(|c| c.is_ascii_alphabetic()).count() } else { 0 };
+                1.0 / 16f64.powi(pat.len() as i32) / 2f64.powi(letters as i32)
+            };
+            return self.suffixes.iter().map(one).sum::<f64>() + self.prefixes.iter().map(one).sum::<f64>();
+        }
         let variants = |pat: &Vec<u8>| -> f64 {
             let mut n = 1.0f64;
             for &c in pat {
@@ -296,7 +390,9 @@ impl Matcher {
 // ---------------------------------------------------------------- worker
 
 struct Hit {
+    chain: Chain,
     index: u32,
+    /// Solana: base58. EVM: `0x` + forty hex digits in EIP-55 case.
     address: String,
     mnemonic: Zeroizing<String>,
     /// A BIP39 passphrase was used. The passphrase itself is never carried,
@@ -308,7 +404,8 @@ struct Hit {
     /// Key" pastes.
     privkey: Zeroizing<String>,
     /// The same 64 bytes as a JSON array - `[12,34,...]` - what Solflare's
-    /// keypair import and solana-keygen read.
+    /// keypair import and solana-keygen read. Empty for EVM, which has one
+    /// import form: the hex private key, carried in `privkey`.
     keypair_json: Zeroizing<String>,
 }
 
@@ -421,6 +518,7 @@ fn grind_loop(
                 let keypair_json = keypair_json(&secret);
                 secret.zeroize(); ka2.zeroize(); ca2.zeroize();
                 on_hit(Hit {
+                    chain: Chain::Sol,
                     index: idx,
                     address: bs58::encode(pk).into_string(),
                     mnemonic: Zeroizing::new(mnemonic.to_string()),
@@ -437,39 +535,139 @@ fn grind_loop(
     counter.fetch_add(local, Ordering::Relaxed);
 }
 
+/// The EVM hot loop: one mnemonic, PBKDF2 once, `m/44'/60'/0'/0` once (four
+/// derivations and two public keys), then every account index at one HMAC and
+/// one secp256k1 scalar multiplication. The address is keccak of the public
+/// key, forty hex digits; suffix and prefix both read straight off it, so there
+/// is no cheap-lane/full-lane split here - the scalar multiplication is the cost.
+fn grind_loop_evm(
+    m: &Matcher,
+    indices: u32,
+    entropy_len: usize,
+    passphrase: &str,
+    stop: &AtomicBool,
+    counter: &AtomicU64,
+    on_hit: &dyn Fn(Hit),
+) {
+    let mut hex = [0u8; 40];
+    let mut local: u64 = 0;
+    let mut entropy = Zeroizing::new(vec![0u8; entropy_len]);
+
+    while !stop.load(Ordering::Relaxed) {
+        OsRng.fill_bytes(&mut entropy);
+        let mnemonic = match bip39::Mnemonic::from_entropy(&entropy) {
+            Ok(m) => m,
+            Err(_) => continue,
+        };
+        let seed = Zeroizing::new(mnemonic.to_seed(passphrase));
+        // the one-in-2^127 seed with an invalid node in its tree is simply not used
+        let Some(branch) = evm::Branch::from_seed(seed.as_ref()) else { continue };
+
+        for idx in 0..indices {
+            let Some(addr) = branch.address_at(idx) else { continue };
+
+            local += 1;
+            if local >= 1024 {
+                counter.fetch_add(local, Ordering::Relaxed);
+                local = 0;
+                if stop.load(Ordering::Relaxed) {
+                    return;
+                }
+            }
+
+            evm::hex40(&addr, &mut hex);
+            if m.evm_hit(&hex, &addr) {
+                counter.fetch_add(local, Ordering::Relaxed);
+                local = 0;
+                // the private key is re-derived for the winner only: one HMAC
+                let Some(k) = branch.key_at(idx) else { continue };
+                on_hit(Hit {
+                    chain: Chain::Evm,
+                    index: idx,
+                    address: evm::eip55(&addr),
+                    mnemonic: Zeroizing::new(mnemonic.to_string()),
+                    passphrase: !passphrase.is_empty(),
+                    privkey: evm::privkey_hex(&k),
+                    keypair_json: Zeroizing::new(String::new()),
+                });
+                if stop.load(Ordering::Relaxed) {
+                    return;
+                }
+            }
+        }
+    }
+    counter.fetch_add(local, Ordering::Relaxed);
+}
+
+/// Per-candidate cost beyond the once-per-mnemonic PBKDF2, for the THEORETICAL
+/// model only (an estimate prefers the rate `bench` measured on this machine).
+/// Solana: two HMAC-SHA512 and one Ed25519 scalar multiplication. EVM: one
+/// HMAC-SHA512, one secp256k1 scalar multiplication, one keccak.
+fn per_candidate_cost(chain: Chain) -> f64 {
+    match chain { Chain::Sol => 21e-6, Chain::Evm => EVM_PER_CANDIDATE }
+}
+/// Measured on the development machine, 2026-08-20, release build: the number
+/// the model is anchored to until `bench --chain evm` replaces it with yours.
+const EVM_PER_CANDIDATE: f64 = 65e-6;
+
+/// Candidates per second per thread the model predicts at `indices` per mnemonic.
+fn model_rate(chain: Chain, indices: u32) -> f64 {
+    1.0 / (1.2e-3 / indices as f64 + per_candidate_cost(chain))
+}
+
 // ---------------------------------------------------------------- rate cache
 
 /// `bench` writes the measured rate here; `estimate` reads it. The
 /// theoretical model (1.2ms/indices + 21us) ran 2.6x optimistic on the
 /// first machine it met -- an estimate should come from what THIS box
 /// measured, not from a formula.
-fn rate_cache_path() -> std::path::PathBuf {
+/// `<XDG_DATA_HOME or ~/.local/share>/keyrx/` - the tool's own directory.
+fn data_dir() -> std::path::PathBuf {
     let base = std::env::var_os("XDG_DATA_HOME")
         .map(std::path::PathBuf::from)
         .or_else(|| std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".local/share")))
         .unwrap_or_else(|| std::path::PathBuf::from("."));
-    base.join("keyrx").join("bench.txt")
+    base.join("keyrx")
+}
+
+/// One measured rate per chain: `bench.txt` for Solana (the file the first
+/// releases wrote), `bench-evm.txt` for EVM. The two loops cost nothing alike.
+fn rate_cache_path(chain: Chain) -> std::path::PathBuf {
+    data_dir().join(match chain { Chain::Sol => "bench.txt", Chain::Evm => "bench-evm.txt" })
 }
 
 /// Where matches live by default: `<XDG_DATA_HOME or ~/.local/share>/keyrx/matches/`.
 /// A home of its own, never the current directory, because a file that holds
 /// seed phrases should not land wherever the shell happens to be.
 fn matches_dir() -> std::path::PathBuf {
-    rate_cache_path().parent().map(|p| p.join("matches"))
-        .unwrap_or_else(|| std::path::PathBuf::from("matches"))
+    data_dir().join("matches")
+}
+
+/// EVM matches sit one level down, `matches/evm/`: the same pattern on two
+/// chains must not share a file, and the Solana files stay exactly where every
+/// earlier release put them.
+fn matches_dir_for(chain: Chain) -> std::path::PathBuf {
+    match chain { Chain::Sol => matches_dir(), Chain::Evm => matches_dir().join("evm") }
 }
 
 /// The pattern names the file: --ends-with KEYRX -> KEYRX.txt; several patterns
 /// join with '+'; prefixes carry a trailing '_' so KEYRX_ (prefix) and KEYRX
-/// (suffix) do not collide; case-insensitive adds '.ic'.
+/// (suffix) do not collide; case-insensitive adds '.ic'. EVM files go under
+/// matches/evm/, named by the hex (a leading 0x dropped), '.cs' for --checksum.
 fn default_out(p: &PatternArgs) -> String {
     let mut parts: Vec<String> = Vec::new();
-    for s in &p.ends_with { parts.push(s.clone()); }
-    for s in &p.starts_with { parts.push(format!("{}_", s)); }
+    let strip = |s: &String| -> String {
+        if p.chain == Chain::Evm { s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")).unwrap_or(s).to_string() } else { s.clone() }
+    };
+    for s in &p.ends_with { parts.push(strip(s)); }
+    for s in &p.starts_with { parts.push(format!("{}_", strip(s))); }
     let mut name = if parts.is_empty() { "matches".to_string() } else { parts.join("+") };
-    if p.ignore_case { name.push_str(".ic"); }
+    match p.chain {
+        Chain::Sol => if p.ignore_case { name.push_str(".ic"); },
+        Chain::Evm => if p.checksum { name.push_str(".cs"); } else { name = name.to_ascii_lowercase(); },
+    }
     name.push_str(".txt");
-    matches_dir().join(name).to_string_lossy().into_owned()
+    matches_dir_for(p.chain).join(name).to_string_lossy().into_owned()
 }
 
 /// A path for the eye: files under the tool's own data dir print as
@@ -495,24 +693,23 @@ fn out_link(p: &str) -> String {
     ui::link(&ui::file_url(&abs), &short_path(p))
 }
 
-fn save_rate(threads: usize, indices: u32, rate: f64) {
-    let p = rate_cache_path();
+fn save_rate(chain: Chain, threads: usize, indices: u32, rate: f64) {
+    let p = rate_cache_path(chain);
     if let Some(d) = p.parent() { let _ = std::fs::create_dir_all(d); }
     let _ = std::fs::write(&p, format!("{} {} {:.0}\n", threads, indices, rate));
 }
 
-/// (threads, indices, rate) from the last bench, if any.
-fn load_rate() -> Option<(usize, u32, f64)> {
-    let s = std::fs::read_to_string(rate_cache_path()).ok()?;
+/// (threads, indices, rate) from the last bench of that chain, if any.
+fn load_rate(chain: Chain) -> Option<(usize, u32, f64)> {
+    let s = std::fs::read_to_string(rate_cache_path(chain)).ok()?;
     let mut it = s.split_whitespace();
     Some((it.next()?.parse().ok()?, it.next()?.parse().ok()?, it.next()?.parse().ok()?))
 }
 
 /// Scale a measured rate to other settings using the model's SHAPE (the
 /// PBKDF2 amortisation curve), anchored to the real number.
-fn scale_rate(measured: f64, m_threads: usize, m_idx: u32, threads: usize, indices: u32) -> f64 {
-    let model = |i: u32| 1.0 / (1.2e-3 / i as f64 + 21e-6);
-    measured / m_threads as f64 * threads as f64 * model(indices) / model(m_idx)
+fn scale_rate(chain: Chain, measured: f64, m_threads: usize, m_idx: u32, threads: usize, indices: u32) -> f64 {
+    measured / m_threads as f64 * threads as f64 * model_rate(chain, indices) / model_rate(chain, m_idx)
 }
 
 // ---------------------------------------------------------------- output
@@ -551,9 +748,25 @@ fn path_str(style: PathStyle, idx: u32) -> String {
     }
 }
 
+/// The path a hit sits at, per chain. EVM has one path style: BIP44
+/// m/44'/60'/0'/0/N, what MetaMask, Rabby, Ledger Live and Trezor Suite walk.
+fn path_for(chain: Chain, style: PathStyle, idx: u32) -> String {
+    match chain {
+        Chain::Sol => path_str(style, idx),
+        Chain::Evm => format!("m/44'/60'/0'/0/{}", idx),
+    }
+}
+
 /// How to get this address into a wallet, said once, at the moment it
 /// matters. One short line per wallet so nothing is ever clipped by the frame.
-fn import_hint(style: PathStyle, idx: u32) -> Vec<String> {
+fn import_hint(chain: Chain, style: PathStyle, idx: u32) -> Vec<String> {
+    if chain == Chain::Evm {
+        return if idx == 0 {
+            vec!["Seed:     MetaMask, Rabby, Ledger Live - this is the FIRST account".to_string()]
+        } else {
+            vec![format!("Seed:     MetaMask/Rabby: 'add account' {} time(s) = account #{}", idx, idx + 1)]
+        };
+    }
     match style {
         PathStyle::Phantom => {
             if idx == 0 {
@@ -578,8 +791,12 @@ fn cmd_show(file: Option<String>, with_seed: bool, with_key: bool) {
     let file = match file {
         Some(f) if std::path::Path::new(&f).exists() => f,
         Some(f) => {
-            // a bare pattern name: KEYRX -> matches/KEYRX.txt
-            let cand = matches_dir().join(format!("{}.txt", f.trim_end_matches(".txt")));
+            // a bare pattern name: KEYRX -> matches/KEYRX.txt; dead -> matches/evm/dead.txt
+            // when no Solana file of that name exists; evm/dead names the EVM file outright
+            let stem = f.trim_end_matches(".txt");
+            let sol = matches_dir().join(format!("{}.txt", stem));
+            let evm = matches_dir_for(Chain::Evm).join(format!("{}.txt", stem.trim_start_matches("evm/")));
+            let cand = if sol.exists() || (!evm.exists() && !stem.starts_with("evm/")) { sol } else { evm };
             if cand.exists() { cand.to_string_lossy().into_owned() }
             else {
                 let lock = format!("{}.grinding", cand.display());
@@ -622,17 +839,24 @@ fn cmd_show(file: Option<String>, with_seed: bool, with_key: bool) {
         None => {
             let dir = matches_dir();
             println!("{}", ui::top("MATCH FILES", &ui::dir_link(&dir)));
-            let mut names: Vec<String> = std::fs::read_dir(&dir).map(|rd| rd.filter_map(|e| e.ok())
-                .filter_map(|e| e.file_name().into_string().ok())
-                .filter(|n| n.ends_with(".txt")).collect()).unwrap_or_default();
-            names.sort();
+            // Solana files at the top level, EVM files under evm/ - listed as evm/NAME,
+            // which is also what `show` takes to read one
+            let list = |d: &std::path::Path| -> Vec<String> {
+                let mut v: Vec<String> = std::fs::read_dir(d).map(|rd| rd.filter_map(|e| e.ok())
+                    .filter_map(|e| e.file_name().into_string().ok())
+                    .filter(|n| n.ends_with(".txt")).collect()).unwrap_or_default();
+                v.sort();
+                v
+            };
+            let mut names: Vec<(std::path::PathBuf, String)> = list(&dir).into_iter().map(|n| (dir.join(&n), n.trim_end_matches(".txt").to_string())).collect();
+            let evm_dir = matches_dir_for(Chain::Evm);
+            names.extend(list(&evm_dir).into_iter().map(|n| (evm_dir.join(&n), format!("evm/{}", n.trim_end_matches(".txt")))));
             if names.is_empty() {
                 println!("{}", ui::note("no match files yet - grind writes them here, named after the pattern"));
             }
-            for n in &names {
-                let cnt = std::fs::read_to_string(dir.join(n))
+            for (path, stem) in &names {
+                let cnt = std::fs::read_to_string(path)
                     .map(|t| t.split("\n\n").filter(|b| b.contains("address ")).count()).unwrap_or(0);
-                let stem = n.trim_end_matches(".txt");
                 println!("{}", ui::kv(stem, &format!("{} match(es)   keyrx show {}", cnt, stem)));
             }
             if ui::links_on() { println!("{}", ui::mid("")); println!("{}", ui::note(&format!("{} (the path in the title)", ui::CLICK_HINT))); }
@@ -688,10 +912,16 @@ fn cmd_show(file: Option<String>, with_seed: bool, with_key: bool) {
             println!("{}", seed.as_deref().unwrap_or("(missing)"));
         }
         if with_key {
-            println!(" {}privkey  base58 - Phantom: Import Private Key{}", ui::gry(), ui::r());
-            println!("{}", key.as_deref().unwrap_or("(missing)"));
-            println!(" {}keypair  JSON array - Solflare, solana-keygen{}", ui::gry(), ui::r());
-            println!("{}", kp.as_deref().unwrap_or("(missing)"));
+            if a.starts_with("0x") {
+                // an EVM match: one key form, the hex every EVM wallet imports
+                println!(" {}privkey  hex - MetaMask/Rabby: Import account -> Private key{}", ui::gry(), ui::r());
+                println!("{}", key.as_deref().unwrap_or("(missing)"));
+            } else {
+                println!(" {}privkey  base58 - Phantom: Import Private Key{}", ui::gry(), ui::r());
+                println!("{}", key.as_deref().unwrap_or("(missing)"));
+                println!(" {}keypair  JSON array - Solflare, solana-keygen{}", ui::gry(), ui::r());
+                println!("{}", kp.as_deref().unwrap_or("(missing)"));
+            }
         }
     }
     println!();
@@ -709,16 +939,28 @@ fn write_hit(out: &str, h: &Hit, style: PathStyle) -> std::io::Result<()> {
         opts.mode(0o600);
     }
     let mut f = opts.open(out)?;
-    writeln!(
-        f,
-        "address {}\npath    {}\nseed    {}{}\nprivkey {}\nkeypair {}\n",
-        h.address,
-        path_str(style, h.index),
-        h.mnemonic.as_str(),
-        if h.passphrase { PASSPHRASE_LINE } else { "" },
-        h.privkey.as_str(),
-        h.keypair_json.as_str()
-    )
+    match h.chain {
+        Chain::Sol => writeln!(
+            f,
+            "address {}\npath    {}\nseed    {}{}\nprivkey {}\nkeypair {}\n",
+            h.address,
+            path_str(style, h.index),
+            h.mnemonic.as_str(),
+            if h.passphrase { PASSPHRASE_LINE } else { "" },
+            h.privkey.as_str(),
+            h.keypair_json.as_str()
+        ),
+        // EVM has one import form - the hex private key - so four lines, no keypair
+        Chain::Evm => writeln!(
+            f,
+            "address {}\npath    {}\nseed    {}{}\nprivkey {}\n",
+            h.address,
+            path_for(Chain::Evm, style, h.index),
+            h.mnemonic.as_str(),
+            if h.passphrase { PASSPHRASE_LINE } else { "" },
+            h.privkey.as_str()
+        ),
+    }
 }
 
 /// Time-to-first-match rows, framed. The 50% line carries the accent: it is
@@ -764,7 +1006,7 @@ fn main() {
     match cmd {
         Cmd::Verify => cmd_verify(),
         Cmd::Estimate { pattern, threads, indices, count } => cmd_estimate(pattern, threads, indices, count),
-        Cmd::Bench { threads, indices, seconds } => cmd_bench(threads, indices, seconds),
+        Cmd::Bench { chain, threads, indices, seconds } => cmd_bench(chain, threads, indices, seconds),
         Cmd::Show { file, seeds, keys } => cmd_show(file, seeds, keys),
         Cmd::Donate => cmd_donate(),
         Cmd::Grind { pattern, threads, indices, count, words, out, show_seed, passphrase } => {
@@ -854,10 +1096,10 @@ fn cmd_start() {
     let head = |t: &str| println!("{}", ui::mid(&format!("  {}{}{}{}", ui::b(), ui::wht(), t, ui::r())));
 
     println!("{}", ui::top("WHAT THIS IS", "one seed, unlimited addresses, keys for every wallet"));
-    println!("{}", n("Grinds Solana vanity addresses - an address that ends (or starts)"));
-    println!("{}", n("with the letters you choose - and hands you everything a wallet"));
-    println!("{}", n("needs to hold it: seed phrase, derivation path, and the keypair in"));
-    println!("{}", n("both import forms (base58 for Phantom, JSON array for Solflare)."));
+    println!("{}", n("Grinds Solana and EVM vanity addresses - an address that ends (or"));
+    println!("{}", n("starts) with the letters you choose - and hands you everything a"));
+    println!("{}", n("wallet needs to hold it: seed phrase, derivation path, and the key in"));
+    println!("{}", n("every import form (base58 and JSON array for Solana, 0x hex for EVM)."));
     blank();
     println!("{}", n("Fast because `solana-keygen grind` pays 2048 rounds of PBKDF2 (~1.2 ms)"));
     println!("{}", n("to test ONE address; keyRX pays it once per seed, then walks that"));
@@ -904,8 +1146,33 @@ fn cmd_start() {
     println!("{}", kvw("--path phantom", "m/44'/501'/N'/0'   Phantom, Solflare default"));
     println!("{}", kvw("--path legacy", "m/44'/501'/N'      Solflare custom path"));
     blank();
+    println!("{}", kvw("--chain evm", "Ethereum and every EVM chain instead of Solana:"));
+    println!("{}", cont("hex patterns, m/44'/60'/0'/0/N. See EVM below."));
+    println!("{}", kvw("--checksum", "EVM: letters must land in EIP-55 case as typed."));
+    blank();
     println!("{}", n("base58 has no 0 O I l - patterns using them are rejected."));
     println!("{}", ui::bot("suffixes are the fast lane"));
+
+    println!("{}", ui::top("EVM", "Ethereum, Base, Arbitrum, Polygon, BNB: one key for all"));
+    println!("{}", kvw("--chain evm", "a 0x address: forty hex digits. secp256k1 in the BIP44"));
+    println!("{}", cont("tree at m/44'/60'/0'/0/N - the path MetaMask, Rabby,"));
+    println!("{}", cont("Ledger Live, Trezor Suite walk. One key, every chain."));
+    blank();
+    println!("{}", kvw("patterns", "0-9 and a-f. Matched in ANY case by default: hex has"));
+    println!("{}", cont("no case of its own. 0x is allowed in front of a prefix."));
+    println!("{}", kvw("--checksum", "the letters must ALSO come out in EIP-55 case exactly"));
+    println!("{}", cont("as you typed them. Each letter halves the odds: rarer,"));
+    println!("{}", cont("and it shows. estimate prints both numbers."));
+    blank();
+    println!("{}", kvw("import", "MetaMask/Rabby: Import account -> Private key, paste"));
+    println!("{}", cont("the 0x hex in the file - exact address, standalone."));
+    println!("{}", cont("Or the seed, then 'add account' N times (account N+1)."));
+    blank();
+    println!("{}", kvw("files", "matches/evm/<pattern>.txt  ·  keyrx show evm/<pattern>"));
+    println!("{}", kvw("rate", "keyrx bench --chain evm. secp256k1 costs more per"));
+    println!("{}", cont("candidate than Ed25519, so --indices buys less here;"));
+    println!("{}", cont("estimate --chain evm says what, from your own bench."));
+    println!("{}", ui::bot("the 25th word, --count, --out, --words work the same on both chains"));
 
     println!("{}", ui::top("GRIND FLAGS", ""));
     println!("{}", kvw("--out FILE", "where matches go. Created mode 0600. Default: a file"));
@@ -970,6 +1237,7 @@ fn cmd_start() {
     blank();
     println!("{}", kvw("file", &ui::dir_link(&matches_dir())));
     println!("{}", cont("named after the pattern: KEYRX.txt / KEYRX.ic.txt"));
+    println!("{}", cont("EVM: matches/evm/dead.txt, four lines, key = 0x hex"));
     if ui::links_on() { println!("{}", cont(ui::CLICK_HINT)); }
     println!("{}", ui::bot("keyrx show            lists the files · keyrx show KEYRX reads one"));
 
@@ -1008,7 +1276,7 @@ fn cmd_start() {
     // command, then a grey note: beside it when the row has room (with a column of air before
     // the border), beneath it when not. Indent 2, command column 44, one space, "# ", the note.
     let step = |c: &str, n: &str| {
-        if 2 + c.chars().count().max(44) + 3 + n.chars().count() + 1 <= ui::IN {
+        if 2 + c.chars().count().max(44) + 3 + n.chars().count() < ui::IN {
             println!("{}", ui::mid(&format!("  {}{:<44}{} {}# {}{}", ui::accent(), c, ui::r(), ui::gry(), n, ui::r())));
         } else {
             cmd(c);
@@ -1024,6 +1292,9 @@ fn cmd_start() {
     step("keyrx grind --ends-with KEYRX --passphrase", "a 25th word, prompted");
     step("keyrx grind --starts-with Key --ends-with RX", "both ends at once");
     step("keyrx grind --ends-with KEYRX --ignore-case", "any case, 32x likelier");
+    step("keyrx estimate --chain evm --ends-with dead", "EVM: hex, any case");
+    step("keyrx grind --chain evm --ends-with dead", "0x...dead, MetaMask/Rabby");
+    step("keyrx grind --chain evm --starts-with 0xc0ffee --checksum", "EIP-55 case as typed");
     step("keyrx show", "every match file");
     step("keyrx show KEYRX --keys", "one file, keys revealed");
     step("keyrx --update", "latest, then this screen");
@@ -1139,6 +1410,16 @@ fn cmd_verify() {
     }
     println!("{}", ui::bot(if addr == XCHECK { "all green" } else { "STOP - do not fund anything from this build" }));
 
+    // EVM: every pinned answer - the published mnemonic, the independent reference for
+    // this tool's own test seed, EIP-55's examples, private key 1 - and the walk.
+    println!("{}", ui::top("SELF-TEST · EVM", "secp256k1 · BIP32 · keccak · EIP-55"));
+    let mut evm_ok = true;
+    for (what, ok) in evm::self_test() {
+        evm_ok &= ok;
+        println!("{}", if ok { ui::ok_line(&what) } else { ui::crit_line(&format!("{}  - DOES NOT HOLD", what)) });
+    }
+    println!("{}", ui::bot(if evm_ok { "all green" } else { "STOP - do not fund anything from this build" }));
+
     println!("{}", ui::top("MANUAL CROSS-CHECK", "one command, once per machine"));
     println!("{}", ui::note("Nothing automated can prove SLIP-0010 matches what wallets do."));
     println!("{}", ui::note("A wrong build grinds normally and prints an address no wallet"));
@@ -1158,8 +1439,31 @@ fn cmd_verify() {
     println!("{}", ui::note("run:  solana-keygen pubkey \"prompt://?full-path=m/44'/501'/0'/0'\""));
     println!("{}", ui::note("      paste the seed, empty passphrase - the two addresses must match"));
     println!("{}", ui::note("      (a --passphrase grind: type the same passphrase at its prompt)"));
+    println!("{}", ui::mid(""));
+    println!("{}", ui::kv("EVM", "the same seed at m/44'/60'/0'/0/0, throwaway wallet:"));
+    println!("{}", ui::kv("this build", evm::TEST_SEED_ACCOUNTS[0].1));
+    println!("{}", ui::note("run:  cast wallet address --mnemonic \"<the seed above>\" --mnemonic-index 0"));
+    println!("{}", ui::note("      or import the seed in a fresh MetaMask: account 1 must show it"));
     println!("{}", ui::bot("if they differ, STOP"));
     println!();
+}
+
+/// The pattern line, per chain: `*KEYRX` / `Key*` for Solana; `*dead` / `0xdead*`
+/// for EVM, with what the case means on that chain.
+fn pattern_line(m: &Matcher, p: &PatternArgs) -> String {
+    let pats: Vec<String> = match m.chain {
+        Chain::Sol => m.suffixes.iter().map(|s| format!("*{}", String::from_utf8_lossy(s)))
+            .chain(m.prefixes.iter().map(|s| format!("{}*", String::from_utf8_lossy(s)))).collect(),
+        Chain::Evm => m.suffixes.iter().map(|s| format!("*{}", String::from_utf8_lossy(s)))
+            .chain(m.prefixes.iter().map(|s| format!("0x{}*", String::from_utf8_lossy(s)))).collect(),
+    };
+    let case = match (m.chain, p.ignore_case, p.checksum) {
+        (Chain::Sol, true, _) => "   (case-insensitive)",
+        (Chain::Sol, false, _) => "",
+        (Chain::Evm, _, true) => "   (EVM · letters in EIP-55 case)",
+        (Chain::Evm, _, false) => "   (EVM · any case)",
+    };
+    format!("{}{}", pats.join("  "), case)
 }
 
 fn cmd_estimate(p: PatternArgs, threads: usize, indices: u32, count: usize) {
@@ -1167,24 +1471,21 @@ fn cmd_estimate(p: PatternArgs, threads: usize, indices: u32, count: usize) {
         Ok(m) => m,
         Err(e) => { eprintln!("error: {}", e); std::process::exit(1); }
     };
+    let chain = p.chain;
     let prob = m.probability();
-    let measured = load_rate();
+    let measured = load_rate(chain);
+    let bench_cmd = match chain { Chain::Sol => "keyrx bench", Chain::Evm => "keyrx bench --chain evm" };
     let (rate, basis) = match measured {
-        Some((mt, mi, mr)) => (scale_rate(mr, mt, mi, threads, indices),
+        Some((mt, mi, mr)) => (scale_rate(chain, mr, mt, mi, threads, indices),
                                format!("measured here ({} threads, {} idx), scaled", mt, mi)),
-        None => {
-            let per_core = 1.0 / (1.2e-3 / indices as f64 + 21e-6);
-            (per_core * threads as f64, "THEORETICAL - run `keyrx bench` first".to_string())
-        }
+        None => (model_rate(chain, indices) * threads as f64, format!("THEORETICAL - run `{}` first", bench_cmd)),
     };
     ui::masthead("estimate");
     println!("{}", ui::top("ODDS", "before you grind"));
-    let pats: Vec<String> = m.suffixes.iter().map(|s| format!("*{}", String::from_utf8_lossy(s)))
-        .chain(m.prefixes.iter().map(|s| format!("{}*", String::from_utf8_lossy(s)))).collect();
-    println!("{}", ui::kv("pattern", &format!("{}{}", pats.join("  "),
-        if p.ignore_case { "   (case-insensitive)" } else { "" })));
+    println!("{}", ui::kv("pattern", &pattern_line(&m, &p)));
     println!("{}", ui::kv("odds", &format!("1 in {}", group(1.0 / prob))));
-    println!("{}", ui::kv("rate", &format!("{}/sec  ({} threads, {} indices/mnemonic)", group(rate), threads, indices)));
+    println!("{}", ui::kv("rate", &format!("{}/sec  ({} threads, {} indices/mnemonic{})", group(rate), threads, indices,
+        if chain == Chain::Evm { " · secp256k1" } else { "" })));
     println!("{}", if measured.is_some() { ui::note(&format!("basis      {}", basis)) }
                    else { ui::warn_line(&format!("basis    {}", basis)) });
     println!("{}", ui::mid(""));
@@ -1199,8 +1500,8 @@ fn cmd_estimate(p: PatternArgs, threads: usize, indices: u32, count: usize) {
 
     // The levers, as numbers.
     let mut levers: Vec<String> = Vec::new();
-    if !p.ignore_case && m.suffixes.iter().chain(m.prefixes.iter())
-        .any(|s| s.iter().any(|c| c.is_ascii_alphabetic())) {
+    let has_letters = m.suffixes.iter().chain(m.prefixes.iter()).any(|s| s.iter().any(|c| c.is_ascii_alphabetic()));
+    if chain == Chain::Sol && !p.ignore_case && has_letters {
         let ic = PatternArgs { ignore_case: true, ..p.clone() };
         if let Ok(mi) = Matcher::new(&ic) {
             let k = mi.probability() / prob;
@@ -1211,12 +1512,29 @@ fn cmd_estimate(p: PatternArgs, threads: usize, indices: u32, count: usize) {
             }
         }
     }
+    if chain == Chain::Evm && has_letters {
+        // the other way round on EVM: any case is the default, and --checksum is the
+        // rarer ask - say what it costs, or what dropping it would give back
+        let other = PatternArgs { checksum: !p.checksum, ignore_case: false, ..p.clone() };
+        if let Ok(mo) = Matcher::new(&other) {
+            let k = mo.probability() / prob;
+            if p.checksum {
+                levers.push(format!("without --checksum   {:.0}x more likely - 1 in {}, 50% in ~{}",
+                    k, group(1.0 / mo.probability()), fmt_dur((0.5f64).ln() / (1.0 - mo.probability()).ln() / rate)));
+            } else {
+                levers.push(format!("--checksum   EIP-55 case too - 1 in {}, 50% in ~{}",
+                    group(1.0 / mo.probability()), fmt_dur((0.5f64).ln() / (1.0 - mo.probability()).ln() / rate)));
+            }
+        }
+    }
     if indices < 128 {
         let r2 = match measured {
-            Some((mt, mi, mr)) => scale_rate(mr, mt, mi, threads, 128),
-            None => (1.0 / (1.2e-3 / 128.0 + 21e-6)) * threads as f64,
+            Some((mt, mi, mr)) => scale_rate(chain, mr, mt, mi, threads, 128),
+            None => model_rate(chain, 128) * threads as f64,
         };
-        levers.push(format!("--indices 128   ~{:.1}x the rate - match lands at a higher account index", r2 / rate));
+        if r2 / rate > 1.05 {
+            levers.push(format!("--indices 128   ~{:.1}x the rate - match lands at a higher account index", r2 / rate));
+        }
     }
     if !levers.is_empty() {
         println!("{}", ui::top("LEVERS", "what the flags would buy"));
@@ -1226,16 +1544,19 @@ fn cmd_estimate(p: PatternArgs, threads: usize, indices: u32, count: usize) {
     println!();
 }
 
-fn cmd_bench(threads: usize, indices: u32, seconds: u64) {
+fn cmd_bench(chain: Chain, threads: usize, indices: u32, seconds: u64) {
     ui::masthead("bench");
-    println!("{}", ui::top("BENCH", &format!("{} threads · {} indices/mnemonic · {}s", threads, indices, seconds)));
+    println!("{}", ui::top("BENCH", &format!("{}{} threads · {} indices/mnemonic · {}s",
+        if chain == Chain::Evm { "EVM · " } else { "" }, threads, indices, seconds)));
     println!("{}", ui::note("grinding a pattern that cannot match, counting candidates..."));
     let _ = std::io::stdout().flush();
     let p = PatternArgs {
-        ends_with: vec!["zzzzzzzz".into()],
+        ends_with: vec![match chain { Chain::Sol => "zzzzzzzz".into(), Chain::Evm => "ffffffffffffffff".into() }],
         starts_with: vec![],
         ignore_case: false,
         path: PathStyle::Phantom,
+        chain,
+        checksum: false,
     };
     let m = Arc::new(Matcher::new(&p).unwrap());
     let stop = Arc::new(AtomicBool::new(false));
@@ -1245,7 +1566,10 @@ fn cmd_bench(threads: usize, indices: u32, seconds: u64) {
     std::thread::scope(|s| {
         for _ in 0..threads {
             let (m, stop, counter) = (Arc::clone(&m), Arc::clone(&stop), Arc::clone(&counter));
-            s.spawn(move || grind_loop(&m, PathStyle::Phantom, indices, 32, "", &stop, &counter, &|_| {}));
+            s.spawn(move || match chain {
+                Chain::Sol => grind_loop(&m, PathStyle::Phantom, indices, 32, "", &stop, &counter, &|_| {}),
+                Chain::Evm => grind_loop_evm(&m, indices, 32, "", &stop, &counter, &|_| {}),
+            });
         }
         std::thread::sleep(Duration::from_secs(seconds));
         stop.store(true, Ordering::SeqCst);
@@ -1257,14 +1581,27 @@ fn cmd_bench(threads: usize, indices: u32, seconds: u64) {
     println!("{}", ui::mid(""));
     println!("{}", ui::kv("candidates", &format!("{} in {:.1}s", group(n as f64), secs)));
     println!("{}", ui::kv_accent("rate", &format!("{}/sec total · {}/sec/thread", group(rate), group(rate / threads as f64))));
-    let x = rate / 13_600.0;
-    println!("{}", ui::kv("baseline", &format!("{:.1}x the 13,600/sec of solana-keygen grind", x)));
-    println!("{}", ui::mid(&format!("  {}{:<11}{}{}", ui::gry(), "", ui::r(), ui::bar((x / 40.0 * 100.0).min(100.0), 40))));
-    println!("{}", ui::mid(""));
-    println!("{}", ui::note("time to first 5-char suffix (1 in 656,356,768)"));
-    quantiles(1.0 / 656_356_768.0, rate);
-    save_rate(threads, indices, rate);
-    println!("{}", ui::bot(&format!("saved for estimate -> {}", rate_cache_path().display())));
+    match chain {
+        Chain::Sol => {
+            let x = rate / 13_600.0;
+            println!("{}", ui::kv("baseline", &format!("{:.1}x the 13,600/sec of solana-keygen grind", x)));
+            println!("{}", ui::mid(&format!("  {}{:<11}{}{}", ui::gry(), "", ui::r(), ui::bar((x / 40.0 * 100.0).min(100.0), 40))));
+            println!("{}", ui::mid(""));
+            println!("{}", ui::note("time to first 5-char suffix (1 in 656,356,768)"));
+            quantiles(1.0 / 656_356_768.0, rate);
+        }
+        Chain::Evm => {
+            // no baseline claim here: nothing measured to compare against yet
+            println!("{}", ui::mid(""));
+            println!("{}", ui::note("time to first 6-hex suffix, any case (1 in 16,777,216)"));
+            quantiles(1.0 / 16_777_216.0, rate);
+            println!("{}", ui::mid(""));
+            println!("{}", ui::note("time to first 8-hex suffix, any case (1 in 4,294,967,296)"));
+            quantiles(1.0 / 4_294_967_296.0, rate);
+        }
+    }
+    save_rate(chain, threads, indices, rate);
+    println!("{}", ui::bot(&format!("saved for estimate -> {}", rate_cache_path(chain).display())));
     println!();
 }
 
@@ -1311,10 +1648,11 @@ fn cmd_grind(
         Ok(m) => m,
         Err(e) => { eprintln!("error: {}", e); std::process::exit(1); }
     };
-    if m.needs_full {
+    let chain = p.chain;
+    if m.needs_full && chain == Chain::Sol {
         eprintln!("note: prefix matching needs full base58 per candidate (slower than suffix)");
     }
-    if indices > 16 {
+    if indices > 16 && chain == Chain::Sol {
         eprintln!("note: --indices {} - the match may land at account index up to {}.", indices, indices - 1);
         eprintln!("      Fine for Solflare (custom path). Phantom needs that many 'add account'");
         eprintln!("      clicks; use --indices 8 if Phantom is the target.");
@@ -1361,11 +1699,10 @@ fn cmd_grind(
     let passphrase: Arc<Zeroizing<String>> = Arc::new(if with_passphrase { ask_passphrase() } else { Zeroizing::new(String::new()) });
     ui::masthead("grind");
     println!("{}", ui::top("GRIND", "Ctrl-C stops after the current batch"));
-    let pats: Vec<String> = m.suffixes.iter().map(|s| format!("*{}", String::from_utf8_lossy(s)))
-        .chain(m.prefixes.iter().map(|s| format!("{}*", String::from_utf8_lossy(s)))).collect();
-    println!("{}", ui::kv("pattern", &format!("{}{}", pats.join("  "), if p.ignore_case { "   (case-insensitive)" } else { "" })));
+    println!("{}", ui::kv("pattern", &pattern_line(&m, &p)));
     println!("{}", ui::kv("odds", &format!("1 in {}", group(1.0 / prob))));
-    println!("{}", ui::kv("threads", &format!("{} · {} indices/mnemonic · {}-word seeds", threads, indices, words)));
+    println!("{}", ui::kv("threads", &format!("{} · {} indices/mnemonic · {}-word seeds{}", threads, indices, words,
+        if chain == Chain::Evm { " · m/44'/60'/0'/0/N" } else { "" })));
     println!("{}", ui::kv("matches ->", &format!("{}  (mode 0600)", out_link(&out))));
     println!("{}", ui::kv("stop after", &format!("{} match(es)", count)));
     if with_passphrase { println!("{}", ui::kv("passphrase", "used - not stored; the seed alone will not reach the address")); }
@@ -1420,7 +1757,7 @@ fn cmd_grind(
             let out = out.clone();
             let pass = Arc::clone(&passphrase);
             s.spawn(move || {
-                grind_loop(&m, style, indices, entropy_len, pass.as_str(), &stop, &counter, &|h| {
+                let on_hit = |h: Hit| {
                     if let Err(e) = write_hit(&out, &h, style) {
                         // Never the terminal. A seed on stdout on the one path
                         // where the operator has lost control of the sink is
@@ -1441,7 +1778,7 @@ fn cmd_grind(
                     print!("\r\x1b[2K");
                     println!("{}", ui::top("MATCH", &fmt_dur(start.elapsed().as_secs_f64())));
                     println!("{}", ui::kv_accent("address", &h.address));
-                    println!("{}", ui::kv("path", &path_str(style, h.index)));
+                    println!("{}", ui::kv("path", &path_for(h.chain, style, h.index)));
                     if show_seed {
                         let w: Vec<&str> = h.mnemonic.split_whitespace().collect();
                         let mut first = true;
@@ -1453,11 +1790,21 @@ fn cmd_grind(
                     } else {
                         println!("{}", ui::kv("seed", &format!("-> {}   (--show-seed to print here)", out_link(&out))));
                     }
-                    println!("{}", ui::kv("keys", &format!("-> {}   base58 + JSON array (show --keys)", out_link(&out))));
-                    println!("{}", ui::mid(""));
-                    println!("{}", ui::note("Key:      Phantom pastes the base58 · Solflare imports the JSON array"));
-                    println!("{}", ui::note("          -> this exact address, standalone, no clicks"));
-                    for l in import_hint(style, h.index) { println!("{}", ui::note(&l)); }
+                    match h.chain {
+                        Chain::Sol => {
+                            println!("{}", ui::kv("keys", &format!("-> {}   base58 + JSON array (show --keys)", out_link(&out))));
+                            println!("{}", ui::mid(""));
+                            println!("{}", ui::note("Key:      Phantom pastes the base58 · Solflare imports the JSON array"));
+                            println!("{}", ui::note("          -> this exact address, standalone, no clicks"));
+                        }
+                        Chain::Evm => {
+                            println!("{}", ui::kv("key", &format!("-> {}   hex private key (show --keys)", out_link(&out))));
+                            println!("{}", ui::mid(""));
+                            println!("{}", ui::note("Key:      MetaMask/Rabby: Import account -> Private key: the 0x hex"));
+                            println!("{}", ui::note("          -> this exact address on every EVM chain, standalone"));
+                        }
+                    }
+                    for l in import_hint(h.chain, style, h.index) { println!("{}", ui::note(&l)); }
                     println!("{}", ui::note("the OTHER accounts on this seed are ordinary addresses"));
                     if h.passphrase { println!("{}", ui::warn_line("passphrase used - the seed alone will NOT reach this; the keys will")); }
                     if ui::links_on() { println!("{}", ui::note(ui::CLICK_HINT)); }
@@ -1466,7 +1813,11 @@ fn cmd_grind(
                     if hits.fetch_add(1, Ordering::SeqCst) + 1 >= count as u64 {
                         stop.store(true, Ordering::SeqCst);
                     }
-                });
+                };
+                match chain {
+                    Chain::Sol => grind_loop(&m, style, indices, entropy_len, pass.as_str(), &stop, &counter, &on_hit),
+                    Chain::Evm => grind_loop_evm(&m, indices, entropy_len, pass.as_str(), &stop, &counter, &on_hit),
+                }
             });
         }
     });
@@ -1479,6 +1830,7 @@ fn cmd_grind(
     if n > 0 {
         let stem = std::path::Path::new(&out).file_stem().map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_else(|| out.clone());
+        let stem = if chain == Chain::Evm && std::path::Path::new(&out).starts_with(matches_dir_for(Chain::Evm)) { format!("evm/{}", stem) } else { stem };
         println!(" {}keyrx show {}   lists them · --seeds / --keys to reveal{}", ui::gry(), stem, ui::r());
     }
     println!();
@@ -1593,6 +1945,8 @@ mod tests {
             starts_with: starts.iter().map(|s| s.to_string()).collect(),
             ignore_case: ic,
             path: PathStyle::Phantom,
+            chain: Chain::Sol,
+            checksum: false,
         }
     }
 
@@ -1680,6 +2034,117 @@ mod tests {
         let mut s = [0u8; 32]; s.copy_from_slice(&bytes[..32]);
         let re = bs58::encode(SigningKey::from_bytes(&s).verifying_key().to_bytes()).into_string();
         assert_eq!(re, addr, "secret half does not re-derive the address");
+    }
+
+    fn pat_evm(ends: &[&str], starts: &[&str], checksum: bool) -> PatternArgs {
+        PatternArgs { chain: Chain::Evm, checksum, ..pat(ends, starts, false) }
+    }
+
+    #[test]
+    fn evm_matcher_takes_hex_in_any_case_and_refuses_the_rest() {
+        let m = Matcher::new(&pat_evm(&["DeAd"], &["0xC0ffee"], false)).unwrap();
+        assert_eq!(m.suffixes, vec![b"dead".to_vec()], "stored lowercase: any case matches");
+        assert_eq!(m.prefixes, vec![b"c0ffee".to_vec()], "0x dropped, lowercase");
+        assert!(Matcher::new(&pat_evm(&["keyrx"], &[], false)).is_err(), "not hex");
+        assert!(Matcher::new(&pat_evm(&["0xdead"], &[], false)).is_err(), "0x on a suffix");
+        assert!(Matcher::new(&pat_evm(&[], &[], false)).is_err());
+        assert!(Matcher::new(&PatternArgs { ignore_case: true, ..pat_evm(&["dead"], &[], true) }).is_err(), "checksum + ignore-case");
+        assert!(Matcher::new(&PatternArgs { checksum: true, ..pat(&["KEYRX"], &[], false) }).is_err(), "checksum on sol");
+        let c = Matcher::new(&pat_evm(&["DeAd"], &[], true)).unwrap();
+        assert_eq!(c.suffixes, vec![b"DeAd".to_vec()], "checksum keeps the typed case");
+    }
+
+    #[test]
+    fn evm_probability_is_sixteen_per_digit_and_two_per_letter_with_checksum() {
+        let m = Matcher::new(&pat_evm(&["dead"], &[], false)).unwrap();
+        let want = 1.0 / 16f64.powi(4);
+        assert!((m.probability() - want).abs() < want * 1e-12);
+        let c = Matcher::new(&pat_evm(&["dead"], &[], true)).unwrap();
+        let want = 1.0 / 16f64.powi(4) / 2f64.powi(4);   // d, e, a, d: four letters
+        assert!((c.probability() - want).abs() < want * 1e-12);
+        let digits = Matcher::new(&pat_evm(&["1234"], &[], true)).unwrap();
+        assert!((digits.probability() - 1.0 / 16f64.powi(4)).abs() < 1e-18, "digits have no case to match");
+        let both = Matcher::new(&pat_evm(&["ab"], &["cd"], false)).unwrap();
+        assert!((both.probability() - 2.0 / 256.0).abs() < 1e-15);
+    }
+
+    #[test]
+    fn evm_hit_checks_any_case_then_eip55_when_asked() {
+        // EIP-55 example 0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed: ends "BeAed"
+        let want = "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed";
+        let mut a = [0u8; 20];
+        for i in 0..20 { a[i] = u8::from_str_radix(&want[2 + 2 * i..4 + 2 * i], 16).unwrap(); }
+        let mut lower = [0u8; 40];
+        evm::hex40(&a, &mut lower);
+        assert!(Matcher::new(&pat_evm(&["beaed"], &[], false)).unwrap().evm_hit(&lower, &a));
+        assert!(Matcher::new(&pat_evm(&["BEAED"], &[], false)).unwrap().evm_hit(&lower, &a), "any case without --checksum");
+        assert!(Matcher::new(&pat_evm(&["BeAed"], &[], true)).unwrap().evm_hit(&lower, &a), "the real casing");
+        assert!(!Matcher::new(&pat_evm(&["beaed"], &[], true)).unwrap().evm_hit(&lower, &a), "wrong casing under --checksum");
+        assert!(Matcher::new(&pat_evm(&[], &["0x5aAeb6"], true)).unwrap().evm_hit(&lower, &a));
+        assert!(!Matcher::new(&pat_evm(&[], &["0x5AAEB6"], true)).unwrap().evm_hit(&lower, &a));
+        assert!(!Matcher::new(&pat_evm(&["dead"], &[], false)).unwrap().evm_hit(&lower, &a));
+    }
+
+    #[test]
+    fn evm_default_out_lives_under_matches_evm() {
+        let d = default_out(&pat_evm(&["DEAD"], &[], false));
+        assert!(d.ends_with("/matches/evm/dead.txt"), "{}", d);
+        let d = default_out(&pat_evm(&["DeAd"], &["0xC0ffee"], true));
+        assert!(d.ends_with("/matches/evm/DeAd+C0ffee_.cs.txt"), "{}", d);
+    }
+
+    #[test]
+    fn evm_grind_finds_a_hit_that_rederives_and_writes_four_lines() {
+        // One hex digit: nothing valuable is ever generated. The hit must re-derive
+        // from its own mnemonic at the stated index, its key must be the address's,
+        // and the file must carry four lines and no keypair.
+        let m = Matcher::new(&pat_evm(&["a"], &[], false)).unwrap();
+        let stop = AtomicBool::new(false);
+        let counter = AtomicU64::new(0);
+        let found = std::sync::Mutex::new(None);
+        grind_loop_evm(&m, 16, 16, "", &stop, &counter, &|h| {
+            *found.lock().unwrap() = Some(h);
+            stop.store(true, Ordering::SeqCst);
+        });
+        let h = found.into_inner().unwrap().expect("no hit");
+        assert_eq!(h.chain, Chain::Evm);
+        assert!(h.address.starts_with("0x") && h.address.len() == 42, "{}", h.address);
+        assert!(h.address.to_ascii_lowercase().ends_with('a'));
+        let seed = bip39::Mnemonic::parse_normalized(&h.mnemonic).unwrap().to_seed("");
+        let b = evm::Branch::from_seed(&seed).unwrap();
+        let k = b.key_at(h.index).unwrap();
+        assert_eq!(evm::eip55(&evm::address_of(&k)), h.address, "hit does not re-derive from its own mnemonic");
+        assert_eq!(evm::privkey_hex(&k).as_str(), h.privkey.as_str(), "the written key is not the address's key");
+        assert!(h.keypair_json.is_empty());
+        let dir = std::env::temp_dir().join(format!("keyrx-evm-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let out = dir.join("a.txt");
+        write_hit(out.to_str().unwrap(), &h, PathStyle::Phantom).unwrap();
+        let text = std::fs::read_to_string(&out).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(text.starts_with(&format!("address {}\npath    m/44'/60'/0'/0/{}\nseed    ", h.address, h.index)), "{}", text);
+        assert!(text.contains(&format!("\nprivkey {}\n", h.privkey.as_str())));
+        assert!(!text.contains("keypair"), "EVM has one key form");
+        assert_eq!(text.lines().filter(|l| !l.is_empty()).count(), 4);
+    }
+
+    #[test]
+    fn evm_checksum_grind_hit_carries_the_typed_case() {
+        let m = Matcher::new(&pat_evm(&["A"], &[], true)).unwrap();
+        let stop = AtomicBool::new(false);
+        let counter = AtomicU64::new(0);
+        let found = std::sync::Mutex::new(None);
+        grind_loop_evm(&m, 16, 16, "", &stop, &counter, &|h| {
+            *found.lock().unwrap() = Some(h.address.clone());
+            stop.store(true, Ordering::SeqCst);
+        });
+        let addr = found.into_inner().unwrap().expect("no hit");
+        assert!(addr.ends_with('A'), "EIP-55 case must be the typed one: {}", addr);
+    }
+
+    #[test]
+    fn the_evm_self_test_is_green() {
+        for (what, ok) in evm::self_test() { assert!(ok, "{}", what); }
     }
 
     #[test]

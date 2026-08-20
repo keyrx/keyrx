@@ -1,6 +1,6 @@
 # keyrx
 
-> Solana vanity address grinder. One seed, unlimited addresses, keys for every wallet. Offline. Open. Verified. The mark is a record. What it seals comes next.
+> Solana and EVM vanity address grinder. One seed, unlimited addresses, keys for every wallet. Offline. Open. Verified. The mark is a record. What it seals comes next.
 >
 > One seed phrase is a tree of addresses; keyrx
 > derives the expensive prefix once and walks the account index - 20-60x the
@@ -8,6 +8,11 @@
 > address, its derivation path, the seed phrase, and the keypair in both
 > wallet-import forms (base58 for Phantom, JSON byte array for Solflare and
 > solana-keygen). One Rust binary. No daemon, no service, no network.
+>
+> `--chain evm` (0.4.0): Ethereum and every EVM chain - the same mnemonic walk on
+> secp256k1 at m/44'/60'/0'/0/N, keccak addresses in EIP-55 case; hex patterns,
+> any case by default, `--checksum` for EIP-55 case as typed; the match writes the
+> 0x hex private key MetaMask and Rabby import. Matches under matches/evm/.
 
 The site is a terminal UI rendered in JavaScript with a real toy grind in a
 Web Worker; nothing leaves the browser. This file carries the same content

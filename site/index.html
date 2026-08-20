@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>keyRX — Solana vanity addresses, keys for every wallet</title>
-<meta name="description" content="Solana vanity address grinder. One seed, unlimited addresses, keys for every wallet. Offline. Open. Verified. The mark is a record. What it seals comes next.">
+<title>keyRX — Solana and EVM vanity addresses, keys for every wallet</title>
+<meta name="description" content="Solana and EVM vanity address grinder. One seed, unlimited addresses, keys for every wallet. Offline. Open. Verified. The mark is a record. What it seals comes next.">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' blob:; style-src 'unsafe-inline'; font-src data:; img-src 'self' data:; worker-src blob:; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <link rel="canonical" href="https://keyrx.tech/">
@@ -15,7 +15,7 @@
 <meta property="og:image" content="https://keyrx.tech/og.png">
 <meta name="twitter:card" content="summary_large_image">
 <meta property="og:title" content="keyRX — vanity addresses, keys for every wallet">
-<meta property="og:description" content="Solana vanity address grinder. One seed, unlimited addresses, keys for every wallet. Offline. Open. Verified. The mark is a record. What it seals comes next.">
+<meta property="og:description" content="Solana and EVM vanity address grinder. One seed, unlimited addresses, keys for every wallet. Offline. Open. Verified. The mark is a record. What it seals comes next.">
 <meta property="og:url" content="https://keyrx.tech/">
 <style>
 /* The frame is only square if every glyph agrees on its width. System monos
@@ -83,10 +83,11 @@ noscript div{white-space:normal;max-width:68ch;color:var(--gray);padding:1em 0}
 <div id="scr"><div id="page">
 <noscript><div>
   <h1>keyRX</h1>
-  <p>Solana vanity addresses, 20-60x faster than solana-keygen grind. One seed phrase is a tree of
-  addresses: keyRX pays the expensive step once per seed and walks the branches. Every match writes
-  the address, its derivation path, the seed, and the keypair in both wallet-import forms (base58 for
-  Phantom, JSON array for Solflare). One Rust binary. No daemon, no service, no network.</p>
+  <p>Solana vanity addresses, 20-60x faster than solana-keygen grind, and EVM addresses the same way
+  (Ethereum, Base, Arbitrum, Optimism, Polygon, BNB: one key, every chain). One seed phrase is a tree
+  of addresses: keyRX pays the expensive step once per seed and walks the branches. Every match writes
+  the address, its derivation path, the seed, and the key in every wallet-import form (base58 and JSON
+  array for Solana, 0x hex for EVM). One Rust binary. No daemon, no service, no network.</p>
   <pre>cargo install keyrx && clear && keyrx
 keyrx verify
 keyrx grind --ends-with KEYRX --indices 128</pre>
@@ -113,7 +114,7 @@ keyrx grind --ends-with KEYRX --indices 128</pre>
 /* The version the masthead shows. It must equal Cargo.toml's - a cargo test reads this
    file and fails the publish if the two ever drift (John, 2026-08-19: "always updated
    together"). The only place on the site a version is written. */
-var VERSION='0.3.4';
+var VERSION='0.4.0';
 var out=document.getElementById('out'),scr=document.getElementById('scr'),
     inp=document.getElementById('in'),prom=document.getElementById('prompt'),
     sr=document.getElementById('sr');
@@ -177,11 +178,11 @@ var SEAL='fbd454bdefee923628fcb6f24667b772ea942f176f9c7988b5e2d2264b335ac8';
 function sealLines(){var out=[];
   for(var r=0;r<8;r++){var s='';for(var c=0;c<8;c++)s+=parseInt(SEAL[r*8+c],16)>=8?'██':'  ';
     out.push('[['+(r<4?'c':'y')+']]'+s+'[[/]]');}return out;}
-var ABOUT=['Solana vanity address grinder.','One seed, unlimited addresses, keys for every wallet.','Offline. Open. Verified.','The mark is a record. What it seals comes next.'];
+var ABOUT=['Solana and EVM vanity address grinder.','One seed, unlimited addresses, keys for every wallet.','Offline. Open. Verified.','The mark is a record. What it seals comes next.'];
 function masthead(right){
   var rt='[[d]]'+right+'[[/]]',h='[[w]]keyRX[[/]] [[f]]|[[/]] [[w]]CLI[[/]]';
   if(MOBILE){var sl=sealLines();   // the same 16x8 seal as the desktop; the words beside it, wrapped to the phone grid
-    var side=['[[d]]Solana vanity address[[/]]','[[d]]grinder. One seed,[[/]]','[[d]]unlimited addresses,[[/]]','[[d]]keys for every wallet.[[/]]','[[d]]Offline. Open. Verified.[[/]]','[[f]]The mark is a record.[[/]]',''];
+    var side=['[[d]]Solana and EVM vanity[[/]]','[[d]]address grinder. One[[/]]','[[d]]seed, unlimited[[/]]','[[d]]addresses, keys for[[/]]','[[d]]every wallet. Offline.[[/]]','[[d]]Open. Verified.[[/]]','[[f]]The mark is a record.[[/]]'];
     line(' '+sl[0]+' '+h+' '.repeat(Math.max(1,W-16-1-vis(h)-vis(rt)-2))+rt);
     for(var i=1;i<8;i++)line(' '+sl[i]+(side[i-1]?' '+side[i-1]:''));
     line(' [[f]]What it seals comes next.[[/]]');
@@ -253,7 +254,7 @@ function stopGrind(){if(worker){worker.postMessage({cmd:'stop'});worker.terminat
 var C={};
 C.what=function(){blank();
   head('WHAT THIS IS',MOBILE?'':'one seed, unlimited addresses, keys for every wallet');
-  prose('d','Grinds Solana vanity addresses - an address that ends (or starts) with the letters you choose - and hands you everything a wallet needs to hold it: seed phrase, derivation path, and the keypair in both import forms (base58 for Phantom, JSON array for Solflare).');row('');
+  prose('d','Grinds Solana and EVM vanity addresses - an address that ends (or starts) with the letters you choose - and hands you everything a wallet needs to hold it: seed phrase, derivation path, and the key in every import form (base58 and JSON array for Solana, 0x hex for EVM).');row('');
   prose('d','Fast because solana-keygen grind pays 2048 rounds of PBKDF2 (~1.2 ms) to test ONE address; keyRX pays it once per seed, then walks that seed\'s account indices at ~21 us each: 20-60x the throughput.');row('');
   prose('d','Standalone. No daemon, no service, no network. Secrets go to a mode-0600 file in a directory of their own, never to the screen unless you ask.');
   foot('verify -> bench -> estimate -> grind -> show');
@@ -286,6 +287,8 @@ C.install=function(){blank();
   crow('keyrx grind --ends-with KEYRX --passphrase','a 25th word, prompted');
   crow('keyrx grind --starts-with Key --ends-with RX','both ends at once');
   crow('keyrx grind --ends-with KEYRX --ignore-case','any case, 32x likelier');
+  crow('keyrx estimate --chain evm --ends-with dead','EVM: hex, any case');
+  crow('keyrx grind --chain evm --ends-with dead','0x…dead, MetaMask/Rabby');
   crow('keyrx show','every match file');
   crow('keyrx show KEYRX --keys','one file, keys revealed');
   crow('keyrx --update','the latest, then this');
@@ -303,6 +306,8 @@ C.match=function(){blank();
   kv('seed',MOBILE?'12 or 24 words, whole tree':'the 12 or 24 words - restores the WHOLE tree');
   kv('privkey',MOBILE?'base58, for Phantom':'base58 keypair - Phantom "Import Private Key"');
   kv('keypair',MOBILE?'JSON array, for Solflare':'the same key as a JSON array - Solflare, solana-keygen');
+  row('');
+  prose('d','EVM (--chain evm): four lines under matches/evm/ - address in EIP-55 case, path m/44\'/60\'/0\'/0/N, seed, and privkey as the 0x hex MetaMask and Rabby import.');
   row('');
   prose('d','A key import lands on the exact address in one paste, standalone - a seed will not recover it, so the file IS the backup. Files are named after the pattern: KEYRX.txt.');
   prose('d','--passphrase grinds with a BIP39 passphrase (the 25th word): prompted, hidden, never stored. The file then says so - the seed alone will not reach that address; the keys will. Import those by key.');
@@ -329,6 +334,9 @@ C.wallets=function(){blank();
   wal('Passphrase','a 25th word on the seed - import by KEY');
   cmd('keyrx grind --ends-with KEYRX --passphrase');
   prose('d','prompted, hidden, never stored. The seed alone will not reach that address; the privkey will, and most browser wallets have no passphrase field on seed import anyway.');row('');
+  wal('EVM','MetaMask, Rabby, Ledger Live - one key, every EVM chain');
+  cmd('keyrx grind --chain evm --ends-with dead');
+  prose('d','hex, any case by default (hex has none of its own); 0x may lead a prefix. The match file carries the 0x hex private key: MetaMask/Rabby Import account -> Private key, the exact address on every chain. --checksum: the letters must also land in EIP-55 case as typed - each letter halves the odds; estimate prints both.');row('');
   wal('Prefix','the address STARTS with your letters');
   cmd('keyrx grind --starts-with Key --indices 128');
   prose('d','slower per candidate - a prefix needs the whole address encoded, a suffix only its last N characters. Same odds per letter. Combinable: --starts-with Key --ends-with RX.');
@@ -340,7 +348,8 @@ C.verified=function(){blank();
   okl('base58 key -> solana-keygen pubkey -> identical address');
   okl('JSON keypair line, copied verbatim -> identical address');
   okl('50,000 pubkeys x 10 suffix lengths: b58 suffix == full encoding');
-  okl('19 tests, clippy clean, every frame line measured');
+  okl('EVM: the abandon mnemonic, EIP-55\'s examples, private key 1, and this tool\'s test seed at four indices against an independent implementation - pinned');
+  okl('41 tests, clippy clean, every frame line measured');
   row('');
   kv('bench',MOBILE?'24.4x at 128 idx':'24.4x solana-keygen at 128 indices, 32.2x at 256');
   kv('per core',MOBILE?'33-55x baseline':'9,495-15,636/sec vs 284 baseline (33-55x)');
@@ -450,11 +459,11 @@ function installBox(){
   var d=row(' '.repeat(padn)+'[[y]]'+INSTALL+'[[/]]');
   if(d&&d.getElementsByTagName){var b=d.getElementsByTagName('b');for(var i=0;i<b.length;i++){if(b[i].textContent===INSTALL){b[i].className='y inst';b[i].title='click to copy';break;}}}
   row('');
-  if(MOBILE){wrapWords('Solana vanity addresses, 20-60x faster than solana-keygen grind',IN-4).forEach(function(l){row('  [[w]]'+l+'[[/]]');});
-    wrapWords('- and every match hands you the seed, the path, and the keypair in both wallet-import forms. One Rust binary. No daemon, no network.',IN-4).forEach(function(l){row('  [[d]]'+l+'[[/]]');});}
-  else{row('  [[w]]Solana vanity addresses, 20-60x faster than solana-keygen grind[[/]]');
-       row('  [[d]]- and every match hands you the seed, the path, and the keypair in[[/]]');
-       row('  [[d]]both wallet-import forms. One Rust binary. No daemon, no network.[[/]]');}
+  if(MOBILE){wrapWords('Solana vanity addresses, 20-60x faster than solana-keygen grind - and EVM',IN-4).forEach(function(l){row('  [[w]]'+l+'[[/]]');});
+    wrapWords('- and every match hands you the seed, the path, and the key in every wallet-import form. One Rust binary. No daemon, no network.',IN-4).forEach(function(l){row('  [[d]]'+l+'[[/]]');});}
+  else{row('  [[w]]Solana vanity addresses, 20-60x faster than solana-keygen grind - and EVM[[/]]');
+       row('  [[d]]- and every match hands you the seed, the path, and the key in every[[/]]');
+       row('  [[d]]wallet-import form. One Rust binary. No daemon, no network.[[/]]');}
   foot(MOBILE?'tap to copy · Rust 1.85+ · MIT':'click the line to copy it · Rust 1.85+ · MIT');
 }
 function start(){

@@ -2,6 +2,38 @@
 
 All notable changes to keyRX, newest first. Versions are the ones on crates.io.
 
+## 0.4.0 — 2026-08-20
+
+- **`--chain evm`**: Ethereum and every EVM chain (Base, Arbitrum, Optimism, Polygon, BNB, Avalanche
+  C-Chain: one key, all of them). The same idea as the Solana path, on secp256k1: one mnemonic pays
+  PBKDF2 once, then the BIP44 tree `m/44'/60'/0'/0/N` is walked at one HMAC-SHA512 plus one scalar
+  multiplication per candidate; the address is the last twenty bytes of keccak-256 over the public
+  key, written in EIP-55 case. `estimate`, `grind` and `bench` take `--chain evm`; `bench --chain evm`
+  measures its own rate and `estimate` reads it (a separate file, `bench-evm.txt`, because the two
+  loops cost nothing alike). Measured on the development machine: 11,900 candidates/sec per thread at
+  64 indices, about two thirds of the Ed25519 rate; a six-hex-digit suffix is under a minute on a
+  desktop, eight is hours.
+- EVM patterns are hex (`0-9 a-f`), matched in **any case by default**, because hex has no case of
+  its own; `0x` is allowed in front of a prefix. **`--checksum`** asks for more: the letters must also
+  come out in EIP-55 case exactly as typed, a coin flip per letter, and `estimate` prints both
+  numbers (`--checksum` and `--ignore-case` together is refused; `--checksum` without `--chain evm`
+  is refused).
+- An EVM match writes four lines under `matches/evm/<pattern>.txt` (Solana files stay exactly where
+  they were): `address` in EIP-55 case, `path m/44'/60'/0'/0/N`, `seed`, and `privkey` as the `0x`
+  hex every EVM wallet imports (MetaMask and Rabby: Import account → Private key; or the seed, then
+  "add account" N times). `keyrx show` lists them as `evm/<pattern>`; `keyrx show evm/dead --keys`
+  reads one. `--passphrase`, `--count`, `--out`, `--words` work the same on both chains; `--path` is
+  Solana-only (EVM has the one path).
+- `keyrx verify` gained **SELF-TEST · EVM**: the "abandon … about" mnemonic's published first
+  account and key; this tool's own public test seed at four indices against an independent
+  implementation (node crypto + noble, a different language and libraries); a passphrase case; the
+  four EIP-55 specification examples; private key 1; and the hot loop's walk against the straight
+  derivation. The manual cross-check panel adds the EVM line (`cast wallet address --mnemonic …
+  --mnemonic-index 0`, or a throwaway MetaMask). Two new crates, `k256` and `sha3`; no network,
+  no service, nothing else changes.
+- The start screen gained an EVM panel and three session rows; the mark's line reads "Solana and
+  EVM vanity address grinder."
+
 ## 0.3.4 — 2026-08-20
 
 - Release hygiene, no change to the binary: from this release on, publishing yanks the release

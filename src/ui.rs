@@ -270,7 +270,7 @@ pub fn seal_lines() -> [String; 8] {
 pub const SITE: &str = "keyRX.tech";
 pub const CONTACT: &str = "dev@keyrx.tech";
 pub const ABOUT: [&str; 4] = [
-    "Solana vanity address grinder.",
+    "Solana and EVM vanity address grinder.",
     "One seed, unlimited addresses, keys for every wallet.",
     "Offline. Open. Verified.",
     "The mark is a record. What it seals comes next.",
@@ -309,7 +309,7 @@ mod tests {
     #[test]
     fn the_about_lines_fit_beside_the_seal() {
         for l in ABOUT { assert!(l.len() <= W - 1 - 16 - 2, "{}", l); }
-        assert_eq!(ABOUT.join(" "), "Solana vanity address grinder. One seed, unlimited addresses, keys for every wallet. Offline. Open. Verified. The mark is a record. What it seals comes next.");
+        assert_eq!(ABOUT.join(" "), "Solana and EVM vanity address grinder. One seed, unlimited addresses, keys for every wallet. Offline. Open. Verified. The mark is a record. What it seals comes next.");
     }
 
     #[test]

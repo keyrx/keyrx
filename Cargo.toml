@@ -1,9 +1,9 @@
 [package]
 name = "keyrx"
-version = "0.3.4"
+version = "0.4.0"
 edition = "2021"
 rust-version = "1.85"
-description = "Solana vanity address grinder. One seed, unlimited addresses, keys for every wallet. Offline. Open. Verified. The mark is a record. What it seals comes next."
+description = "Solana and EVM vanity address grinder. One seed, unlimited addresses, keys for every wallet. Offline. Open. Verified. The mark is a record. What it seals comes next."
 homepage = "https://keyrx.tech"
 repository = "https://github.com/keyrx/keyrx"
 readme = "README.md"
@@ -30,6 +30,9 @@ rand = "0.8"
 zeroize = "1.7"
 ctrlc = "3.4"
 rpassword = "7.3"
+# EVM: secp256k1 (BIP32 tree, public keys) and keccak-256 (addresses, EIP-55). Nothing else.
+k256 = { version = "0.13", default-features = false, features = ["arithmetic", "std", "precomputed-tables"] }
+sha3 = "0.10"
 
 [profile.release]
 opt-level = 3
