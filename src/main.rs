@@ -1496,7 +1496,10 @@ fn cmd_estimate(p: PatternArgs, threads: usize, indices: u32, count: usize) {
         println!("{}", ui::note(&format!("time to all {} matches  (grind --count {} - each one is independent)", count, count)));
         quantiles_n(prob, rate, count);
     }
-    println!("{}", ui::bot(if measured.is_some() { "from this machine's own bench" } else { "theoretical - ran 2.6x optimistic on real hardware" }));
+    println!("{}", ui::bot(if measured.is_some() { "from this machine's own bench" } else { match chain {
+        Chain::Sol => "theoretical - ran 2.6x optimistic on real hardware",
+        Chain::Evm => "theoretical - anchored to one measured machine; bench yours",
+    } }));
 
     // The levers, as numbers.
     let mut levers: Vec<String> = Vec::new();
