@@ -41,12 +41,15 @@ jobs:
         run: |
           test -n "$CARGO_REGISTRY_TOKEN" || { echo "no CARGO_YANK_TOKEN secret: nothing yanked (yank in the crates.io UI, or add a yank-scoped token as that secret)"; exit 0; }
           cur="${GITHUB_REF_NAME#v}"
-          prev="$(git tag -l 'v*' --sort=-v:refname | sed 's/^v//' | grep -vx "$cur" | head -1)"
-          test -n "$prev" || { echo "no previous version to yank"; exit 0; }
-          echo "yanking keyrx $prev (superseded by $cur)"
-          cargo yank --vers "$prev" || echo "YANK NOT PERMITTED with this token - yank $prev in the crates.io UI"
-          # and anything listed for yanking in ops/yank.txt (superseded versions John approved)
-          grep -vE '^\s*(#|$)' ops/yank.txt 2>/dev/null | grep -vx "$cur" | while read -r v; do
-            echo "yank keyrx $v (listed in ops/yank.txt)"
-            cargo yank --vers "$v" 2>&1 | tail -1 || true
+          # Which versions are live is asked of crates.io, not of git: the checkout here is one
+          # commit deep and sees no tag but its own (0.4.0 proved it: "no previous version to
+          # yank", and nothing was). Every live version older than this one goes: John's rule is
+          # one installable version, the newest, now that --update exists.
+          for v in $(curl -sS -A "keyrx publish workflow (dev@keyrx.tech)" https://crates.io/api/v1/crates/keyrx \
+                     | python3 -c 'import sys,json
+          d=json.load(sys.stdin); cur=sys.argv[1]
+          key=lambda v: tuple(int(x) for x in v.split("."))
+          print(" ".join(x["num"] for x in d["versions"] if not x["yanked"] and key(x["num"]) < key(cur)))' "$cur"); do
+            echo "yanking keyrx $v (superseded by $cur)"
+            cargo yank --vers "$v" 2>&1 | tail -1 || echo "YANK NOT PERMITTED with this token - yank $v in the crates.io UI"
           done
