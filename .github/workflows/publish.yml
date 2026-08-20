@@ -51,5 +51,5 @@ jobs:
           key=lambda v: tuple(int(x) for x in v.split("."))
           print(" ".join(x["num"] for x in d["versions"] if not x["yanked"] and key(x["num"]) < key(cur)))' "$cur"); do
             echo "yanking keyrx $v (superseded by $cur)"
-            cargo yank --vers "$v" 2>&1 | tail -1 || echo "YANK NOT PERMITTED with this token - yank $v in the crates.io UI"
+            cargo yank --vers "$v" || echo "::warning::crates.io refused to yank $v (the token must be an owner's, scoped yank on keyrx) - yank it by hand or via the yank workflow"
           done

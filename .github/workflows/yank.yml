@@ -30,4 +30,11 @@ jobs:
           print(" ".join(live[:-1]))')"
           fi
           test -n "$WANT" || { echo "nothing to yank"; exit 0; }
-          for v in $WANT; do echo "yanking keyrx $v"; cargo yank --vers "$v" 2>&1 | tail -1; done
+          # loud on purpose: a yank that crates.io refuses (a token that is not an owner's, or
+          # not yank-scoped) must fail the run and show the refusal, not pass behind a pipe
+          fail=0
+          for v in $WANT; do
+            echo "yanking keyrx $v"
+            cargo yank --vers "$v" || { echo "::error::crates.io refused to yank $v - see the line above (is the token an OWNER's, scoped yank on keyrx?)"; fail=1; }
+          done
+          exit $fail
