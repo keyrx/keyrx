@@ -2,6 +2,13 @@
 
 All notable changes to keyRX, newest first. Versions are the ones on crates.io.
 
+## 0.4.3 — 2026-08-21
+
+- A TYPICAL SESSION: every row is one line again. The `--checksum` example was the one command
+  too long for the column and wrapped into a two-line row among one-line rows; it is gone from
+  this panel (RECIPES carries the full `--checksum` command, and the EVM panel explains the flag).
+  No functional change.
+
 ## 0.4.2 — 2026-08-21
 
 - DONATE shows the EVM address: `0x34F08966E43Fb58C5112ae6dB8BbadC2bae00000`, one address for every EVM chain, ground with

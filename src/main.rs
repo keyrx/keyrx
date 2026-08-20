@@ -1320,7 +1320,6 @@ fn cmd_start() {
     step("keyrx grind --ends-with KEYRX --ignore-case", "any case, 32x likelier");
     step("keyrx estimate --chain evm --ends-with dead", "EVM: hex, any case");
     step("keyrx grind --chain evm --ends-with dead", "0x...dead, MetaMask/Rabby");
-    step("keyrx grind --chain evm --starts-with 0xc0ffee --checksum", "EIP-55 case as typed");
     step("keyrx bench --chain evm", "the EVM rate, saved");
     step("keyrx show evm/dead --keys", "the 0x hex private key");
     step("keyrx show", "every match file");
