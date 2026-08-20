@@ -1,0 +1,26 @@
+# Yank superseded keyrx versions listed in ops/yank.txt (one per line), on push. The crates.io
+# token is the same trusted-publishing exchange publish.yml uses, so no token lives anywhere; if
+# that token cannot yank, the log says so and the versions are yanked in the crates.io UI instead.
+name: yank
+on:
+  push:
+    branches: [main]
+    paths: ["ops/yank.txt"]
+permissions:
+  contents: read
+  id-token: write
+jobs:
+  yank:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: rust-lang/crates-io-auth-action@v1
+        id: auth
+      - env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+        run: |
+          grep -vE '^\s*(#|$)' ops/yank.txt | while read -r v; do
+            echo "yank keyrx $v"
+            cargo yank --vers "$v" || echo "YANK NOT PERMITTED for $v with this token - do it in the crates.io UI"
+          done

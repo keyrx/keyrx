@@ -27,3 +27,17 @@ jobs:
       - run: cargo publish
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+      # One version at a time: when a release publishes, the one before it is yanked, so a fresh
+      # `cargo install keyrx` can only land on the newest. Yanking never breaks an existing install
+      # or lockfile; it only stops new resolutions. If the trusted-publishing token lacks the yank
+      # scope this step says so and the release still stands - yank then happens in the crates.io UI.
+      - name: yank the previous release
+        continue-on-error: true
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+        run: |
+          cur="${GITHUB_REF_NAME#v}"
+          prev="$(git tag -l 'v*' --sort=-v:refname | sed 's/^v//' | grep -vx "$cur" | head -1)"
+          test -n "$prev" || { echo "no previous version to yank"; exit 0; }
+          echo "yanking keyrx $prev (superseded by $cur)"
+          cargo yank --vers "$prev" || echo "YANK NOT PERMITTED with this token - yank $prev in the crates.io UI"
