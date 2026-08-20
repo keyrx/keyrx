@@ -400,7 +400,7 @@ C.donate=function(){blank();
   }
   if(DONATE_EVM){
     row('');
-    row('  [[w]]EVM[[/]]  [[d]]Ethereum, Base, Arbitrum, Polygon, BNB... one address for all[[/]]');
+    if(MOBILE)row('  [[w]]EVM[[/]]  [[d]]every EVM chain[[/]]'); else row('  [[w]]EVM[[/]]  [[d]]Ethereum, Base, Arbitrum, Polygon, BNB... one address for all[[/]]');
     if(MOBILE){row('  [[y]]'+DONATE_EVM.slice(0,6)+'...'+DONATE_EVM.slice(-4)+'[[/]]  [[f]]tap to copy[[/]]');}
     else row('  [[y]]'+DONATE_EVM+'[[/]]');
     (function(){var b=out.querySelectorAll('b.y');for(var i=b.length-1;i>=0;i--){var t=b[i].textContent.trim();
