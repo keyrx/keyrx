@@ -54,7 +54,7 @@ const DONATE_SOL: &str = "Gi2z4r7ib15A7PRVyoR5zbEyJcBLh9CnJ9mgSw2KEYRX";
 /// `--chain evm`. Same rule as DONATE_SOL: ONE place here, the same string in the site's
 /// DONATE_EVM const, change both together. Empty until it is set; the panel then shows
 /// the Solana address alone rather than a placeholder.
-const DONATE_EVM: &str = "";
+const DONATE_EVM: &str = "0x34F08966E43Fb58C5112ae6dB8BbadC2bae00000";
 const B58: &[u8; 58] = b"123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 
 // ---------------------------------------------------------------- CLI

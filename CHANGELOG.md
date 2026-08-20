@@ -2,6 +2,12 @@
 
 All notable changes to keyRX, newest first. Versions are the ones on crates.io.
 
+## 0.4.2 — 2026-08-21
+
+- DONATE shows the EVM address: `0x34F08966E43Fb58C5112ae6dB8BbadC2bae00000`, one address for every EVM chain, ground with
+  `--chain evm` (a five-zero suffix, EIP-55 case as printed). The same string is in the site's DONATE
+  panel with click-to-copy. Nothing else changes.
+
 ## 0.4.1 — 2026-08-21
 
 - The full EVM pass on the start screen: COMMANDS names both chains and the per-chain `bench`;
