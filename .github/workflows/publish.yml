@@ -41,3 +41,8 @@ jobs:
           test -n "$prev" || { echo "no previous version to yank"; exit 0; }
           echo "yanking keyrx $prev (superseded by $cur)"
           cargo yank --vers "$prev" || echo "YANK NOT PERMITTED with this token - yank $prev in the crates.io UI"
+          # and anything listed for yanking in ops/yank.txt (superseded versions John approved)
+          grep -vE '^\s*(#|$)' ops/yank.txt 2>/dev/null | grep -vx "$cur" | while read -r v; do
+            echo "yank keyrx $v (listed in ops/yank.txt)"
+            cargo yank --vers "$v" 2>&1 | tail -1 || true
+          done
