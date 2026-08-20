@@ -105,9 +105,10 @@ keyrx grind --ends-with KEYRX --indices 128</pre>
   <b>F5</b><i data-c="wallets" role="button" tabindex="0">Wallets</i>
   <b>F6</b><i class="x" data-c="verified" role="button" tabindex="0">Verified</i>
   <b>F7</b><i data-c="donate" role="button" tabindex="0">Donate</i>
+  <b>F8</b><i data-c="evm" role="button" tabindex="0">EVM</i>
   <span class="sp"></span>
-  <b>F8</b><i data-c="github" role="button" tabindex="0">GitHub</i>
-  <b>F9</b><i class="x" data-c="x" role="button" tabindex="0">X</i>
+  <b>F9</b><i data-c="github" role="button" tabindex="0">GitHub</i>
+  <b>F10</b><i class="x" data-c="x" role="button" tabindex="0">X</i>
 </div>
 <script>
 (function(){
@@ -122,6 +123,9 @@ var out=document.getElementById('out'),scr=document.getElementById('scr'),
    its DONATE_SOL const - change both together. Empty until the keyRX vanity
    grind lands; the panel says so rather than show an address that is not ours. */
 var DONATE_SOL='Gi2z4r7ib15A7PRVyoR5zbEyJcBLh9CnJ9mgSw2KEYRX';
+/* The EVM donation address - one address for every EVM chain - ground with keyrx --chain evm. Same rule: the CLI's
+   DONATE_EVM const carries the same string, change both together. Empty until set; the panel then shows Solana alone. */
+var DONATE_EVM='';
 var MOBILE=false, W=78, IN=76;
 function setMode(m){MOBILE=m; W=m?42:78; IN=W-2;}
 function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;');}
@@ -265,6 +269,8 @@ C.what=function(){blank();
     kv('--indices 128','1.2 ms + 128 x 21 us  = 128 candidates per ~3.9 ms',15);
     row('');
     prose('d','The match lands on ANY branch you checked. That only matters if you import the SEED: Solflare takes the path, Phantom clicks "add account" N times. Import the KEY instead and the index never matters - grind wide.');
+    row('');
+    prose('d','EVM: the same 1.2 ms per phrase, then ~65 us per branch (secp256k1 costs more than Ed25519), so --indices buys less there. MetaMask walks indices with "add account" too; the KEY import skips them.');
     foot('Private key: --indices 128  ·  Seed into Phantom: --indices 8');
   }
   blank();};
@@ -307,7 +313,11 @@ C.match=function(){blank();
   kv('privkey',MOBILE?'base58, for Phantom':'base58 keypair - Phantom "Import Private Key"');
   kv('keypair',MOBILE?'JSON array, for Solflare':'the same key as a JSON array - Solflare, solana-keygen');
   row('');
-  prose('d','EVM (--chain evm): four lines under matches/evm/ - address in EIP-55 case, path m/44\'/60\'/0\'/0/N, seed, and privkey as the 0x hex MetaMask and Rabby import.');
+  row('  [[w]]'+(MOBILE?'EVM: four lines, matches/evm/':'EVM (--chain evm): four lines, under matches/evm/')+'[[/]]');
+  kv('address',MOBILE?'0x + 40 hex, EIP-55 case':'0x + forty hex digits, in EIP-55 case');
+  kv('path',MOBILE?"m/44'/60'/0'/0/N":"m/44'/60'/0'/0/N - MetaMask, Rabby, Ledger Live walk it");
+  kv('seed',MOBILE?'12 or 24 words, whole tree':'the 12 or 24 words - restores the WHOLE tree');
+  kv('privkey',MOBILE?'0x hex, MetaMask/Rabby':'0x hex - MetaMask/Rabby "Import account -> Private key"');
   row('');
   prose('d','A key import lands on the exact address in one paste, standalone - a seed will not recover it, so the file IS the backup. Files are named after the pattern: KEYRX.txt.');
   prose('d','--passphrase grinds with a BIP39 passphrase (the 25th word): prompted, hidden, never stored. The file then says so - the seed alone will not reach that address; the keys will. Import those by key.');
@@ -341,6 +351,28 @@ C.wallets=function(){blank();
   cmd('keyrx grind --starts-with Key --indices 128');
   prose('d','slower per candidate - a prefix needs the whole address encoded, a suffix only its last N characters. Same odds per letter. Combinable: --starts-with Key --ends-with RX.');
   foot('estimate first: it prints the odds for YOUR machine');blank();};
+C.evm=function(){blank();
+  head('EVM',MOBILE?'':'Ethereum, Base, Arbitrum, Polygon, BNB: one key for all · 0.4.0');
+  prose('d','--chain evm grinds a 0x address - forty hex digits - the same way keyRX grinds a Solana one: one seed phrase, the expensive step once, then the tree walked. secp256k1 in the BIP44 tree at m/44\'/60\'/0\'/0/N, the path MetaMask, Rabby, Ledger Live and Trezor Suite all walk; the address is keccak-256 of the public key, written in EIP-55 case. One key is every EVM chain.');row('');
+  function crow(c,n){
+    if(!MOBILE){row('  [[y]]$[[/]] '+pad(c,46)+(n?'[[d]]# '+n+'[[/]]':''));return;}
+    var parts=[],cur='';c.split(' ').forEach(function(w){var nx=cur?cur+' '+w:w;if(vis(nx)>IN-3&&cur){parts.push(cur);cur=w;}else cur=nx;});if(cur)parts.push(cur);
+    parts.forEach(function(pt,i){var d=row((i?'   ':' [[y]]$[[/]] ')+'[[y]]'+pt+'[[/]]');
+      if(d&&d.getElementsByTagName){var b=d.getElementsByTagName('b');for(var k=0;k<b.length;k++){if(b[k].textContent===pt){b[k].className='y cmdcopy';b[k].setAttribute('data-cmd',c);b[k].title='tap to copy';break;}}}});
+    if(n)row('   [[d]]# '+n+'[[/]]');}
+  crow('keyrx bench --chain evm','this box\'s EVM rate, saved');
+  crow('keyrx estimate --chain evm --ends-with dead','odds; hex, any case');
+  crow('keyrx grind --chain evm --ends-with dead','0x…dead, MetaMask/Rabby');
+  crow('keyrx grind --chain evm --ends-with DeAd --checksum','EIP-55 case as typed');
+  crow('keyrx show evm/dead --keys','the 0x hex private key');
+  row('');
+  kv('patterns',MOBILE?'0-9 a-f, any case':'0-9 and a-f, matched in ANY case by default: hex has no case of its own. 0x may lead a prefix.',11);
+  kv('--checksum',MOBILE?'EIP-55 case as typed':'the letters must ALSO land in EIP-55 case as typed - a coin flip per letter; estimate prints both.',11);
+  kv('import',MOBILE?'MetaMask/Rabby: key':'MetaMask/Rabby: Import account -> Private key, paste the 0x hex - the exact address on every chain.',11);
+  kv('files',MOBILE?'matches/evm/':'matches/evm/<pattern>.txt - four lines; keyrx show evm/<pattern> reads one.',11);
+  kv('measured',MOBILE?'333,501/s on 28 thr':'333,501 addresses/sec on a 28-thread desktop (11,911 per thread); six hex in under a minute, eight in hours.',11);
+  kv('verify',MOBILE?'pinned, independent':'the abandon mnemonic, EIP-55\'s examples, private key 1, and the test seed against an independent implementation.',11);
+  foot('the 25th word, --count, --out, --words work the same on both chains');blank();};
 C.verified=function(){blank();
   head('VERIFIED',MOBILE?'':'not asserted - proven, on 2026-08-16, and pinned as tests');
   okl('SLIP-0010 matches solana-keygen at both path styles');
@@ -366,8 +398,16 @@ C.donate=function(){blank();
   } else {
     prose('d','address not set yet - it will be a keyRX vanity address, ground with this tool.');
   }
+  if(DONATE_EVM){
+    row('');
+    row('  [[w]]EVM[[/]]  [[d]]Ethereum, Base, Arbitrum, Polygon, BNB... one address for all[[/]]');
+    if(MOBILE){row('  [[y]]'+DONATE_EVM.slice(0,6)+'...'+DONATE_EVM.slice(-4)+'[[/]]  [[f]]tap to copy[[/]]');}
+    else row('  [[y]]'+DONATE_EVM+'[[/]]');
+    (function(){var b=out.querySelectorAll('b.y');for(var i=b.length-1;i>=0;i--){var t=b[i].textContent.trim();
+      if(t===DONATE_EVM||t===DONATE_EVM.slice(0,6)+'...'+DONATE_EVM.slice(-4)){b[i].className='y addr evm';b[i].title='click to copy';break;}}})();
+  }
   row('');
-  prose('f','If you got more out of this than it cost you to read the source, that trade already worked. Chip in a Sol or two if you like. It buys nothing - no tier, no badge, no priority - which is what makes it a donation and not a purchase.');
+  prose('f','If you got more out of this than it cost you to read the source, that trade already worked. Chip in a Sol or two, or some ETH, if you like. It buys nothing - no tier, no badge, no priority - which is what makes it a donation and not a purchase.');
   row('');
   prose('w','There will be no keyRX token from the developer of keyRX.');
   prose('d','No presale. No airdrop. No community round. No Phase 3.');row('');
@@ -380,8 +420,9 @@ out.addEventListener('click',function(e){
   if(c){navigator.clipboard.writeText(INSTALL).then(function(){blank();line('  [[g]]Copied[[/]] [[d]]- paste it in a terminal[[/]]');blank();bottom();});return;}
   var cc=e.target.closest&&e.target.closest('b.cmdcopy');
   if(cc){navigator.clipboard.writeText(cc.getAttribute('data-cmd')).then(function(){blank();line('  [[g]]Copied[[/]] [[d]]- the whole command[[/]]');blank();bottom();});return;}
-  var t=e.target.closest&&e.target.closest('b.addr');if(!t||!DONATE_SOL)return;
-  navigator.clipboard.writeText(DONATE_SOL).then(function(){blank();line('  [[g]]Copied[[/]] [[d]]- Solana address[[/]]');blank();bottom();});});
+  var t=e.target.closest&&e.target.closest('b.addr');if(!t)return;
+  var evm=t.classList.contains('evm');var addr=evm?DONATE_EVM:DONATE_SOL;if(!addr)return;
+  navigator.clipboard.writeText(addr).then(function(){blank();line('  [[g]]Copied[[/]] [[d]]- '+(evm?'EVM':'Solana')+' address[[/]]');blank();bottom();});});
 C.grind=function(arg){var p=(arg||'').trim();var ic=false;
   if(/\s--ignore-case$/.test(p)||/\s-i$/.test(p)){ic=true;p=p.replace(/\s(--ignore-case|-i)$/,'');}
   if(!p){blank();
@@ -402,7 +443,7 @@ C.stop=function(){stopGrind();};
 C.help=function(){blank();head('COMMANDS');
   [['grind X',MOBILE?'find an address *X':'grind for an address ending in X'],['stop','stop the grind'],['what','what this is'],
    ['install','three lines'],['match','what a match writes'],['wallets','which route'],
-   ['verified','the proof'],['donate','optional, changes nothing'],['github','the repository'],['x','@keyrx_tech'],['cls','clear']]
+   ['verified','the proof'],['donate','optional, changes nothing'],['evm','--chain evm, 0.4.0'],['github','the repository'],['x','@keyrx_tech'],['cls','clear']]
    .forEach(function(c){row('  [[y]]'+pad(c[0],12)+'[[/]][[d]]'+c[1]+'[[/]]');});
   foot('the bar below does the same');blank();};
 C.cls=function(){out.innerHTML='';masthead('v'+VERSION);blank();installBox();blank();};   // clear keeps the masthead and the install box - the screen, not the identity
@@ -428,9 +469,10 @@ inp.addEventListener('input',function(){capGrind();resize();});resize();
 inp.addEventListener('keydown',function(e){if(e.key==='Enter'){var v=inp.value;inp.value='';resize();run(v);}});
 document.querySelectorAll('#keys i').forEach(function(t){t.addEventListener('click',function(){
   inp.value='';runNav(t.dataset.c);bottom();if(!MOBILE)inp.focus();});});
-/* F1-F9 as the bar shows them, the way the CLI's siblings do it. (Pages redeploy 2026-08-19.) F5 is reload in every browser and F1 is
-   help - a preventDefault so the key does what the bar says; F11 and F12 stay the browser's. */
-var FK={F1:'grind',F2:'what',F3:'install',F4:'match',F5:'wallets',F6:'verified',F7:'donate',F8:'github',F9:'x'};
+/* F1-F10 as the bar shows them, the way the CLI's siblings do it. (Pages redeploy 2026-08-19; F8 became EVM on 2026-08-21 and
+   GitHub/X moved to F9/F10.) F5 is reload in every browser and F1 is help - a preventDefault so the key does what the bar says;
+   F11 and F12 stay the browser's. */
+var FK={F1:'grind',F2:'what',F3:'install',F4:'match',F5:'wallets',F6:'verified',F7:'donate',F8:'evm',F9:'github',F10:'x'};
 addEventListener('keydown',function(e){if(FK[e.key]&&!e.altKey&&!e.ctrlKey&&!e.metaKey){e.preventDefault();inp.value='';runNav(FK[e.key]);bottom();}});
 scr.addEventListener('click',function(e){if(!e.target.closest('a,[data-c]')&&(!MOBILE||e.target.closest('#prompt')))inp.focus();});
 

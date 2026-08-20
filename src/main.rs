@@ -50,6 +50,11 @@ const HARDENED: u32 = 0x8000_0000;
 /// together. Set once the keyRX vanity grind lands; until then the panel
 /// says so rather than showing an address that is not ours.
 const DONATE_SOL: &str = "Gi2z4r7ib15A7PRVyoR5zbEyJcBLh9CnJ9mgSw2KEYRX";
+/// The EVM donation address - one address for every EVM chain - ground with this tool's
+/// `--chain evm`. Same rule as DONATE_SOL: ONE place here, the same string in the site's
+/// DONATE_EVM const, change both together. Empty until it is set; the panel then shows
+/// the Solana address alone rather than a placeholder.
+const DONATE_EVM: &str = "";
 const B58: &[u8; 58] = b"123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 
 // ---------------------------------------------------------------- CLI
@@ -78,7 +83,8 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
-    /// Self-test the base58 and derivation code. Run before trusting a result.
+    /// Self-test: base58, both derivations (Solana SLIP-0010, EVM BIP32/keccak/EIP-55)
+    /// against pinned answers. Run before trusting a result.
     Verify,
 
     /// Show expected time for a pattern without grinding.
@@ -111,14 +117,14 @@ enum Cmd {
     Donate,
 
     /// List matches - addresses and paths; seeds and keys withheld by default.
-    /// With no FILE, lists every match file in the matches directory.
+    /// With no FILE, lists every match file in the matches directory (EVM files as evm/NAME).
     Show {
-        /// A match file, or a bare pattern name (KEYRX -> matches/KEYRX.txt).
+        /// A match file, or a bare pattern name (KEYRX -> matches/KEYRX.txt; evm/dead -> matches/evm/dead.txt).
         file: Option<String>,
         /// Also print the seed phrases. Off by default.
         #[arg(long)]
         seeds: bool,
-        /// Also print the private keys (Phantom "Import Private Key"). Off by default.
+        /// Also print the private keys (Phantom "Import Private Key"; MetaMask/Rabby "Import account"). Off by default.
         #[arg(long)]
         keys: bool,
     },
@@ -1111,22 +1117,22 @@ fn cmd_start() {
     println!("{}", ui::bot("verify -> bench -> estimate -> grind -> show"));
 
     println!("{}", ui::top("COMMANDS", "in the order you use them"));
-    println!("{}", kvw("verify", "self-test: base58, derivation, and the pinned"));
-    println!("{}", cont("solana-keygen answer. Prints the ONE manual"));
-    println!("{}", cont("cross-check command. Run first, always."));
+    println!("{}", kvw("verify", "self-test: base58, both derivations (Solana, EVM) and"));
+    println!("{}", cont("the pinned answers. Prints the manual cross-checks."));
+    println!("{}", cont("Run first, always."));
     blank();
-    println!("{}", kvw("bench", "measures this machine's real rate and SAVES it"));
-    println!("{}", cont("for estimate.   --indices N  --threads N  --seconds N"));
+    println!("{}", kvw("bench", "measures this machine's real rate and SAVES it for"));
+    println!("{}", cont("estimate, per chain.  --chain evm  --indices N"));
     blank();
     println!("{}", kvw("estimate", "odds and time-to-match for a pattern, from the"));
-    println!("{}", cont("measured rate. Also states what --ignore-case and"));
-    println!("{}", cont("--indices 128 would buy."));
+    println!("{}", cont("measured rate. Says what --ignore-case, --checksum"));
+    println!("{}", cont("or --indices 128 would buy.   --chain sol|evm"));
     blank();
     println!("{}", kvw("grind", "the real thing. Same pattern flags as estimate,"));
     println!("{}", cont("plus output. Ctrl-C stops after the current batch."));
     blank();
     println!("{}", kvw("show", "lists matches from the file: address + path,"));
-    println!("{}", cont("seeds withheld. --seeds prints them too."));
+    println!("{}", cont("seeds withheld. --seeds / --keys print them too."));
     blank();
     println!("{}", kvw("donate", "optional, and it changes nothing."));
     blank();
@@ -1221,6 +1227,10 @@ fn cmd_start() {
     println!("{}", n("paste, standalone. Then the index never matters - grind wide."));
     blank();
     head("Private key: --indices 128  ·  Seed into Phantom: --indices 8");
+    blank();
+    println!("{}", n("EVM: the same 1.2 ms per phrase, then ~65 us per branch (secp256k1"));
+    println!("{}", n("costs more than Ed25519), so --indices buys less there. MetaMask"));
+    println!("{}", n("walks indices with 'add account' too; the KEY import skips them."));
     println!("{}", ui::bot("estimate shows the exact speed difference on this machine"));
 
     println!("{}", ui::top("WHAT A MATCH WRITES", "and where"));
@@ -1237,9 +1247,15 @@ fn cmd_start() {
     blank();
     println!("{}", kvw("file", &ui::dir_link(&matches_dir())));
     println!("{}", cont("named after the pattern: KEYRX.txt / KEYRX.ic.txt"));
-    println!("{}", cont("EVM: matches/evm/dead.txt, four lines, key = 0x hex"));
     if ui::links_on() { println!("{}", cont(ui::CLICK_HINT)); }
-    println!("{}", ui::bot("keyrx show            lists the files · keyrx show KEYRX reads one"));
+    blank();
+    head("EVM (--chain evm): four lines, under matches/evm/");
+    println!("{}", kvw("address", "0x + forty hex digits, in EIP-55 case"));
+    println!("{}", kvw("path", "m/44'/60'/0'/0/N - MetaMask, Rabby, Ledger Live walk it"));
+    println!("{}", kvw("seed", "the 12 or 24 words - restores the WHOLE tree"));
+    println!("{}", kvw("privkey", "0x hex - MetaMask/Rabby 'Import account -> Private key'"));
+    println!("{}", cont("one key form, every EVM chain. The file IS the backup."));
+    println!("{}", ui::bot("keyrx show   lists the files · keyrx show KEYRX / show evm/dead reads one"));
 
     println!("{}", ui::top("RECIPES", "pick the wallet you will import into"));
     let cmd = |c: &str| println!("{}", ui::mid(&format!("    {}{}{}", ui::accent(), c, ui::r())));
@@ -1270,6 +1286,16 @@ fn cmd_start() {
     sub("slower per candidate: a prefix needs the whole address encoded,");
     sub("a suffix only its last N characters. Same odds per letter.");
     sub("Repeatable, and combinable: --starts-with Key --ends-with RX");
+    blank();
+    wal("EVM", "MetaMask, Rabby, Ledger Live - one key, every EVM chain");
+    cmd("keyrx grind --chain evm --ends-with dead --indices 128");
+    sub("hex, any case: 0x...dead, 0x...DEAD, 0x...DeAd all count. keyrx show");
+    sub("evm/dead --keys: the 0x hex for MetaMask/Rabby Import account.");
+    blank();
+    wal("EVM, EIP-55", "the letters land in checksum case exactly as typed");
+    cmd("keyrx grind --chain evm --ends-with DeAd --checksum");
+    sub("rarer by a coin flip per letter (here 16x): the address prints DeAd.");
+    sub("prefix with 0x: --starts-with 0xc0ffee. estimate prints both odds.");
     println!("{}", ui::bot("estimate first: it prints the odds for THIS machine"));
 
     println!("{}", ui::top("A TYPICAL SESSION", "and the variations, in the order you reach for them"));
@@ -1295,6 +1321,8 @@ fn cmd_start() {
     step("keyrx estimate --chain evm --ends-with dead", "EVM: hex, any case");
     step("keyrx grind --chain evm --ends-with dead", "0x...dead, MetaMask/Rabby");
     step("keyrx grind --chain evm --starts-with 0xc0ffee --checksum", "EIP-55 case as typed");
+    step("keyrx bench --chain evm", "the EVM rate, saved");
+    step("keyrx show evm/dead --keys", "the 0x hex private key");
     step("keyrx show", "every match file");
     step("keyrx show KEYRX --keys", "one file, keys revealed");
     step("keyrx --update", "latest, then this screen");
@@ -1319,11 +1347,17 @@ fn cmd_donate() {
     } else {
         println!("{}", ui::mid(&format!("  {}{}{}", ui::warn(), DONATE_SOL, ui::r())));
     }
+    #[allow(clippy::const_is_empty)]   // empty until the EVM vanity grind lands
+    if !DONATE_EVM.is_empty() {
+        println!("{}", ui::mid(""));
+        println!("{}", ui::mid(&format!("  {}{}EVM{}  {}Ethereum, Base, Arbitrum, Polygon, BNB... one address for all{}", ui::b(), ui::wht(), ui::r(), ui::gry(), ui::r())));
+        println!("{}", ui::mid(&format!("  {}{}{}", ui::warn(), DONATE_EVM, ui::r())));
+    }
     println!("{}", ui::mid(""));
     println!("{}", ui::note("If you got more out of this than it cost you to read the source,"));
-    println!("{}", ui::note("that trade already worked. Chip in a Sol or two if you like. It"));
-    println!("{}", ui::note("buys nothing - no tier, no badge, no priority - which is what makes"));
-    println!("{}", ui::note("it a donation and not a purchase."));
+    println!("{}", ui::note("that trade already worked. Chip in a Sol or two, or some ETH, if"));
+    println!("{}", ui::note("you like. It buys nothing - no tier, no badge, no priority - which"));
+    println!("{}", ui::note("is what makes it a donation and not a purchase."));
     println!("{}", ui::mid(""));
     println!("{}", ui::mid(&format!("  {}{}There will be no keyRX token from the developer of keyRX.{}", ui::b(), ui::wht(), ui::r())));
     println!("{}", ui::note("No presale. No airdrop. No community round. No Phase 3."));
