@@ -15,6 +15,8 @@
 
 # keyRX
 
+**Solana and EVM vanity address grinder. One seed, unlimited addresses, keys for every wallet. Offline. Open. Verified.**
+
 **KEYRX, five exact letters, 1 in 656,356,768. `solana-keygen grind` at its 13,600/sec:
 a 13-hour median. keyRX: 13 minutes, a match.** Same machine, same odds - measured, not
 estimated. (A five-letter grind the old way ran 50 hours here and found nothing.)
