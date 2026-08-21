@@ -4,6 +4,11 @@ name: release
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'release to (re)create, e.g. 0.4.7 (checks out tag v<version>)'
+        required: true
 permissions:
   contents: read
 jobs:
@@ -15,10 +20,14 @@ jobs:
       attestations: write    # the attestation record
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/tags/v{0}', github.event.inputs.version) || github.ref }}
       - name: notes = this version's section of CHANGELOG.md
         id: notes
         run: |
-          ver="${GITHUB_REF_NAME#v}"
+          ver="${{ github.event.inputs.version }}"
+          test -n "$ver" || ver="${GITHUB_REF_NAME#v}"
+          echo "ver=$ver" >> "$GITHUB_OUTPUT"
           echo "title=keyrx $ver" >> "$GITHUB_OUTPUT"
           awk -v ver="$ver" 'BEGIN{p=0} /^## /{ if(p) exit; if($2==ver){p=1; next} } p' CHANGELOG.md > notes.md
           test -s notes.md || { echo "CHANGELOG.md has no section for $ver"; exit 1; }
@@ -29,8 +38,9 @@ jobs:
       - name: SBOM (CycloneDX) from Cargo.lock
         run: |
           cargo install cargo-cyclonedx --locked
-          cargo cyclonedx --format json --override-filename keyrx-sbom
-          ls -la keyrx-sbom.cdx.json
+          # the tool names the file <override>.json; the CycloneDX convention is .cdx.json
+          cargo cyclonedx --format json --override-filename keyrx.cdx
+          ls -la keyrx.cdx.json
       # The crate as an asset of the release, and a signed statement of where it came from.
       # `cargo package` from the tag produces the same files publish.yml sent to crates.io
       # (reproducible.yml checks exactly that); the attestation binds this file's digest to
@@ -48,14 +58,15 @@ jobs:
           subject-path: keyrx-*.crate
       - name: the bundle beside the crate
         run: |
-          ver="${GITHUB_REF_NAME#v}"
+          ver="${{ steps.notes.outputs.ver }}"
           cp "${{ steps.attest.outputs.bundle-path }}" "keyrx-$ver.crate.sigstore.json"
           ls -la keyrx-$ver.crate.sigstore.json
       - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
+          tag_name: v${{ steps.notes.outputs.ver }}
           name: ${{ steps.notes.outputs.title }}
           body_path: notes.md
           files: |
             keyrx-*.crate
             keyrx-*.crate.sigstore.json
-            keyrx-sbom.cdx.json
+            keyrx.cdx.json

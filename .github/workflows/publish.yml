@@ -28,15 +28,6 @@ jobs:
       - run: cargo publish
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
-      # Provenance: a signed statement (Sigstore, via GitHub) that THIS workflow, from THIS commit,
-      # built the .crate whose digest it names - the same file cargo just sent to the registry.
-      # Anyone can check it: `gh attestation verify --owner keyrx <file>`, or the repo's
-      # Attestations tab. Paired with the reproducible workflow (a fresh build from the tag
-      # must match the registry's checksum) it closes the gap between "the tag" and "the bytes".
-      - name: attest the published crate
-        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
-        with:
-          subject-path: target/package/keyrx-*.crate
       # One version at a time: when a release publishes, the one before it is yanked, so a fresh
       # `cargo install keyrx` can only land on the newest. Yanking never breaks an existing install
       # or lockfile; it only stops new resolutions. If the trusted-publishing token lacks the yank
@@ -63,3 +54,18 @@ jobs:
             echo "yanking keyrx $v (superseded by $cur)"
             cargo yank keyrx --vers "$v" || echo "::warning::crates.io refused to yank $v (the token must be an owner's, scoped yank on keyrx) - yank it by hand or via the yank workflow"
           done
+      # Provenance: a signed statement (Sigstore, via GitHub) that THIS workflow, from THIS commit,
+      # built the .crate whose digest it names - the same file cargo just sent to the registry.
+      # Anyone can check it: `gh attestation verify --owner keyrx <file>`, or the repo's
+      # Attestations tab. Paired with the reproducible workflow (a fresh build from the tag
+      # must match the registry's checksum) it closes the gap between "the tag" and "the bytes".
+      # Packaged again here, explicitly, so the file the attestation names is the one from
+      # this checkout and not whatever cargo publish left in target/package.
+      - name: the crate, packaged from the tag
+        run: |
+          cargo package --no-verify
+          ls -la target/package/keyrx-${GITHUB_REF_NAME#v}.crate
+      - name: attest the published crate
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-path: target/package/keyrx-*.crate
