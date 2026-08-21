@@ -2,6 +2,14 @@
 
 All notable changes to keyRX, newest first. Versions are the ones on crates.io.
 
+## 0.4.8 — unreleased
+
+- The GitHub Release carries the provenance statement a second way: `keyrx-<version>.crate.intoto.jsonl`,
+  the in-toto statement and its signature (the DSSE envelope) taken out of the Sigstore bundle, under the
+  name SLSA tooling reads. It claims nothing new; the bundle (`.sigstore.json`) is still the file to
+  verify with, since it also carries the signing certificate and the transparency-log entry. No change
+  to the tool.
+
 ## 0.4.7 — 2026-08-21
 
 - Every GitHub Release now carries the `.crate` packaged from the tag, its Sigstore provenance

@@ -46,6 +46,13 @@ jobs:
       # (reproducible.yml checks exactly that); the attestation binds this file's digest to
       # this commit and this workflow, and the Sigstore bundle travels with the release so the
       # check needs nothing but the two files: `gh attestation verify keyrx-<v>.crate --owner keyrx`.
+      # The same statement is attached a second time as keyrx-<v>.crate.intoto.jsonl: the DSSE
+      # envelope (in-toto statement + signature) taken out of the bundle, under the name SLSA
+      # tooling and Scorecard read. It claims nothing the bundle does not; the bundle is the
+      # one to verify with, since it also carries the signing certificate and the log entry.
+      # A run started by a tag push attests the bytes AND names the tag as the source; a hand
+      # run for a past tag (workflow_dispatch) attests the same bytes but names main's commit,
+      # because that is the run's own context. Read the statement, not the file name.
       - name: the crate, packaged from the tag
         run: |
           cargo package --no-verify
@@ -61,6 +68,14 @@ jobs:
           ver="${{ steps.notes.outputs.ver }}"
           cp "${{ steps.attest.outputs.bundle-path }}" "keyrx-$ver.crate.sigstore.json"
           ls -la keyrx-$ver.crate.sigstore.json
+      - name: the provenance statement beside the bundle (*.intoto.jsonl)
+        run: |
+          ver="${{ steps.notes.outputs.ver }}"
+          jq -c '.dsseEnvelope' "keyrx-$ver.crate.sigstore.json" > "keyrx-$ver.crate.intoto.jsonl"
+          # refuse to attach anything that is not an in-toto SLSA provenance statement with a signature
+          jq -e '.payloadType == "application/vnd.in-toto+json" and (.signatures | length) >= 1' "keyrx-$ver.crate.intoto.jsonl" >/dev/null
+          jq -r '.payload' "keyrx-$ver.crate.intoto.jsonl" | base64 -d | jq -e '(.predicateType | startswith("https://slsa.dev/provenance/")) and (.subject[0].name == "keyrx-'"$ver"'.crate")' >/dev/null
+          ls -la keyrx-$ver.crate.intoto.jsonl
       - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           tag_name: v${{ steps.notes.outputs.ver }}
@@ -69,4 +84,5 @@ jobs:
           files: |
             keyrx-*.crate
             keyrx-*.crate.sigstore.json
+            keyrx-*.crate.intoto.jsonl
             keyrx.cdx.json
