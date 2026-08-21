@@ -115,7 +115,7 @@ keyrx grind --ends-with KEYRX --indices 128</pre>
 /* The version the masthead shows. It must equal Cargo.toml's - a cargo test reads this
    file and fails the publish if the two ever drift (John, 2026-08-19: "always updated
    together"). The only place on the site a version is written. */
-var VERSION='0.4.4';
+var VERSION='0.4.5';
 var out=document.getElementById('out'),scr=document.getElementById('scr'),
     inp=document.getElementById('in'),prom=document.getElementById('prompt'),
     sr=document.getElementById('sr');
@@ -374,6 +374,25 @@ C.evm=function(){blank();
   crow('keyrx grind --chain evm --ends-with dead','0x…dead, MetaMask/Rabby');
   crow('keyrx grind --chain evm --ends-with DeAd','add --checksum: DeAd');
   crow('keyrx show evm/dead --keys','the 0x hex private key');
+  crow('keyrx networks','add a network: Robinhood');
+  row('');
+  // ADD A NETWORK: the same values keyrx networks prints, each one click/tap-to-copy. Checked
+  // against the live RPC (eth_chainId = 0x1237 = 4663) on 2026-08-21. Nothing here is guessed.
+  row('  [[w]]ADD A NETWORK[[/]]'+(MOBILE?'':'  [[d]]the same address on every EVM chain; some you add once[[/]]'));
+  prose('d','MetaMask: network selector (top left) -> Add a custom network -> fill the five fields -> Save -> select it. Rabby: More -> Add Custom Network, the same fields. The account does not change: same 0x address, same key; only the network you are looking at.');
+  row('');
+  row('  [[w]]Robinhood Chain[[/]]  [[d]]'+(MOBILE?'Ethereum L2, mainnet':'Ethereum L2 (Arbitrum stack), mainnet')+'[[/]]');
+  // a value row: the full value is what gets copied; on the phone a URL is shown without its
+  // scheme on its own row so it fits the grid, and the copy still carries the whole URL
+  function nv(k,v){var disp=v;if(MOBILE&&v.indexOf('https://')===0)disp=v.slice(8);
+    var d;if(MOBILE&&disp.length>28){row('  [[d]]'+k+'[[/]]');d=row('  [[y]]'+disp+'[[/]]');}else d=row('  [[d]]'+pad(k,MOBILE?9:16)+'[[/]][[y]]'+disp+'[[/]]');
+    if(d&&d.getElementsByTagName){var b=d.getElementsByTagName('b');for(var i=0;i<b.length;i++){if(b[i].textContent===disp){b[i].className='y cmdcopy';b[i].setAttribute('data-cmd',v);b[i].title=MOBILE?'tap to copy':'click to copy';break;}}}}
+  nv(MOBILE?'name':'network name','Robinhood Chain');
+  nv(MOBILE?'RPC':'RPC URL','https://rpc.mainnet.chain.robinhood.com');
+  nv(MOBILE?'chain ID':'chain ID','4663');
+  nv(MOBILE?'currency':'currency symbol','ETH');
+  nv(MOBILE?'explorer':'block explorer','https://explorer.mainnet.chain.robinhood.com');
+  prose('f',MOBILE?'tap a value to copy it (URLs copy with https://) · chain id checked against the live RPC 2026-08-21':'click a value to copy it · the explorer is a Blockscout · chain id checked against the live RPC 2026-08-21');
   foot('the 25th word, --count, --out, --words work the same on both chains');blank();};
 C.verified=function(){blank();
   head('VERIFIED',MOBILE?'':'not asserted - proven, on 2026-08-16, and pinned as tests');

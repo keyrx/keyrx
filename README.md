@@ -163,6 +163,13 @@ the wallet. Or import THIS seed as the wallet and "add account" N times
 `--count`, `--out`, `--words` work the same on both chains; `--path` is
 Solana-only.
 
+`keyrx networks` prints the add-a-network steps for MetaMask and Rabby and the
+values for EVM chains a wallet does not list by default, bare for pasting: today
+Robinhood Chain (Ethereum L2, mainnet): RPC `https://rpc.mainnet.chain.robinhood.com`,
+chain ID `4663`, currency `ETH`, explorer `https://explorer.mainnet.chain.robinhood.com`
+(Blockscout); the chain id was checked against that RPC on 2026-08-21. The same address
+and key work there; only the selected network differs.
+
 `keyrx verify` checks the EVM path against the "abandon … about" mnemonic's
 published first account and key, this tool's own public test seed at four
 indices against an independent implementation (node crypto + noble), the

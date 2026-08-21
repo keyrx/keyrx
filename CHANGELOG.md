@@ -2,6 +2,16 @@
 
 All notable changes to keyRX, newest first. Versions are the ones on crates.io.
 
+## 0.4.5 — 2026-08-21
+
+- `keyrx networks`: the add-a-network steps for MetaMask and Rabby, and the five values a wallet's
+  form asks for, for EVM chains it does not list by default - framed for reading, then each value
+  bare on its own line for pasting (the rule the keys follow). First entry: Robinhood Chain
+  (Ethereum L2, mainnet), RPC `https://rpc.mainnet.chain.robinhood.com`, chain ID 4663, ETH,
+  Blockscout explorer; the chain id was checked against that RPC on 2026-08-21, and a test pins
+  the table. The EVM panel, COMMANDS and A TYPICAL SESSION point at it; the site's EVM section
+  carries the same block with click/tap-to-copy on each value.
+
 ## 0.4.4 — 2026-08-21
 
 - Import steps said plainly, on both chains: a fresh Phantom or MetaMask insists on a seed phrase

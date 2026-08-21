@@ -55,6 +55,32 @@ const DONATE_SOL: &str = "Gi2z4r7ib15A7PRVyoR5zbEyJcBLh9CnJ9mgSw2KEYRX";
 /// DONATE_EVM const, change both together. Empty until it is set; the panel then shows
 /// the Solana address alone rather than a placeholder.
 const DONATE_EVM: &str = "0x34F08966E43Fb58C5112ae6dB8BbadC2bae00000";
+
+/// An EVM network a wallet does not list by default, with the five values its "add a
+/// network" form asks for. Printed by `keyrx networks` - framed for reading, then bare,
+/// one value per line, for pasting. Every value here was checked against the live RPC
+/// (eth_chainId) on the date given; a wrong chain id would send a reader's transactions
+/// to the wrong place, so nothing in this table is guessed.
+struct Network {
+    name: &'static str,
+    what: &'static str,
+    rpc: &'static str,
+    chain_id: u64,
+    symbol: &'static str,
+    explorer: &'static str,
+    explorer_note: &'static str,
+    checked: &'static str,
+}
+const NETWORKS: &[Network] = &[Network {
+    name: "Robinhood Chain",
+    what: "Ethereum L2 (Arbitrum stack), mainnet",
+    rpc: "https://rpc.mainnet.chain.robinhood.com",
+    chain_id: 4663,
+    symbol: "ETH",
+    explorer: "https://explorer.mainnet.chain.robinhood.com",
+    explorer_note: "Blockscout",
+    checked: "2026-08-21",
+}];
 const B58: &[u8; 58] = b"123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 
 // ---------------------------------------------------------------- CLI
@@ -115,6 +141,10 @@ enum Cmd {
 
     /// Optional, and it changes nothing: MIT, no paid tier, nothing gated.
     Donate,
+
+    /// EVM networks a wallet does not list by default (Robinhood Chain): the add-a-network
+    /// steps for MetaMask/Rabby and the five values, printed bare for pasting.
+    Networks,
 
     /// List matches - addresses and paths; seeds and keys withheld by default.
     /// With no FILE, lists every match file in the matches directory (EVM files as evm/NAME).
@@ -1015,6 +1045,7 @@ fn main() {
         Cmd::Bench { chain, threads, indices, seconds } => cmd_bench(chain, threads, indices, seconds),
         Cmd::Show { file, seeds, keys } => cmd_show(file, seeds, keys),
         Cmd::Donate => cmd_donate(),
+        Cmd::Networks => cmd_networks(),
         Cmd::Grind { pattern, threads, indices, count, words, out, show_seed, passphrase } => {
             let out = out.unwrap_or_else(|| default_out(&pattern));
             cmd_grind(pattern, threads, indices, count, words, out, show_seed, passphrase)
@@ -1135,6 +1166,8 @@ fn cmd_start() {
     println!("{}", cont("seeds withheld. --seeds / --keys print them too."));
     blank();
     println!("{}", kvw("donate", "optional, and it changes nothing."));
+    println!("{}", kvw("networks", "EVM networks a wallet does not list (Robinhood Chain):"));
+    println!("{}", cont("the add-a-network steps and values, bare, for pasting."));
     blank();
     println!("{}", kvw("--update", "cargo install keyrx && clear && keyrx, as one flag."));
     println!("{}", cont("cargo prints its work; then the new start screen."));
@@ -1177,6 +1210,8 @@ fn cmd_start() {
     println!("{}", cont("'add account' N times: account N+1 is this one."));
     blank();
     println!("{}", kvw("files", "matches/evm/<pattern>.txt  ·  keyrx show evm/<pattern>"));
+    println!("{}", kvw("networks", "keyrx networks - add-a-network steps and the values for"));
+    println!("{}", cont("chains a wallet does not list (Robinhood Chain, 4663)."));
     println!("{}", kvw("rate", "keyrx bench --chain evm. secp256k1 costs more per"));
     println!("{}", cont("candidate than Ed25519, so --indices buys less here;"));
     println!("{}", cont("estimate --chain evm says what, from your own bench."));
@@ -1326,6 +1361,7 @@ fn cmd_start() {
     step("keyrx grind --chain evm --ends-with dead", "0x...dead, MetaMask/Rabby");
     step("keyrx bench --chain evm", "the EVM rate, saved");
     step("keyrx show evm/dead --keys", "the 0x hex private key");
+    step("keyrx networks", "add a network: Robinhood");
     step("keyrx show", "every match file");
     step("keyrx show KEYRX --keys", "one file, keys revealed");
     step("keyrx --update", "latest, then this screen");
@@ -1376,6 +1412,39 @@ fn cmd_donate() {
     println!("{}", ui::note("If something calls itself keyRX anywhere other than @keyrx_tech or"));
     println!("{}", ui::note("keyrx.tech, it is not us."));
     println!("{}", ui::bot("a listing is not an endorsement · DYOR"));
+    println!();
+}
+
+/// `keyrx networks`: how to add an EVM network to a wallet, and the values for the ones
+/// wallets do not ship with. Framed for reading; then each value bare on its own line,
+/// outside the frame, because a value copied out of a framed row comes with border
+/// glyphs and padding in it - the same rule the keys follow.
+fn cmd_networks() {
+    ui::masthead("networks");
+    println!("{}", ui::top("ADD A NETWORK", "the same address on every EVM chain; some you add once"));
+    println!("{}", ui::note("MetaMask and Rabby ship the big chains. For any other EVM chain you add"));
+    println!("{}", ui::note("the network once; the ACCOUNT does not change - same 0x address, same"));
+    println!("{}", ui::note("key - only the network you are looking at."));
+    println!("{}", ui::mid(""));
+    println!("{}", ui::kv("MetaMask", "network selector (top left) -> Add a custom network ->"));
+    println!("{}", ui::kv("", "fill the five fields below -> Save -> select it"));
+    println!("{}", ui::kv("Rabby", "More -> Add Custom Network -> the same fields"));
+    println!("{}", ui::bot("values bare below the frame, one per line, for pasting"));
+    for n in NETWORKS {
+        println!("{}", ui::top(n.name, n.what));
+        println!("{}", ui::kv("network name", n.name));
+        println!("{}", ui::kv("RPC URL", &ui::link(n.rpc, n.rpc)));
+        println!("{}", ui::kv("chain ID", &n.chain_id.to_string()));
+        println!("{}", ui::kv("currency", n.symbol));
+        println!("{}", ui::kv("explorer", &format!("{}  ({})", ui::link(n.explorer, n.explorer), n.explorer_note)));
+        println!("{}", ui::bot(&format!("chain id checked against the live RPC on {}", n.checked)));
+        for (label, value) in [("network name", n.name.to_string()), ("RPC URL", n.rpc.to_string()),
+                               ("chain ID", n.chain_id.to_string()), ("currency symbol", n.symbol.to_string()),
+                               ("block explorer", n.explorer.to_string())] {
+            println!(" {}{}{}", ui::gry(), label, ui::r());
+            println!("{}", value);
+        }
+    }
     println!();
 }
 
@@ -2183,6 +2252,21 @@ mod tests {
         });
         let addr = found.into_inner().unwrap().expect("no hit");
         assert!(addr.ends_with('A'), "EIP-55 case must be the typed one: {}", addr);
+    }
+
+    #[test]
+    fn the_network_table_is_well_formed() {
+        // one entry per chain id, https everywhere, and the one chain we ship is the one checked
+        let mut ids: Vec<u64> = NETWORKS.iter().map(|n| n.chain_id).collect();
+        ids.sort(); ids.dedup();
+        assert_eq!(ids.len(), NETWORKS.len());
+        for n in NETWORKS {
+            assert!(n.rpc.starts_with("https://") && n.explorer.starts_with("https://"), "{}", n.name);
+            assert!(!n.name.is_empty() && !n.symbol.is_empty() && !n.checked.is_empty());
+        }
+        let rh = NETWORKS.iter().find(|n| n.name == "Robinhood Chain").expect("Robinhood Chain");
+        assert_eq!(rh.chain_id, 4663);
+        assert_eq!(rh.rpc, "https://rpc.mainnet.chain.robinhood.com");
     }
 
     #[test]
