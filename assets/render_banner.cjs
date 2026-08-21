@@ -15,6 +15,8 @@ const MARK = Number(arg('--mark') || 380), WORD = Number(arg('--word') || 104), 
 const TAG = (arg('--tag') || 'Solana vanity addresses\nkeys for every wallet').replace(/\\n/g, '\n');
 const MONO_LINE = arg('--mono') || null; // an optional third line in the CLI face, e.g. "cargo install keyrx"
 const OUT = arg('--out') || null;
+// the two CLI lines under the tagline; defaults are the shipped banner's, --cmd1/--cmd2 replace them
+const CMD1 = arg('--cmd1') || 'cargo install keyrx', CMD2 = arg('--cmd2') || 'keyrx grind --ends-with KEYRX --indices 128';
 // the top band carries the mark's own hash (--no-tape to drop it); two CLI lines sit under the tagline
 // (--no-cmds); --addr swaps them for the KEYRX address line and how it was ground
 const TAPE = !args.includes('--no-tape'), ADDR = args.includes('--addr'), CMDS = !args.includes('--no-cmds');
@@ -31,6 +33,11 @@ const root = path.join(__dirname, '..');
 const svg = fs.readFileSync(path.join(__dirname, 'logo.svg'), 'utf8');
 const font = fs.readFileSync(fontPath).toString('base64');
 const display = fs.readFileSync(displayPath).toString('base64'), text = fs.readFileSync(textPath).toString('base64');
+// a static woff2 per weight (the shipped banner) or one variable ttf for both: the face is told which,
+// and carries the whole weight range so 600 for the wordmark and 400 for the tagline both resolve
+const isTtf = (p) => /\.ttf$/i.test(p);
+const dispMime = isTtf(displayPath) ? 'font/ttf' : 'font/woff2', dispFmt = isTtf(displayPath) ? 'truetype' : 'woff2';
+const textMime = isTtf(textPath) ? 'font/ttf' : 'font/woff2', textFmt = isTtf(textPath) ? 'truetype' : 'woff2';
 // the faint field marks: the same seal, dimmed, scattered like a watermark
 const water = (x, y, s, r) => `<div class="w" style="left:${x}px;top:${y}px;width:${s}px;height:${s}px;transform:rotate(${r}deg)">${svg}</div>`;
 const waters = [[30, 10, 96, -8], [430, -30, 96, 6], [860, 5, 90, -5], [1290, 20, 96, 7], [70, 400, 96, 5], [420, 410, 90, -6], [900, 400, 96, 8], [1310, 400, 96, -7]].map((a) => water(...a)).join('');
@@ -56,8 +63,8 @@ const panel = [
 ].join('\n');
 const html = `<!doctype html><html><head><meta charset="utf-8"><style>
 @font-face{font-family:KXMono;src:url(data:font/ttf;base64,${font}) format('truetype')}
-@font-face{font-family:KXDisplay;src:url(data:font/woff2;base64,${display}) format('woff2')}
-@font-face{font-family:KXText;src:url(data:font/woff2;base64,${text}) format('woff2')}
+@font-face{font-family:KXDisplay;src:url(data:${dispMime};base64,${display}) format('${dispFmt}');font-weight:100 900}
+@font-face{font-family:KXText;src:url(data:${textMime};base64,${text}) format('${textFmt}');font-weight:100 900}
 html,body{margin:0;width:1500px;height:500px;overflow:hidden;background:#091228;font-family:KXMono,monospace;color:#dbe3f2}
 .field{position:absolute;inset:0;background:
   radial-gradient(ellipse 320px 260px at 300px 250px, rgba(28,60,110,.55), rgba(28,60,110,0) 70%),
@@ -67,9 +74,9 @@ html,body{margin:0;width:1500px;height:500px;overflow:hidden;background:#091228;
 .w svg{width:100%;height:100%}
 .mark{position:absolute;left:${Math.round(196 - MARK / 2)}px;top:${Math.round(250 - MARK / 2)}px;width:${MARK}px;height:${MARK}px}
 .mark svg{width:100%;height:100%;filter:drop-shadow(0 10px 18px rgba(1,4,14,.6))}
-.word{position:absolute;left:400px;top:${Y_WORD}px;font-family:KXDisplay,sans-serif;font-size:${WORD}px;line-height:1;letter-spacing:-.015em;color:#dbe3f2}
+.word{position:absolute;left:400px;top:${Y_WORD}px;font-family:KXDisplay,sans-serif;font-weight:600;font-size:${WORD}px;line-height:1;letter-spacing:-.015em;color:#dbe3f2}
 .word b{font-weight:inherit;color:#c9974f}
-.tag{position:absolute;left:404px;top:${Y_TAG}px;font-family:KXText,sans-serif;font-size:${TAGPX}px;line-height:1.5;color:#8a98b6;white-space:pre}
+.tag{position:absolute;left:404px;top:${Y_TAG}px;font-family:KXText,sans-serif;font-weight:400;font-size:${TAGPX}px;line-height:1.5;color:#8a98b6;white-space:pre}
 .mono{position:absolute;left:406px;top:${Y_MONO}px;font-family:KXMono,monospace;font-size:22px;color:#5aa6c9;white-space:pre}
 .panel{position:absolute;left:936px;top:${250 - 148}px;width:490px;height:296px;background:#0e1b3c;border:1px solid #22345f;box-shadow:0 12px 40px rgba(1,4,14,.55)}
 .panel pre{margin:0;padding:12px 0 0 8px;font-size:19px;line-height:31.5px;color:#8a98b6;white-space:pre}
@@ -87,8 +94,8 @@ html,body{margin:0;width:1500px;height:500px;overflow:hidden;background:#091228;
 <div class="tag">${TAG}</div>${MONO_LINE ? `<div class="mono">${MONO_LINE}</div>` : ''}
 ${TAPE ? `<div class="tape">the mark is a record · sha256 <b>fbd454bdefee923628fcb6f24667b772ea942f176f9c7988b5e2d2264b335ac8</b> · sealed on chain during a devnet systems check</div>` : ''}
 ${ADDR ? `<div class="addr">5VCK9C…VUd29wtK<b>EYRX</b>  one seed · 128 addresses · 14 min</div>` : ''}
-${CMDS ? `<div class="cmds"><b>$</b> cargo install keyrx
-<b>$</b> keyrx grind --ends-with KEYRX --indices 128</div>` : ''}
+${CMDS ? `<div class="cmds"><b>$</b> ${CMD1}
+<b>$</b> ${CMD2}</div>` : ''}
 <div class="panel"><pre>${panel}</pre></div>
 </body></html>`;
 (async () => {
