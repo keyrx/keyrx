@@ -54,14 +54,16 @@ and the exact wallet import steps for that path style and index.
 [![reproducible](https://github.com/keyrx/keyrx/actions/workflows/reproducible.yml/badge.svg)](https://github.com/keyrx/keyrx/actions/workflows/reproducible.yml)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/keyrx/keyrx/badge)](https://scorecard.dev/viewer/?uri=github.com/keyrx/keyrx)
 [![attestations](https://img.shields.io/badge/provenance-attested-2f6f9f.svg)](https://github.com/keyrx/keyrx/attestations)
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/14185/badge)](https://www.bestpractices.dev/projects/14185)
 
 `keyrx verify` first, on your own machine. Then, for the release itself: the crate is published by
 trusted publishing (no token anywhere), every published `.crate` carries a signed build-provenance
 attestation (`gh attestation verify --owner keyrx keyrx-<version>.crate`), a fresh build from the
 tag is compared with the registry's copy file for file on every release (the reproducible badge), the
 dependency tree is audited against RustSec on every change and every week (the audit badge), every
-GitHub Release attaches a CycloneDX SBOM, and OpenSSF Scorecard reads the repository's practice
-continuously. What to report, and how (security@keyrx.tech): [SECURITY.md](SECURITY.md). How to contribute, and what a change has to bring: [CONTRIBUTING.md](CONTRIBUTING.md).
+GitHub Release attaches a CycloneDX SBOM, OpenSSF Scorecard reads the repository's practice
+continuously, and the project self-certifies against the OpenSSF Best Practices criteria (the badge links to every
+answer). What to report, and how (security@keyrx.tech): [SECURITY.md](SECURITY.md). How to contribute, and what a change has to bring: [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## The site
 
