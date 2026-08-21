@@ -2,6 +2,12 @@
 
 All notable changes to keyRX, newest first. Versions are the ones on crates.io.
 
+## 0.4.6 — 2026-08-21
+
+- `keyrx networks`: the first framed row read "network nameRobinhood Chain" - a key one character
+  wider than the key column ran into its value. The key is `name`; the bare line below the frame
+  still says "network name". Nothing else changes.
+
 ## 0.4.5 — 2026-08-21
 
 - `keyrx networks`: the add-a-network steps for MetaMask and Rabby, and the five values a wallet's

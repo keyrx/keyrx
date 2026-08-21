@@ -806,7 +806,7 @@ fn import_hint(chain: Chain, style: PathStyle, idx: u32) -> Vec<String> {
     match style {
         PathStyle::Phantom => {
             if idx == 0 {
-                vec!["Seed:     or THIS seed as the wallet (Phantom, Solflare) - its FIRST account".to_string()]
+                vec!["Seed:     or THIS seed as the wallet: account #1 in Phantom/Solflare".to_string()]
             } else {
                 vec![
                     format!("Seed:     or THIS seed as the wallet - Solflare path {}", path_str(style, idx)),
@@ -1432,7 +1432,7 @@ fn cmd_networks() {
     println!("{}", ui::bot("values bare below the frame, one per line, for pasting"));
     for n in NETWORKS {
         println!("{}", ui::top(n.name, n.what));
-        println!("{}", ui::kv("network name", n.name));
+        println!("{}", ui::kv("name", n.name));
         println!("{}", ui::kv("RPC URL", &ui::link(n.rpc, n.rpc)));
         println!("{}", ui::kv("chain ID", &n.chain_id.to_string()));
         println!("{}", ui::kv("currency", n.symbol));
