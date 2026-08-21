@@ -61,7 +61,7 @@ attestation (`gh attestation verify --owner keyrx keyrx-<version>.crate`), a fre
 tag is compared with the registry's copy file for file on every release (the reproducible badge), the
 dependency tree is audited against RustSec on every change and every week (the audit badge), every
 GitHub Release attaches a CycloneDX SBOM, and OpenSSF Scorecard reads the repository's practice
-continuously. What to report, and how (security@keyrx.tech): [SECURITY.md](SECURITY.md).
+continuously. What to report, and how (security@keyrx.tech): [SECURITY.md](SECURITY.md). How to contribute, and what a change has to bring: [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## The site
 
