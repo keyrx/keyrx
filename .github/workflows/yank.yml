@@ -23,9 +23,9 @@ jobs:
         run: |
           test -n "$CARGO_REGISTRY_TOKEN" || { echo "no CARGO_YANK_TOKEN secret - add a yank-scoped crates.io token as that secret"; exit 1; }
           if [ "$WANT" = "older" ]; then
-            WANT="$(curl -sS -A "keyrx yank workflow (dev@keyrx.tech)" https://crates.io/api/v1/crates/keyrx \
-                    | python3 -c 'import sys,json
-          d=json.load(sys.stdin); key=lambda v: tuple(int(x) for x in v.split("."))
+            WANT="$(curl -sS -A "keyrx yank workflow (dev@keyrx.tech)" -o versions.json https://crates.io/api/v1/crates/keyrx
+          python3 -c 'import sys,json
+          d=json.load(open("versions.json")); key=lambda v: tuple(int(x) for x in v.split("."))
           live=sorted((x["num"] for x in d["versions"] if not x["yanked"]), key=key)
           print(" ".join(live[:-1]))')"
           fi

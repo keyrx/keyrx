@@ -13,11 +13,13 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
-  issues: write
-  checks: write
 jobs:
   audit:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write    # rustsec/audit-check opens an issue for a finding on a scheduled run
+      checks: write    # and reports as a check on a push or pull request
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:

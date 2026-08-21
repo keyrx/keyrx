@@ -34,7 +34,7 @@ jobs:
       # Attestations tab. Paired with the reproducible workflow (a fresh build from the tag
       # must match the registry's checksum) it closes the gap between "the tag" and "the bytes".
       - name: attest the published crate
-        uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45 # v2
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
         with:
           subject-path: target/package/keyrx-*.crate
       # One version at a time: when a release publishes, the one before it is yanked, so a fresh
@@ -55,9 +55,9 @@ jobs:
           # commit deep and sees no tag but its own (0.4.0 proved it: "no previous version to
           # yank", and nothing was). Every live version older than this one goes: John's rule is
           # one installable version, the newest, now that --update exists.
-          for v in $(curl -sS -A "keyrx publish workflow (dev@keyrx.tech)" https://crates.io/api/v1/crates/keyrx \
-                     | python3 -c 'import sys,json
-          d=json.load(sys.stdin); cur=sys.argv[1]
+          for v in $(curl -sS -A "keyrx publish workflow (dev@keyrx.tech)" -o versions.json https://crates.io/api/v1/crates/keyrx
+          python3 -c 'import sys,json
+          d=json.load(open("versions.json")); cur=sys.argv[1]
           key=lambda v: tuple(int(x) for x in v.split("."))
           print(" ".join(x["num"] for x in d["versions"] if not x["yanked"] and key(x["num"]) < key(cur)))' "$cur"); do
             echo "yanking keyrx $v (superseded by $cur)"
