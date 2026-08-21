@@ -10,7 +10,9 @@ jobs:
   release:
     runs-on: ubuntu-latest
     permissions:
-      contents: write   # creating the GitHub Release and attaching the SBOM
+      contents: write        # creating the GitHub Release and attaching its assets
+      id-token: write        # Sigstore, for the attestation of the .crate
+      attestations: write    # the attestation record
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - name: notes = this version's section of CHANGELOG.md
@@ -29,8 +31,31 @@ jobs:
           cargo install cargo-cyclonedx --locked
           cargo cyclonedx --format json --override-filename keyrx-sbom
           ls -la keyrx-sbom.cdx.json
+      # The crate as an asset of the release, and a signed statement of where it came from.
+      # `cargo package` from the tag produces the same files publish.yml sent to crates.io
+      # (reproducible.yml checks exactly that); the attestation binds this file's digest to
+      # this commit and this workflow, and the Sigstore bundle travels with the release so the
+      # check needs nothing but the two files: `gh attestation verify keyrx-<v>.crate --owner keyrx`.
+      - name: the crate, packaged from the tag
+        run: |
+          cargo package --no-verify
+          cp target/package/keyrx-*.crate .
+          ls -la keyrx-*.crate
+      - name: attest the crate
+        id: attest
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-path: keyrx-*.crate
+      - name: the bundle beside the crate
+        run: |
+          ver="${GITHUB_REF_NAME#v}"
+          cp "${{ steps.attest.outputs.bundle-path }}" "keyrx-$ver.crate.sigstore.json"
+          ls -la keyrx-$ver.crate.sigstore.json
       - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           name: ${{ steps.notes.outputs.title }}
           body_path: notes.md
-          files: keyrx-sbom.cdx.json
+          files: |
+            keyrx-*.crate
+            keyrx-*.crate.sigstore.json
+            keyrx-sbom.cdx.json

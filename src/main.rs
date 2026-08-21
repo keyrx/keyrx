@@ -214,7 +214,8 @@ struct PatternArgs {
     path: PathStyle,
     /// Which chain's addresses. sol: Solana, base58, Ed25519 at m/44'/501'.
     /// evm: Ethereum and every EVM chain (Base, Arbitrum, Optimism, Polygon,
-    /// BNB...), hex, secp256k1 at m/44'/60'/0'/0/N - one key, every one of them.
+    /// BNB, Robinhood Chain...), hex, secp256k1 at m/44'/60'/0'/0/N - one key,
+    /// every one of them.
     #[arg(long, value_enum, default_value_t = Chain::Sol)]
     chain: Chain,
     /// EVM only: the letters a-f in your pattern must ALSO match the address's
@@ -1192,7 +1193,7 @@ fn cmd_start() {
     println!("{}", n("base58 has no 0 O I l - patterns using them are rejected."));
     println!("{}", ui::bot("suffixes are the fast lane"));
 
-    println!("{}", ui::top("EVM", "Ethereum, Base, Arbitrum, Polygon, BNB: one key for all"));
+    println!("{}", ui::top("EVM", "Ethereum, Base, Arbitrum, Polygon, BNB, Robinhood: one key"));
     println!("{}", kvw("--chain evm", "a 0x address: forty hex digits. secp256k1 in the BIP44"));
     println!("{}", cont("tree at m/44'/60'/0'/0/N - the path MetaMask, Rabby,"));
     println!("{}", cont("Ledger Live, Trezor Suite walk. One key, every chain."));

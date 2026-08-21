@@ -21,8 +21,8 @@ estimated. (A five-letter grind the old way ran 50 hours here and found nothing.
 
 Solana and EVM BIP39 vanity address grinder. Standalone terminal tool — no daemon,
 no service, no network. Replaces `solana-keygen grind --use-mnemonic`; on EVM it
-does the same thing for Ethereum, Base, Arbitrum, Optimism, Polygon, BNB and every
-chain that shares the key format (one key is every one of them).
+does the same thing for Ethereum, Base, Arbitrum, Optimism, Polygon, BNB, Robinhood Chain
+and every chain that shares the key format (one key is every one of them).
 
 Why it is fast: one mnemonic yields unlimited addresses. Derive to
 m/44'/501' once, then walk the account index; each extra candidate costs

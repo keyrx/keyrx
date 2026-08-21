@@ -1,5 +1,5 @@
 //! EVM addresses - Ethereum and every chain that shares its key format (Base, Arbitrum,
-//! Optimism, Polygon, BNB, Avalanche C-Chain...): secp256k1 keys in a BIP32 tree at the
+//! Optimism, Polygon, BNB, Avalanche C-Chain, Robinhood Chain...): secp256k1 keys in a BIP32 tree at the
 //! BIP44 path `m/44'/60'/0'/0/N`, the address the last twenty bytes of keccak-256 over
 //! the uncompressed public key, written in EIP-55 mixed case.
 //!

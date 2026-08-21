@@ -2,6 +2,14 @@
 
 All notable changes to keyRX, newest first. Versions are the ones on crates.io.
 
+## 0.4.7 — 2026-08-21
+
+- Every GitHub Release now carries the `.crate` packaged from the tag, its Sigstore provenance
+  bundle (`keyrx-<version>.crate.sigstore.json`; check with `gh attestation verify keyrx-<version>.crate
+  --owner keyrx`) and the CycloneDX SBOM. Robinhood Chain is named among the EVM chains on the start
+  screen, in `--help`, the README and the site (the same address works there; `keyrx networks` has
+  its values). No change to grinding, matching or files.
+
 ## 0.4.6 — 2026-08-21
 
 - `keyrx networks`: the first framed row read "network nameRobinhood Chain" - a key one character
