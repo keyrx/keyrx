@@ -6,11 +6,11 @@ the project is checked, what to report, and how.
 
 ## Report a vulnerability
 
-Email **dev@keyrx.tech**. Say what you found, how to reproduce it, and which version
+Email **security@keyrx.tech**. Say what you found, how to reproduce it, and which version
 (`keyrx --version`). Expect an acknowledgement within a few days and a fix in the next release;
 you will be credited in the CHANGELOG unless you ask not to be. There is no bounty pool yet;
 when there is, it will be stated here. Please do not open a public issue for a key-safety bug
-before a fix exists.
+before a fix exists. (Everything that is not a vulnerability: dev@keyrx.tech.)
 
 ## What is in scope
 
