@@ -1,0 +1,12 @@
+# Dependency updates as pull requests, weekly, for the crate tree and for the workflows' actions.
+# Nothing merges itself; each PR is read like any other change.
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: "/"
+    schedule:
+      interval: weekly
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly

@@ -1,0 +1,37 @@
+# OpenSSF Scorecard: an automated reading of this repository's practices (pinned dependencies,
+# branch protection, token permissions, signed releases, a security policy, and so on), published
+# to the Scorecard API so the badge in the README is a live number and not a claim.
+name: scorecard
+on:
+  branch_protection_rule:
+  schedule:
+    - cron: '30 5 * * 2'
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions: read-all
+jobs:
+  analysis:
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write   # the SARIF upload to code scanning
+      id-token: write          # publish_results signs with the job's OIDC identity
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: ossf/scorecard-action@ea651e62978af7915d09fe2e282747c798bf2dab # v2.4.1
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          publish_results: true
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: SARIF file
+          path: results.sarif
+          retention-days: 5
+      - uses: github/codeql-action/upload-sarif@d6317709a54fd87078d323eeb0e48ec331c8e621 # v3
+        with:
+          sarif_file: results.sarif
