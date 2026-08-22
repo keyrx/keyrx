@@ -1,9 +1,9 @@
 <p align="center">
-  <img src="assets/x-header-1500x500.png" width="100%" alt="keyRX: Solana and EVM vanity address grinder">
+  <img src="assets/x-header-1500x500.png" width="100%" alt="keyRX CLI: Solana and EVM vanity address grinder">
 </p>
 
 <p align="center">
-  <em>Solana and EVM vanity address grinder. One seed, unlimited addresses, keys for every wallet. Offline. Open. Verified. The mark is a record. What it seals comes next.</em><br>
+  <em>The keyRX CLI. Solana and EVM vanity address grinder. One seed, unlimited addresses, keys for every wallet. Offline. Open. Verified. The mark is a record. What it seals comes next.</em><br>
   <sub>one seed · walk the tree · every match written once, mode 0600 · verified against solana-keygen, and against an independent implementation on EVM</sub>
 </p>
 

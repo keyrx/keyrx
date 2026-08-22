@@ -2,6 +2,13 @@
 
 All notable changes to keyRX, newest first. Versions are the ones on crates.io.
 
+## 0.4.10 - 2026-08-22
+
+- The product names itself **keyRX CLI** wherever it introduces itself: the page title and cards of
+  keyrx.tech, the README, and the crate description (the start screen already read keyRX | CLI).
+  Two products share the keyRX name now, and this is the one with no token; saying CLI every time
+  keeps that sentence true without a footnote. No behaviour change.
+
 ## 0.4.9 - 2026-08-22
 
 - The donate panel names the Solana wallet as `keyrx.sol` only. 0.4.8 printed `keyrx.sol · keyrx.sns`
