@@ -19,7 +19,7 @@
 a 13-hour median. keyRX: 13 minutes, a match.** Same machine, same odds - measured, not
 estimated. (A five-letter grind the old way ran 50 hours here and found nothing.)
 
-Solana and EVM BIP39 vanity address grinder. Standalone terminal tool — no daemon,
+Solana and EVM BIP39 vanity address grinder. Standalone terminal tool - no daemon,
 no service, no network. Replaces `solana-keygen grind --use-mnemonic`; on EVM it
 does the same thing for Ethereum, Base, Arbitrum, Optimism, Polygon, BNB, Robinhood Chain
 and every chain that shares the key format (one key is every one of them).
@@ -84,14 +84,14 @@ eyeballed. Colour drops out entirely when stdout is not a terminal.
 
 - `keyrx verify`: 50,000 pubkeys × 10 suffix lengths OK; derivation deterministic.
 - **solana-keygen cross-check: identical** at both path styles for the
-  `[7u8; 32]` test entropy — `8zzKEAB4Vqn…UQPh1j` (m/44'/501'/0'/0') and
+  `[7u8; 32]` test entropy - `8zzKEAB4Vqn…UQPh1j` (m/44'/501'/0'/0') and
   `2Ju5fiKYKf4…NjAnKo` (m/44'/501'/0'). Both are pinned as `#[test]`s.
 - **A ground hit imports**: `grind --ends-with ab --indices 8` found a match
   in 0.15s and `solana-keygen pubkey "prompt://?full-path=m/44'/501'/6'/0'"`
   with that mnemonic returned the identical address.
 - Bench (28 threads): 265,863/sec at 64 indices (19.5× the 13,600 baseline),
-  331,793/sec at 128 (24.4×), 437,811/sec at 256 (32.2×). Per core: 9,495–15,636
-  vs 284 baseline (33–55×).
+  331,793/sec at 128 (24.4×), 437,811/sec at 256 (32.2×). Per core: 9,495-15,636
+  vs 284 baseline (33-55×).
 - `cargo clippy --all-targets` clean; 10 tests green.
 
 ## Verified on 2026-08-20 (EVM)
@@ -115,7 +115,7 @@ eyeballed. Colour drops out entirely when stdout is not a terminal.
 Seed phrases never reach stdout, logs or panic output by default. Matches
 go to a mode-0600 file (`--out`). `--show-seed` is opt-in. If the match
 file cannot be written, the seed goes to `<out>.recovered` (also 0600); if
-that fails too the grind STOPS and prints address+path only — never the
+that fails too the grind STOPS and prints address+path only - never the
 seed. Entropy, seed and derived key material are zeroized.
 
 Test only with 2-character targets. No mnemonic in any fixture, snapshot or
@@ -125,7 +125,7 @@ and are worthless by construction.
 `--passphrase` grinds with a BIP39 passphrase (the "25th word"): prompted
 on the terminal, hidden, typed twice; never read from a flag, a file or the
 environment, never stored, never printed. The match file records only that
-one was used — the seed alone will then NOT reach the address; the privkey
+one was used - the seed alone will then NOT reach the address; the privkey
 and keypair lines will, standalone. Most browser wallets have no passphrase
 field on seed import, so a passphrase address is imported by KEY. `keyrx
 verify` checks the passphrase path against the BIP39 specification's own
@@ -223,11 +223,11 @@ raster is cut from that file. What the record is will be said when the time come
 
 ## Changelog
 
-[CHANGELOG.md](https://github.com/keyrx/keyrx/blob/main/CHANGELOG.md) — one section per version on crates.io.
+[CHANGELOG.md](https://github.com/keyrx/keyrx/blob/main/CHANGELOG.md) - one section per version on crates.io.
 
 ## Licence and name
 
-MIT — use it, fork it, ship it, sell it. The code is yours under that licence, and
+MIT - use it, fork it, ship it, sell it. The code is yours under that licence, and
 with it the look: anyone may build a grinder that frames its panels the same way.
 The **name**, the **mark**, and the files under `assets/` are not part of
-the grant — see [TRADEMARK.md](TRADEMARK.md) and `assets/LICENSE`. Forks rebrand.
+the grant - see [TRADEMARK.md](TRADEMARK.md) and `assets/LICENSE`. Forks rebrand.
