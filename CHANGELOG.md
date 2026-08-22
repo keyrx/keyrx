@@ -2,12 +2,15 @@
 
 All notable changes to keyRX, newest first. Versions are the ones on crates.io.
 
-## 0.4.8 — unreleased
+## 0.4.8 — 2026-08-22
 
 - The donate panel names the wallets as well as printing them: keyrx.sol · keyrx.sns (one
   on-chain domain, two spellings) under the Solana address, keyrx.eth · keyrx.base.eth · keyrx.hoodfi.eth under the EVM address (ENS, Basename,
   Robinhood Chain), each resolving to the address shown; the address stays the thing to read.
-  The site says the same.
+  The site says the same. The two addresses are now the wallets those names resolve to:
+  Solana `2pSgpgA6TqdynuAdVpFEZbyVRrKi5oTyvxGL9gjKEYRX`, EVM `0x036CC610fb2883DB9504dD172FA94fEe89900000`;
+  the previous `Gi2z…KEYRX` and `0x34F0…00000` are retired, so a name and the address under it
+  pay the same wallet.
 - The GitHub Release carries the provenance statement a second way: `keyrx-<version>.crate.intoto.jsonl`,
   the in-toto statement and its signature (the DSSE envelope) taken out of the Sigstore bundle, under the
   name SLSA tooling reads. It claims nothing new; the bundle (`.sigstore.json`) is still the file to

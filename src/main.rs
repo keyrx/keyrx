@@ -49,12 +49,12 @@ const HARDENED: u32 = 0x8000_0000;
 /// carries the same string in its own DONATE_SOL const; change both
 /// together. Set once the keyRX vanity grind lands; until then the panel
 /// says so rather than showing an address that is not ours.
-const DONATE_SOL: &str = "Gi2z4r7ib15A7PRVyoR5zbEyJcBLh9CnJ9mgSw2KEYRX";
+const DONATE_SOL: &str = "2pSgpgA6TqdynuAdVpFEZbyVRrKi5oTyvxGL9gjKEYRX";
 /// The EVM donation address - one address for every EVM chain - ground with this tool's
 /// `--chain evm`. Same rule as DONATE_SOL: ONE place here, the same string in the site's
 /// DONATE_EVM const, change both together. Empty until it is set; the panel then shows
 /// the Solana address alone rather than a placeholder.
-const DONATE_EVM: &str = "0x34F08966E43Fb58C5112ae6dB8BbadC2bae00000";
+const DONATE_EVM: &str = "0x036CC610fb2883DB9504dD172FA94fEe89900000";
 
 /// An EVM network a wallet does not list by default, with the five values its "add a
 /// network" form asks for. Printed by `keyrx networks` - framed for reading, then bare,
