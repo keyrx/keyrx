@@ -2,6 +2,12 @@
 
 All notable changes to keyRX, newest first. Versions are the ones on crates.io.
 
+## 0.4.9 — 2026-08-22
+
+- The donate panel names the Solana wallet as `keyrx.sol` only. 0.4.8 printed `keyrx.sol · keyrx.sns`
+  and called them two spellings of one domain; `.sns` is not a spelling of anything, so it is gone
+  from the CLI and the site. The addresses are unchanged.
+
 ## 0.4.8 — 2026-08-22
 
 - The donate panel names the wallets as well as printing them: keyrx.sol · keyrx.sns (one

@@ -1386,10 +1386,10 @@ fn cmd_donate() {
         println!("{}", ui::note("with this tool. Check keyrx.tech."));
     } else {
         println!("{}", ui::mid(&format!("  {}{}{}", ui::warn(), DONATE_SOL, ui::r())));
-        // The same wallet, by name: keyrx.sol and keyrx.sns are ONE on-chain domain (SNS's .sns TLD
-        // is the .sol root account, 58Pwtj…JPkx); both resolve to the address above.
-        // Names are aliases of the address, never a substitute for reading it.
-        println!("{}", ui::mid(&format!("  {}keyrx.sol · keyrx.sns{}  {}the same address, by name{}", ui::wht(), ui::r(), ui::gry(), ui::r())));
+        // The same wallet, by name: keyrx.sol resolves to DONATE_SOL (the domain is owned by
+        // that wallet and carries no SOL record, so it pays the owner). The address stays the
+        // thing to read; the name is a convenience a reader can check for themselves.
+        println!("{}", ui::mid(&format!("  {}keyrx.sol{}  {}the same address, by name{}", ui::wht(), ui::r(), ui::gry(), ui::r())));
     }
     #[allow(clippy::const_is_empty)]   // empty until the EVM vanity grind lands
     if !DONATE_EVM.is_empty() {
