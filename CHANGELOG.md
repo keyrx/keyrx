@@ -2,6 +2,11 @@
 
 All notable changes to keyRX, newest first. Versions are the ones on crates.io.
 
+## 0.4.11 - 2026-08-22
+
+- `keyrx --help` introduces itself as the keyRX CLI too (its summary line was the one place that
+  still said only what it does, not which product it is). Completes 0.4.10. No behaviour change.
+
 ## 0.4.10 - 2026-08-22
 
 - The product names itself **keyRX CLI** wherever it introduces itself: the page title and cards of

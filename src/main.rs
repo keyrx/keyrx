@@ -97,7 +97,7 @@ fn help_seal() -> String {
 }
 
 #[derive(Parser)]
-#[command(name = "keyrx", version, about = "Solana and EVM BIP39 vanity address grinder", before_help = help_seal())]
+#[command(name = "keyrx", version, about = "The keyRX CLI: Solana and EVM BIP39 vanity address grinder", before_help = help_seal())]
 struct Cli {
     #[command(subcommand)]
     cmd: Option<Cmd>,
