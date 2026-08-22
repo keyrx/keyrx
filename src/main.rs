@@ -1386,12 +1386,19 @@ fn cmd_donate() {
         println!("{}", ui::note("with this tool. Check keyrx.tech."));
     } else {
         println!("{}", ui::mid(&format!("  {}{}{}", ui::warn(), DONATE_SOL, ui::r())));
+        // The same wallet, by name: keyrx.sol and keyrx.sns are ONE on-chain domain (SNS's .sns TLD
+        // is the .sol root account, 58Pwtj…JPkx); both resolve to the address above.
+        // Names are aliases of the address, never a substitute for reading it.
+        println!("{}", ui::mid(&format!("  {}keyrx.sol · keyrx.sns{}  {}the same address, by name{}", ui::wht(), ui::r(), ui::gry(), ui::r())));
     }
     #[allow(clippy::const_is_empty)]   // empty until the EVM vanity grind lands
     if !DONATE_EVM.is_empty() {
         println!("{}", ui::mid(""));
         println!("{}", ui::mid(&format!("  {}{}EVM{}  {}Ethereum, Base, Arbitrum, Polygon, BNB... one address for all{}", ui::b(), ui::wht(), ui::r(), ui::gry(), ui::r())));
         println!("{}", ui::mid(&format!("  {}{}{}", ui::warn(), DONATE_EVM, ui::r())));
+        // keyrx.eth (ENS, every EVM chain), keyrx.base.eth (Base), keyrx.hoodfi.eth (Robinhood
+        // Chain): all resolve to the address above. Same rule: aliases of the address.
+        println!("{}", ui::mid(&format!("  {}keyrx.eth   keyrx.base.eth   keyrx.hoodfi.eth{}  {}the same address, by name{}", ui::wht(), ui::r(), ui::gry(), ui::r())));
     }
     println!("{}", ui::mid(""));
     println!("{}", ui::note("If you got more out of this than it cost you to read the source,"));

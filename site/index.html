@@ -417,6 +417,7 @@ C.donate=function(){blank();
     else row('  [[y]]'+DONATE_SOL+'[[/]]');
     (function(){var b=out.querySelectorAll('b.y');for(var i=b.length-1;i>=0;i--){var t=b[i].textContent.trim();
       if(t===DONATE_SOL||t===DONATE_SOL.slice(0,5)+'...'+DONATE_SOL.slice(-5)){b[i].className='y addr';b[i].title='click to copy';break;}}})();
+    if(MOBILE)row('  [[w]]keyrx.sol · keyrx.sns[[/]]  [[f]]by name[[/]]'); else row('  [[w]]keyrx.sol · keyrx.sns[[/]]  [[f]]the same address, by name[[/]]');
   } else {
     prose('d','address not set yet - it will be a keyRX vanity address, ground with this tool.');
   }
@@ -427,6 +428,8 @@ C.donate=function(){blank();
     else row('  [[y]]'+DONATE_EVM+'[[/]]');
     (function(){var b=out.querySelectorAll('b.y');for(var i=b.length-1;i>=0;i--){var t=b[i].textContent.trim();
       if(t===DONATE_EVM||t===DONATE_EVM.slice(0,6)+'...'+DONATE_EVM.slice(-4)){b[i].className='y addr evm';b[i].title='click to copy';break;}}})();
+    if(MOBILE){row('  [[w]]keyrx.eth · keyrx.base.eth[[/]]');row('  [[w]]keyrx.hoodfi.eth[[/]]  [[f]]same address by name[[/]]');}
+    else row('  [[w]]keyrx.eth   keyrx.base.eth   keyrx.hoodfi.eth[[/]]  [[f]]the same address, by name[[/]]');
   }
   row('');
   prose('f','If you got more out of this than it cost you to read the source, that trade already worked. Chip in a Sol or two, or some ETH, if you like. It buys nothing - no tier, no badge, no priority - which is what makes it a donation and not a purchase.');
