@@ -38,6 +38,7 @@ PBKDF2. Suffix matching needs only the last N base58 characters.
     keyrx estimate --ends-with KEYRX                                     # measured; what --ignore-case and --indices 128 buy
     keyrx grind --ends-with KEYRX --words 12 --indices 8 --out mint.txt  # Phantom
     keyrx grind --ends-with KEYRX --indices 128 --out mint.txt           # Solflare
+    keyrx grind --starts-with cMaiL --ends-with gg --indices 128          # both ends: prefix AND suffix, one address
     keyrx show KEYRX --keys                                              # the private key, for Phantom 'Import Private Key'
     keyrx estimate --chain evm --ends-with dead                          # EVM: hex, any case by default
     keyrx grind --chain evm --ends-with dead                             # 0x...dead; the key imports into MetaMask/Rabby

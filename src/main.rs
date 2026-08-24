@@ -197,10 +197,12 @@ enum Cmd {
 
 #[derive(Args, Clone)]
 struct PatternArgs {
-    /// Suffix to match. Repeatable.
+    /// Suffix to match. Repeatable: any one may hit. Given --starts-with too,
+    /// an address must match a suffix AND a prefix.
     #[arg(long = "ends-with")]
     ends_with: Vec<String>,
-    /// Prefix to match. Repeatable. Costs more than a suffix.
+    /// Prefix to match. Repeatable: any one may hit. Costs more than a suffix.
+    /// Given --ends-with too, both ends must match.
     #[arg(long = "starts-with")]
     starts_with: Vec<String>,
     /// Case-insensitive matching. Roughly 2^letters more likely: KEYRX goes from
@@ -375,26 +377,20 @@ impl Matcher {
     /// pays for the EIP-55 casing, and only when --checksum asked for it.
     #[inline]
     fn evm_hit(&self, lower: &[u8; 40], addr: &[u8; 20]) -> bool {
-        let mut cand = false;
-        for s in &self.suffixes {
-            if lower[40 - s.len()..].eq_ignore_ascii_case(s) { cand = true; break; }
-        }
-        if !cand {
-            for p in &self.prefixes {
-                if lower[..p.len()].eq_ignore_ascii_case(p) { cand = true; break; }
-            }
-        }
-        if !cand { return false; }
+        // OR within a kind, AND across kinds - same grammar as Solana.
+        let s_any = self.suffixes.is_empty()
+            || self.suffixes.iter().any(|s| lower[40 - s.len()..].eq_ignore_ascii_case(s));
+        if !s_any { return false; }
+        let p_any = self.prefixes.is_empty()
+            || self.prefixes.iter().any(|p| lower[..p.len()].eq_ignore_ascii_case(p));
+        if !p_any { return false; }
         if !self.checksum { return true; }
         let cs = evm::eip55(addr);
         let cs = &cs.as_bytes()[2..];
-        for s in &self.suffixes {
-            if &cs[40 - s.len()..] == s.as_slice() { return true; }
-        }
-        for p in &self.prefixes {
-            if &cs[..p.len()] == p.as_slice() { return true; }
-        }
-        false
+        (self.suffixes.is_empty()
+            || self.suffixes.iter().any(|s| &cs[40 - s.len()..] == s.as_slice()))
+        && (self.prefixes.is_empty()
+            || self.prefixes.iter().any(|p| &cs[..p.len()] == p.as_slice()))
     }
 
     /// Per-candidate hit probability.
@@ -406,7 +402,10 @@ impl Matcher {
                 let letters = if self.checksum { pat.iter().filter(|c| c.is_ascii_alphabetic()).count() } else { 0 };
                 1.0 / 16f64.powi(pat.len() as i32) / 2f64.powi(letters as i32)
             };
-            return self.suffixes.iter().map(one).sum::<f64>() + self.prefixes.iter().map(one).sum::<f64>();
+            // OR within a kind sums; AND across kinds multiplies; an absent kind is 1.
+            let s = if self.suffixes.is_empty() { 1.0 } else { self.suffixes.iter().map(one).sum::<f64>() };
+            let p = if self.prefixes.is_empty() { 1.0 } else { self.prefixes.iter().map(one).sum::<f64>() };
+            return s * p;
         }
         let variants = |pat: &Vec<u8>| -> f64 {
             let mut n = 1.0f64;
@@ -419,8 +418,10 @@ impl Matcher {
             }
             n / 58f64.powi(pat.len() as i32)
         };
-        self.suffixes.iter().map(variants).sum::<f64>()
-            + self.prefixes.iter().map(variants).sum::<f64>()
+        // OR within a kind sums; AND across kinds multiplies; an absent kind is 1.
+        let s = if self.suffixes.is_empty() { 1.0 } else { self.suffixes.iter().map(variants).sum::<f64>() };
+        let p = if self.prefixes.is_empty() { 1.0 } else { self.prefixes.iter().map(variants).sum::<f64>() };
+        s * p
     }
 }
 
@@ -519,25 +520,28 @@ fn grind_loop(
                 }
             }
 
-            let mut hit = false;
-            if m.max_suffix > 0 {
+            // OR within a kind, AND across kinds. Several suffixes are alternatives,
+            // several prefixes are alternatives, but a run given BOTH kinds wants one
+            // address satisfying both ends - `--starts-with cMaiL --ends-with gg` is
+            // one address, not two hunts. 0.4.11 pooled every pattern into one OR and
+            // stopped on the first *gg; the help had promised the conjunction all along.
+            let mut suffix_ok = m.suffixes.is_empty();
+            if !suffix_ok {
                 b58_suffix(&pk, m.max_suffix, &mut suffix);
                 for s in &m.suffixes {
                     if m.eq(&suffix[m.max_suffix - s.len()..m.max_suffix], s) {
-                        hit = true;
+                        suffix_ok = true;
                         break;
                     }
                 }
             }
-            if !hit && m.needs_full {
+            // A candidate that failed every suffix is dead before paying for the full
+            // encoding, whatever the prefixes say.
+            let hit = suffix_ok && (!m.needs_full || {
                 let full = bs58::encode(pk).into_string();
-                for p in &m.prefixes {
-                    if full.len() >= p.len() && m.eq(&full.as_bytes()[..p.len()], p) {
-                        hit = true;
-                        break;
-                    }
-                }
-            }
+                m.prefixes.iter().any(|p| full.len() >= p.len()
+                    && m.eq(&full.as_bytes()[..p.len()], p))
+            });
 
             if hit {
                 counter.fetch_add(local, Ordering::Relaxed);
@@ -687,18 +691,22 @@ fn matches_dir_for(chain: Chain) -> std::path::PathBuf {
     match chain { Chain::Sol => matches_dir(), Chain::Evm => matches_dir().join("evm") }
 }
 
-/// The pattern names the file: --ends-with KEYRX -> KEYRX.txt; several patterns
+/// The pattern names the file: --ends-with KEYRX -> KEYRX.txt; alternatives
 /// join with '+'; prefixes carry a trailing '_' so KEYRX_ (prefix) and KEYRX
-/// (suffix) do not collide; case-insensitive adds '.ic'. EVM files go under
+/// (suffix) do not collide; both kinds together join as PREFIX_...SUFFIX
+/// (cMaiL_...gg.txt); case-insensitive adds '.ic'. EVM files go under
 /// matches/evm/, named by the hex (a leading 0x dropped), '.cs' for --checksum.
 fn default_out(p: &PatternArgs) -> String {
-    let mut parts: Vec<String> = Vec::new();
     let strip = |s: &String| -> String {
         if p.chain == Chain::Evm { s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")).unwrap_or(s).to_string() } else { s.clone() }
     };
-    for s in &p.ends_with { parts.push(strip(s)); }
-    for s in &p.starts_with { parts.push(format!("{}_", strip(s))); }
-    let mut name = if parts.is_empty() { "matches".to_string() } else { parts.join("+") };
+    let suff: Vec<String> = p.ends_with.iter().map(|s| strip(s)).collect();
+    let pref: Vec<String> = p.starts_with.iter().map(|s| format!("{}_", strip(s))).collect();
+    let mut name = match (pref.is_empty(), suff.is_empty()) {
+        (true, true) => "matches".to_string(),
+        (false, false) => format!("{}...{}", pref.join("+"), suff.join("+")),
+        _ => { let mut v = suff; v.extend(pref); v.join("+") }
+    };
     match p.chain {
         Chain::Sol => if p.ignore_case { name.push_str(".ic"); },
         Chain::Evm => if p.checksum { name.push_str(".cs"); } else { name = name.to_ascii_lowercase(); },
@@ -1565,11 +1573,17 @@ fn cmd_verify() {
 /// The pattern line, per chain: `*KEYRX` / `Key*` for Solana; `*dead` / `0xdead*`
 /// for EVM, with what the case means on that chain.
 fn pattern_line(m: &Matcher, p: &PatternArgs) -> String {
-    let pats: Vec<String> = match m.chain {
-        Chain::Sol => m.suffixes.iter().map(|s| format!("*{}", String::from_utf8_lossy(s)))
-            .chain(m.prefixes.iter().map(|s| format!("{}*", String::from_utf8_lossy(s)))).collect(),
-        Chain::Evm => m.suffixes.iter().map(|s| format!("*{}", String::from_utf8_lossy(s)))
-            .chain(m.prefixes.iter().map(|s| format!("0x{}*", String::from_utf8_lossy(s)))).collect(),
+    let sfx: Vec<String> = m.suffixes.iter()
+        .map(|s| format!("*{}", String::from_utf8_lossy(s))).collect();
+    let pfx: Vec<String> = match m.chain {
+        Chain::Sol => m.prefixes.iter().map(|s| format!("{}*", String::from_utf8_lossy(s))).collect(),
+        Chain::Evm => m.prefixes.iter().map(|s| format!("0x{}*", String::from_utf8_lossy(s))).collect(),
+    };
+    // both kinds present = one hunt with two ends, and the line says so
+    let pats: Vec<String> = if !sfx.is_empty() && !pfx.is_empty() {
+        vec![format!("{} AND {}", pfx.join("  "), sfx.join("  "))]
+    } else {
+        sfx.into_iter().chain(pfx).collect()
     };
     let case = match (m.chain, p.ignore_case, p.checksum) {
         (Chain::Sol, true, _) => "   (case-insensitive)",
@@ -1962,6 +1976,50 @@ fn cmd_grind(
 mod tests {
     use super::*;
 
+    fn pargs(sw: &[&str], ew: &[&str], chain: Chain) -> PatternArgs {
+        PatternArgs {
+            ends_with: ew.iter().map(|s| s.to_string()).collect(),
+            starts_with: sw.iter().map(|s| s.to_string()).collect(),
+            ignore_case: false,
+            path: PathStyle::Phantom,
+            chain,
+            checksum: false,
+        }
+    }
+
+    /// 0.4.11 pooled every pattern into one OR, so `--starts-with cMaiL
+    /// --ends-with gg` stopped on the first address ending gg. The grammar:
+    /// OR within a kind, AND across kinds.
+    #[test]
+    fn both_kinds_multiply_the_odds() {
+        let both = Matcher::new(&pargs(&["cM"], &["gg"], Chain::Sol)).unwrap();
+        assert!((both.probability() * 58f64.powi(4) - 1.0).abs() < 1e-9,
+            "prefix AND suffix is 1 in 58^4, not the pool's 2 in 58^2");
+        let pool = Matcher::new(&pargs(&[], &["cM", "gg"], Chain::Sol)).unwrap();
+        assert!((pool.probability() * 58f64.powi(2) - 2.0).abs() < 1e-9,
+            "two suffixes stay alternatives: 2 in 58^2");
+    }
+
+    #[test]
+    fn evm_conjunction_needs_both_ends() {
+        let m = Matcher::new(&pargs(&["aa"], &["bb"], Chain::Evm)).unwrap();
+        let addr = [0u8; 20];
+        let mut hit = [b'a'; 40]; hit[38] = b'b'; hit[39] = b'b';
+        let mut suffix_only = [b'c'; 40]; suffix_only[38] = b'b'; suffix_only[39] = b'b';
+        let mut prefix_only = [b'a'; 40]; prefix_only[38] = b'c'; prefix_only[39] = b'c';
+        assert!(m.evm_hit(&hit, &addr), "both ends landing must hit");
+        assert!(!m.evm_hit(&suffix_only, &addr), "a suffix alone must not hit when a prefix is asked for");
+        assert!(!m.evm_hit(&prefix_only, &addr), "a prefix alone must not hit when a suffix is asked for");
+    }
+
+    #[test]
+    fn the_match_file_names_the_conjunction() {
+        let out = default_out(&pargs(&["cMaiL"], &["gg"], Chain::Sol));
+        assert!(out.ends_with("cMaiL_...gg.txt"), "got {}", out);
+        let single = default_out(&pargs(&[], &["gg"], Chain::Sol));
+        assert!(single.ends_with("gg.txt"), "got {}", single);
+    }
+
     /// The site's masthead shows a version; it must be this crate's. `site/` is not
     /// in the published tarball, so the check runs only in the repository - which is
     /// where the publish workflow runs `cargo test` before it publishes anything.
@@ -2184,8 +2242,9 @@ mod tests {
         assert!((c.probability() - want).abs() < want * 1e-12);
         let digits = Matcher::new(&pat_evm(&["1234"], &[], true)).unwrap();
         assert!((digits.probability() - 1.0 / 16f64.powi(4)).abs() < 1e-18, "digits have no case to match");
+        // a prefix AND a suffix multiply: two 2-hex ends are 1 in 65,536, not 2 in 256
         let both = Matcher::new(&pat_evm(&["ab"], &["cd"], false)).unwrap();
-        assert!((both.probability() - 2.0 / 256.0).abs() < 1e-15);
+        assert!((both.probability() - 1.0 / (256.0 * 256.0)).abs() < 1e-18);
     }
 
     #[test]
@@ -2210,7 +2269,7 @@ mod tests {
         let d = default_out(&pat_evm(&["DEAD"], &[], false));
         assert!(d.ends_with("/matches/evm/dead.txt"), "{}", d);
         let d = default_out(&pat_evm(&["DeAd"], &["0xC0ffee"], true));
-        assert!(d.ends_with("/matches/evm/DeAd+C0ffee_.cs.txt"), "{}", d);
+        assert!(d.ends_with("/matches/evm/C0ffee_...DeAd.cs.txt"), "{}", d);
     }
 
     #[test]
@@ -2286,8 +2345,9 @@ mod tests {
     fn default_out_names_the_file_after_the_pattern() {
         let d = default_out(&pat(&["KEYRX"], &[], false));
         assert!(d.ends_with("/matches/KEYRX.txt"), "{}", d);
+        // both kinds: one hunt with two ends, named PREFIX_...SUFFIX
         let d = default_out(&pat(&["KEYRX"], &["Ab"], true));
-        assert!(d.ends_with("/matches/KEYRX+Ab_.ic.txt"), "{}", d);
+        assert!(d.ends_with("/matches/Ab_...KEYRX.ic.txt"), "{}", d);
     }
 
     #[test]
