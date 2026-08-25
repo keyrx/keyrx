@@ -341,8 +341,10 @@ mod tests {
     #[test]
     fn links_measure_as_their_text_and_never_widen_a_frame() {
         // The URL has an 'm' in it on purpose: the old escape scanner stopped at
-        // the first 'm' and would have counted half a URL as visible text.
-        let url = "file://wsl.localhost/Ubuntu/home/mmxxv/.local/share/keyrx/matches";
+        // the first 'm' and would have counted half a URL as visible text. "home" and
+        // "matches" both carry one, so no real account name is needed here and none
+        // belongs here: src/ ships inside the published crate.
+        let url = "file://wsl.localhost/Ubuntu/home/example/.local/share/keyrx/matches";
         let l = format!("\x1b]8;;{}\x1b\\matches\x1b]8;;\x1b\\", url);
         assert_eq!(vis(&l), "matches".len());
         assert_eq!(plain(&l), "matches");

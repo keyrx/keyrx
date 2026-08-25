@@ -44,7 +44,7 @@ jobs:
           cur="${GITHUB_REF_NAME#v}"
           # Which versions are live is asked of crates.io, not of git: the checkout here is one
           # commit deep and sees no tag but its own (0.4.0 proved it: "no previous version to
-          # yank", and nothing was). Every live version older than this one goes: John's rule is
+          # yank", and nothing was). Every live version older than this one goes: the rule is
           # one installable version, the newest, now that --update exists.
           for v in $(curl -sS -A "keyrx publish workflow (dev@keyrx.tech)" -o versions.json https://crates.io/api/v1/crates/keyrx
           python3 -c 'import sys,json

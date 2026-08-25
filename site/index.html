@@ -113,8 +113,8 @@ keyrx grind --ends-with KEYRX --indices 128</pre>
 <script>
 (function(){
 /* The version the masthead shows. It must equal Cargo.toml's - a cargo test reads this
-   file and fails the publish if the two ever drift (John, 2026-08-19: "always updated
-   together"). The only place on the site a version is written. */
+   file and fails the publish if the two ever drift (ruled 2026-08-19: always updated
+   together). The only place on the site a version is written. */
 var VERSION='0.4.12';
 var out=document.getElementById('out'),scr=document.getElementById('scr'),
     inp=document.getElementById('in'),prom=document.getElementById('prompt'),
@@ -499,8 +499,8 @@ document.querySelectorAll('#keys i').forEach(function(t){t.addEventListener('cli
    F11 and F12 stay the browser's. */
 /* On a phone (<=700px) the bar hides A match, Verified, Donate and X (class x): seven buttons
    clipped Install and Wallets at 360px once EVM joined; six fit. Everything hidden is still a typed
-   command (START lists them) and is on the desktop bar. John, 2026-08-22: 'very cramped since we
-   added evm.. need to remove something'. */
+   command (START lists them) and is on the desktop bar. Ruled 2026-08-22: the bar was very cramped once
+   EVM joined and something had to go. */
 var FK={F1:'grind',F2:'what',F3:'install',F4:'match',F5:'wallets',F6:'verified',F7:'donate',F8:'evm',F9:'github',F10:'x'};
 addEventListener('keydown',function(e){if(FK[e.key]&&!e.altKey&&!e.ctrlKey&&!e.metaKey){e.preventDefault();inp.value='';runNav(FK[e.key]);bottom();}});
 scr.addEventListener('click',function(e){if(!e.target.closest('a,[data-c]')&&(!MOBILE||e.target.closest('#prompt')))inp.focus();});
