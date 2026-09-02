@@ -1362,6 +1362,16 @@ if answer is not True:
         self.assertIn(condition, upload)
         self.assertIn("steps.crates_auth.outputs.token", upload)
 
+    def test_crates_upload_uses_the_declared_keyrx_user_agent(self):
+        upload = self.effect.split("Upload the preserved crate only when absent", 1)[1].split(
+            "Require crates.io to hold", 1
+        )[0]
+        self.assertIn(
+            "-A 'keyrx release workflow (dev@keyrx.tech)' -X PUT",
+            upload,
+        )
+        self.assertIn("'https://crates.io/api/v1/crates/new'", upload)
+
     def test_actual_asset_set_validator_rejects_manifest_and_intoto_substitution(self):
         version = "0.4.13"
         suffixes = (".crate", ".crate.sha256", ".cdx.json", ".crate.sigstore.json", ".crate.intoto.jsonl")

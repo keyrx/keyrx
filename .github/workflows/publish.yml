@@ -1650,7 +1650,8 @@ jobs:
             [.versions[] | select(.num | test("^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$")) |
              select((.num | key) > ($current | key))] | length == 0' \
             "$RUNNER_TEMP/registry-at-put.json" > /dev/null
-          curl --fail-with-body --silent --show-error --location -X PUT \
+          curl --fail-with-body --silent --show-error --location \
+            -A 'keyrx release workflow (dev@keyrx.tech)' -X PUT \
             -H 'Accept: application/json' -H 'Content-Type: application/octet-stream' \
             -H "Authorization: $CARGO_REGISTRY_TOKEN" \
             --data-binary "@$RUNNER_TEMP/prepared/$CRATE_NAME-$VERSION.crates-api-upload" \
