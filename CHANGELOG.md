@@ -2,6 +2,16 @@
 
 All notable changes to keyRX, newest first. Versions are the ones on crates.io.
 
+## 0.4.14 - 2026-09-02
+
+- Restore the normal one-tag release path: a protected version tag, short-lived crates.io OIDC
+  credential, and one sequential run now publish the crate and immutable GitHub Release without a
+  repository-administration token, temporary branch admission, or manual recovery dispatch.
+- Restore `keyrx.sol` beside the authoritative Solana address on keyrx.tech, in both desktop and
+  mobile layouts.
+- Make the concurrent benchmark custody test prove the refusal path from its output and diagnostic
+  instead of depending on wall-clock timing.
+
 ## 0.4.13 - 2026-09-02
 
 - Match output and grind coordination are fail-closed: private files are opened without following
