@@ -1,48 +1,67 @@
 # keyrx
 
-> Solana and EVM vanity address grinder. One seed, unlimited addresses, keys for every wallet. Offline. Open. Verified. The mark is a record. What it seals comes next.
+> Solana and EVM vanity address grinder. One seed, many addresses, exact keys and paths. Offline grinding. Open. Verified. The mark is a record. What it seals comes next.
 >
 > One seed phrase is a tree of addresses; keyrx
-> derives the expensive prefix once and walks the account index - 20-60x the
-> throughput of `solana-keygen grind --use-mnemonic`. Every match writes the
-> address, its derivation path, the seed phrase, and the keypair in both
-> wallet-import forms (base58 for Phantom, JSON byte array for Solflare and
-> solana-keygen). One Rust binary. No daemon, no service, no network.
+> derives the expensive prefix once and walks the account index. In the cited
+> measurements it reached 19.5-32.2x aggregate throughput and 33-55x per core
+> versus `solana-keygen grind --use-mnemonic`. Every Solana match writes
+> the address, its derivation path, the seed phrase, a base58 keypair for current
+> Phantom/Solflare private-key import flows, and a JSON byte array for
+> solana-keygen. One Rust binary. No daemon or service. Grinding, estimating,
+> benchmarking, showing and verifying are offline; explicit --update uses Cargo's network access.
 >
 > `--chain evm` (0.4.0): Ethereum and every EVM chain - the same mnemonic walk on
 > secp256k1 at m/44'/60'/0'/0/N, keccak addresses in EIP-55 case; hex patterns,
 > any case by default, `--checksum` for EIP-55 case as typed; the match writes the
 > 0x hex private key MetaMask and Rabby import. Matches under matches/evm/.
 
-The site is a terminal UI rendered in JavaScript with a real toy grind in a
-Web Worker; nothing leaves the browser. This file carries the same content
-as plain text.
+The site is a terminal UI rendered in JavaScript with a suffix probability
+demo in a Web Worker: random 32-byte values, real base58 encoding, and no
+keypair, seed, signer or derivation path. Nothing leaves the browser. This
+file carries the same product content as plain text.
 
 ## Install
 
-    cargo install keyrx && clear && keyrx    # or: git clone https://github.com/keyrx/keyrx && cargo install --path .
+    cargo install --locked keyrx
+    keyrx                       # the start screen
+    git clone https://github.com/keyrx/keyrx && cd keyrx    # source alternative
+    RUSTFLAGS="-C target-cpu=native" cargo install --locked --path .  # POSIX shell; tuned to this CPU
     keyrx verify                 # run first, always: base58, derivation, the pinned solana-keygen answer, the BIP39 passphrase vector
-    keyrx bench --indices 128    # this machine's real rate; estimate uses it
-    keyrx estimate --ends-with KEYRX --count 10    # odds; time to one match and to all ten
+    keyrx bench --indices 128    # this machine's measured 128-index workload; estimate uses it
+    keyrx estimate --ends-with KEYRX --indices 128 --count 10    # odds; measured time to one and all ten
     keyrx grind --ends-with KEYRX --indices 128
     keyrx grind --ends-with KEYRX --count 10       # ten matches, one file
-    keyrx grind --ends-with KEYRX --indices 8      # Phantom by seed: the match is at most 8 "add account" clicks away
+    keyrx grind --ends-with KEYRX --indices 8      # keep seed-path discovery bounded; verify the printed path
     keyrx grind --ends-with KEYRX --passphrase     # BIP39 passphrase: prompted, hidden, never stored; import that address by key
     keyrx grind --starts-with Key --ends-with RX   # both ends; --ignore-case for any case (32x likelier for five letters)
     keyrx show                   # every match file; keyrx show KEYRX --keys reads one (seeds/keys withheld by default)
-    keyrx --update               # cargo install keyrx && clear && keyrx, as one flag
+    keyrx --update               # install the latest, clear, then start it
+
+`bench`, `grind`, and `show` require Unix owner-only file semantics. On
+Windows, run them under WSL. Probability is not machine-specific; a matching
+benchmark profile supplies the time estimate. Solana odds are an explicitly approximate base58
+model because signing-key outputs are not uniform text. EVM bench uses a rare 16-hex suffix;
+estimate labels other matcher shapes as an approximate measured baseline.
 
 ## What a match writes
 
-Five lines, in a mode-0600 file inside a mode-0700 directory of its own
+Each Solana match writes five lines, in a mode-0600 file inside a mode-0700 directory of its own
 (~/.local/share/keyrx/matches/, named after the pattern; every printed path
 is a terminal hyperlink that opens the folder): address, path, seed, privkey
-(base58 keypair), keypair (JSON byte array) - and, for a --passphrase grind,
+(base58 keypair for current Phantom/Solflare private-key flows), keypair (JSON
+byte array for solana-keygen) - and, for a --passphrase grind,
 one line saying so: the seed alone will not reach that address, the keys will. A key import lands
-on the exact address in one paste as a standalone account - the file IS the
-backup. Importing the seed instead places the address inside a recoverable
-HD wallet at the printed path; Phantom reaches account N by N "add account"
-clicks (grind with --indices 8 for that), Solflare takes the path directly.
+on the exact address in one paste as a standalone account. The receiving wallet's unrelated seed
+will not recover that imported account. Keep the match file or an equivalent backup of its recovery
+material. The keyRX seed plus exact path (and passphrase, if one was used) can restore it with
+compatible derivation tooling. Wallet seed recovery and path discovery vary by product and version;
+do not assume an add-account count or direct custom-path import. Where the wallet supports the
+printed private-key/keypair form, importing that exact key lands on the exact address. Verify the
+address before funding it.
+
+An EVM match writes four lines: address, exact path, seed, and the 0x private
+key form imported by MetaMask and Rabby. It has no Solana JSON keypair line.
 
 ## Verified
 

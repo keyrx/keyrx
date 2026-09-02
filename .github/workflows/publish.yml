@@ -1,71 +1,1918 @@
-# Publish keyrx to crates.io on a version tag - by trusted publishing (OIDC), no token anywhere.
-# crates.io is configured to trust this repository + this workflow file. A tag `vX.Y.Z` must
-# equal the version in Cargo.toml or nothing is published.
+# One tag-driven release ceremony. Repository executables run only in the
+# unprivileged prepare job. The tag also supplies this workflow's inline shell
+# and job graph, so protected-environment approval must review the exact
+# publish.yml blob at SOURCE_SHA before the effect job proceeds.
 name: publish
+
 on:
   push:
     tags: ["v*"]
+
+concurrency:
+  group: publish-${{ github.repository }}-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   contents: read
-  id-token: write   # the OIDC token crates.io exchanges for a short-lived publish token; also Sigstore, for the attestation
-  attestations: write   # the build-provenance attestation on the published .crate
+
+env:
+  CARGO_TERM_COLOR: always
+  CRATE_NAME: keyrx
+  PYTHONDONTWRITEBYTECODE: "1"
+  RUST_TOOLCHAIN: 1.85.0
+
 jobs:
-  publish:
-    runs-on: ubuntu-latest
+  prepare:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.identity.outputs.version }}
+      tag: ${{ steps.identity.outputs.tag }}
+      source_sha: ${{ steps.identity.outputs.source_sha }}
+      title: ${{ steps.identity.outputs.title }}
+      prepared_set_sha256: ${{ steps.package.outputs.prepared_set_sha256 }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
-      - name: the tag must be the version in Cargo.toml
+      - name: Check out the exact tag without reusable credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install the declared minimum Rust toolchain
+        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # pinned
+        with:
+          toolchain: 1.85.0
+          components: clippy
+
+      - name: Bind event, checkout, tag, version, and reviewed policy
+        id: identity
+        shell: bash
         run: |
-          tag="${GITHUB_REF_NAME#v}"
-          ver="$(cargo metadata --no-deps --format-version 1 | python3 -c 'import json,sys;print(json.load(sys.stdin)["packages"][0]["version"])')"
-          test "$tag" = "$ver" || { echo "tag v$tag != Cargo.toml $ver"; exit 1; }
-      - run: cargo test --all-targets
-      - name: publish (dry run first, then for real)
-        run: cargo publish --dry-run
-      - uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1
-        id: auth
-      - run: cargo publish
+          set -euo pipefail
+          test "$GITHUB_REF_TYPE" = tag
+          version="${GITHUB_REF_NAME#v}"
+          test "$GITHUB_REF_NAME" = "v$version"
+          source_sha="$(git rev-parse "${GITHUB_SHA}^{commit}")"
+          test "$(git rev-parse HEAD)" = "$source_sha"
+          test "$(git rev-parse "${GITHUB_REF}^{commit}")" = "$source_sha"
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
+          policy="ops/release/$version.json"
+          python3 ops/release_contract.py "$policy"
+          test "$(jq -r .tag "$policy")" = "$GITHUB_REF_NAME"
+          test "$(jq -r .version "$policy")" = "$version"
+          python3 ops/release_preflight.py "$version"
+          python3 ops/release_preflight.py "$version" --notes > "$RUNNER_TEMP/release-notes.md"
+          {
+            echo "version=$version"
+            echo "tag=$GITHUB_REF_NAME"
+            echo "source_sha=$source_sha"
+            echo "title=keyrx $version"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Test every Rust target from the lockfile
+        run: cargo test --locked --all-targets
+
+      - name: Reject every clippy warning from the lockfile
+        run: cargo clippy --locked --all-targets -- -D warnings
+
+      - name: Exercise the real site in desktop and mobile modes
+        run: node tests/site_harness.js site/index.html
+
+      - name: Run Cargo's publish checks without an upload
+        run: CARGO_TARGET_DIR="$RUNNER_TEMP/publish-dry-run-target" cargo publish --dry-run --locked
+
+      - name: Build and preserve the exact package set
+        id: package
         env:
-          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
-      # One version at a time: when a release publishes, the one before it is yanked, so a fresh
-      # `cargo install keyrx` can only land on the newest. Yanking never breaks an existing install
-      # or lockfile; it only stops new resolutions. If the trusted-publishing token lacks the yank
-      # scope this step says so and the release still stands - yank then happens in the crates.io UI.
-      # The trusted-publishing token can publish but NOT yank (learned at 0.3.4: the step ran, nothing
-      # was yanked). Yanking needs a crates.io API token scoped to "yank" on this crate, held as the
-      # repository secret CARGO_YANK_TOKEN; without it this step says so and does nothing.
-      - name: yank the previous release
-        continue-on-error: true
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_YANK_TOKEN }}
+          VERSION: ${{ steps.identity.outputs.version }}
+          SOURCE_SHA: ${{ steps.identity.outputs.source_sha }}
+        shell: bash
         run: |
-          test -n "$CARGO_REGISTRY_TOKEN" || { echo "no CARGO_YANK_TOKEN secret: nothing yanked (yank in the crates.io UI, or add a yank-scoped token as that secret)"; exit 0; }
-          cur="${GITHUB_REF_NAME#v}"
-          # Which versions are live is asked of crates.io, not of git: the checkout here is one
-          # commit deep and sees no tag but its own (0.4.0 proved it: "no previous version to
-          # yank", and nothing was). Every live version older than this one goes: the rule is
-          # one installable version, the newest, now that --update exists.
-          for v in $(curl -sS -A "keyrx publish workflow (dev@keyrx.tech)" -o versions.json https://crates.io/api/v1/crates/keyrx
-          python3 -c 'import sys,json
-          d=json.load(open("versions.json")); cur=sys.argv[1]
-          key=lambda v: tuple(int(x) for x in v.split("."))
-          print(" ".join(x["num"] for x in d["versions"] if not x["yanked"] and key(x["num"]) < key(cur)))' "$cur"); do
-            echo "yanking keyrx $v (superseded by $cur)"
-            cargo yank keyrx --vers "$v" || echo "::warning::crates.io refused to yank $v (the token must be an owner's, scoped yank on keyrx) - yank it by hand or via the yank workflow"
+          set -euo pipefail
+          out="$RUNNER_TEMP/prepared"
+          mkdir "$out"
+          package_target="$RUNNER_TEMP/package-target"
+          CARGO_TARGET_DIR="$package_target" cargo package --locked
+          crate="$package_target/package/$CRATE_NAME-$VERSION.crate"
+          test -f "$crate"
+          cp -- "$crate" "$out/$CRATE_NAME-$VERSION.crate"
+          python3 ops/release_preflight.py "$VERSION" \
+            --crate "$out/$CRATE_NAME-$VERSION.crate" --sha "$SOURCE_SHA" --git-source
+          cargo metadata --locked --no-deps --format-version 1 > "$RUNNER_TEMP/metadata.json"
+          python3 ops/crates_upload.py "$VERSION" "$out/$CRATE_NAME-$VERSION.crate" \
+            "$RUNNER_TEMP/metadata.json" "$out/$CRATE_NAME-$VERSION.crates-api-upload"
+          (cd "$out" && sha256sum "$CRATE_NAME-$VERSION.crate" \
+            > "$CRATE_NAME-$VERSION.crate.sha256")
+          python3 - Cargo.toml Cargo.lock "$out/$CRATE_NAME-$VERSION.cdx.json" \
+            "$VERSION" "$SOURCE_SHA" <<'PY'
+          import hashlib, json, pathlib, sys, tomllib, uuid
+          manifest = tomllib.loads(pathlib.Path(sys.argv[1]).read_text("utf-8"))
+          lock = tomllib.loads(pathlib.Path(sys.argv[2]).read_text("utf-8"))
+          output, version, source = pathlib.Path(sys.argv[3]), sys.argv[4], sys.argv[5]
+          packages = {(item["name"], item["version"]): item for item in lock["package"]}
+          refs = {identity: f"pkg:cargo/{identity[0]}@{identity[1]}" for identity in packages}
+          by_name = {}
+          for identity in packages: by_name.setdefault(identity[0], []).append(identity)
+          dependencies = []
+          for identity, package in sorted(packages.items()):
+              targets = []
+              for raw in package.get("dependencies", []):
+                  parts = raw.split(); candidates = [item for item in by_name[parts[0]] if len(parts) == 1 or item[1] == parts[1]]
+                  if len(candidates) != 1: raise SystemExit("SBOM dependency is ambiguous")
+                  targets.append(refs[candidates[0]])
+              dependencies.append({"ref": refs[identity], "dependsOn": sorted(targets)})
+          root = ("keyrx", version)
+          if root not in packages or manifest["package"]["version"] != version: raise SystemExit("SBOM root differs")
+          root_component = {"type": "application", "bom-ref": refs[root], "name": "keyrx", "version": version,
+                            "purl": refs[root], "licenses": [{"license": {"id": manifest["package"]["license"]}}]}
+          components = [{"type": "library", "bom-ref": refs[item], "name": item[0], "version": item[1], "purl": refs[item]}
+                        for item in sorted(packages) if item != root]
+          serial = str(uuid.UUID(hashlib.sha256((source + "\0keyrx-cdx-1.5").encode()).hexdigest()[:32]))
+          bom = {"bomFormat": "CycloneDX", "specVersion": "1.5", "serialNumber": f"urn:uuid:{serial}", "version": 1,
+                 "metadata": {"component": root_component}, "components": components, "dependencies": dependencies}
+          output.write_bytes(json.dumps(bom, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode("utf-8"))
+          PY
+          cp -- "$RUNNER_TEMP/release-notes.md" "$out/release-notes.md"
+          cp -- "ops/release/$VERSION.json" "$out/release-policy.json"
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
+          test "$(git ls-tree "$SOURCE_SHA" -- "ops/release/$VERSION.json" | awk '{print $1" "$2}')" = "100644 blob"
+          git cat-file blob "$SOURCE_SHA:ops/release/$VERSION.json" \
+            > "$RUNNER_TEMP/committed-release-policy.json"
+          cmp -s "$RUNNER_TEMP/committed-release-policy.json" "$out/release-policy.json"
+          python3 ops/release_contract.py "$out/release-policy.json"
+          python3 ops/release_preflight.py "$VERSION" --notes \
+            > "$RUNNER_TEMP/final-release-notes.md"
+          cmp -s "$RUNNER_TEMP/final-release-notes.md" "$out/release-notes.md"
+          (
+            cd "$out"
+            LC_ALL=C sha256sum "$CRATE_NAME-$VERSION.crate" \
+              "$CRATE_NAME-$VERSION.crate.sha256" "$CRATE_NAME-$VERSION.cdx.json" \
+              "$CRATE_NAME-$VERSION.crates-api-upload" release-notes.md \
+              release-policy.json > PREPARED_SHA256SUMS
+          )
+          echo "prepared_set_sha256=$(sha256sum "$out/PREPARED_SHA256SUMS" | cut -d' ' -f1)" \
+            >> "$GITHUB_OUTPUT"
+
+      - name: Test release policy and shipping-boundary controls against the preserved crate
+        env:
+          KEYRX_REAL_CRATE: ${{ runner.temp }}/package-target/package/keyrx-${{ steps.identity.outputs.version }}.crate
+        run: python3 -m unittest discover -s tests -p 'test_release_*.py'
+
+      - name: Upload the immutable handoff to the reviewed effect job
+        id: upload
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: keyrx-release-${{ steps.identity.outputs.source_sha }}
+          path: ${{ runner.temp }}/prepared
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 1
+
+  effect:
+    needs: prepare
+    runs-on: ubuntu-24.04
+    environment: release
+    permissions:
+      actions: read
+      contents: write
+      id-token: write
+      attestations: write
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      TAG: ${{ needs.prepare.outputs.tag }}
+      SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+      TITLE: ${{ needs.prepare.outputs.title }}
+      PREPARED_SET_SHA256: ${{ needs.prepare.outputs.prepared_set_sha256 }}
+      EXPECTED_ARTIFACT_DIGEST: ${{ needs.prepare.outputs.artifact_digest }}
+      ARTIFACT_ID: ${{ needs.prepare.outputs.artifact_id }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      # No Actions checkout, full candidate worktree, repository Python/Node/shell,
+      # Cargo build/test, or repository executable is allowed here. A system-Git
+      # raw-blob materialization supplies only admitted package inputs for Cargo's
+      # non-executing `package --no-verify` byte re-derivation. The inline shell is
+      # still tag-supplied candidate orchestration; exact-blob environment review
+      # is the trust boundary.
+      - name: Download the exact unprivileged handoff
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.prepare.outputs.artifact_id }}
+          path: ${{ runner.temp }}/prepared
+          merge-multiple: true
+
+      - name: Bind every prepared byte before any public effect
+        id: prepared
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/prepared"
+          # PREPARED_ENUMERATOR_BEGIN
+          mapfile -t names < <(find . -mindepth 1 -maxdepth 1 -type f -printf '%f\n' | LC_ALL=C sort)
+          expected=(PREPARED_SHA256SUMS "$CRATE_NAME-$VERSION.cdx.json"
+            "$CRATE_NAME-$VERSION.crate" "$CRATE_NAME-$VERSION.crate.sha256"
+            "$CRATE_NAME-$VERSION.crates-api-upload" release-notes.md release-policy.json)
+          mapfile -t expected_sorted < <(printf '%s\n' "${expected[@]}" | LC_ALL=C sort)
+          test "${names[*]}" = "${expected_sorted[*]}"
+          mapfile -t entries < <(find . -mindepth 1 -printf '%P\t%y\n' | LC_ALL=C sort)
+          mapfile -t expected_entries < <(printf '%s\tf\n' "${expected[@]}" | LC_ALL=C sort)
+          test "${entries[*]}" = "${expected_entries[*]}"
+          # PREPARED_ENUMERATOR_END
+          # INLINE_PREPARED_MANIFEST_VALIDATOR_BEGIN
+          python3 - PREPARED_SHA256SUMS "$VERSION" <<'PY'
+          import hashlib, pathlib, re, sys
+          manifest, version = pathlib.Path(sys.argv[1]), sys.argv[2]
+          expected = {
+              f"keyrx-{version}.crate", f"keyrx-{version}.crate.sha256",
+              f"keyrx-{version}.cdx.json", f"keyrx-{version}.crates-api-upload",
+              "release-notes.md", "release-policy.json",
+          }
+          raw = manifest.read_bytes()
+          if not raw.endswith(b"\n") or b"\r" in raw or b"\0" in raw:
+              raise SystemExit("prepared manifest: not canonical LF ASCII")
+          try: lines = raw.decode("ascii").splitlines()
+          except UnicodeDecodeError: raise SystemExit("prepared manifest: not ASCII")
+          if len(lines) != 6: raise SystemExit("prepared manifest: wrong row count")
+          seen = {}
+          for line in lines:
+              match = re.fullmatch(r"([0-9a-f]{64})  ([^/\\]+)", line)
+              if not match or match.group(2) not in expected or match.group(2) in seen:
+                  raise SystemExit("prepared manifest: non-canonical row")
+              seen[match.group(2)] = match.group(1)
+          if set(seen) != expected: raise SystemExit("prepared manifest: coverage differs")
+          for name, digest in seen.items():
+              if hashlib.sha256(pathlib.Path(name).read_bytes()).hexdigest() != digest:
+                  raise SystemExit("prepared manifest: digest differs")
+          crate_line = pathlib.Path(f"keyrx-{version}.crate.sha256").read_bytes()
+          crate_digest = hashlib.sha256(pathlib.Path(f"keyrx-{version}.crate").read_bytes()).hexdigest()
+          if crate_line != f"{crate_digest}  keyrx-{version}.crate\n".encode("ascii"):
+              raise SystemExit("crate checksum: not one canonical LF row")
+          PY
+          # INLINE_PREPARED_MANIFEST_VALIDATOR_END
+          test "$(sha256sum PREPARED_SHA256SUMS | cut -d' ' -f1)" = "$PREPARED_SET_SHA256"
+          sha256sum --check --strict PREPARED_SHA256SUMS
+          test "$(jq -r .version release-policy.json)" = "$VERSION"
+          test "$(jq -r .tag release-policy.json)" = "$TAG"
+          test "$(jq -r .sourceBranch release-policy.json)" = main
+          [[ "$(jq -r .predecessorEvidence.checksum release-policy.json)" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$(jq -r .predecessorEvidence.sourceSha release-policy.json)" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$EXPECTED_ARTIFACT_DIGEST" =~ ^(sha256:)?[0-9a-f]{64}$ ]]
+          expected_artifact_digest="$EXPECTED_ARTIFACT_DIGEST"
+          case "$expected_artifact_digest" in sha256:*) ;; *) expected_artifact_digest="sha256:$expected_artifact_digest" ;; esac
+          [[ "$ARTIFACT_ID" =~ ^[1-9][0-9]*$ ]]
+          curl -fsSL -H 'Accept: application/vnd.github+json' \
+            -H "Authorization: Bearer $GH_TOKEN" -H 'X-GitHub-Api-Version: 2026-03-10' \
+            -o "$RUNNER_TEMP/artifact-record.json" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+          jq -e --argjson id "$ARTIFACT_ID" --arg digest "$expected_artifact_digest" \
+            --argjson run "$GITHUB_RUN_ID" \
+            '.id == $id and .expired == false and .digest == $digest and
+             .workflow_run.id == $run' "$RUNNER_TEMP/artifact-record.json" > /dev/null
+          jq -e --arg version "$VERSION" --arg tag "$TAG" \
+            'keys == ["assets","crate","expectedLiveBefore","predecessorEvidence",
+              "schema","sourceBranch","tag","version","yankTargets"] and
+             .schema == 1 and .crate == "keyrx" and .version == $version and .tag == $tag and
+             .sourceBranch == "main" and .expectedLiveBefore == .yankTargets and
+             (.expectedLiveBefore | length) > 0 and
+             ([.expectedLiveBefore[]] | unique | length) == (.expectedLiveBefore | length)' \
+            release-policy.json > /dev/null
+          # INLINE_POLICY_VALIDATOR_BEGIN
+          python3 - release-policy.json "$VERSION" "$TAG" <<'PY'
+          import json, pathlib, re, sys
+
+          path, version, tag = sys.argv[1:]
+          canonical = re.compile(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\Z")
+          if not canonical.fullmatch(version) or version != "0.4.13" or tag != "v0.4.13":
+              raise SystemExit("effect policy: release identity is not the reviewed 0.4.13")
+          policy = json.loads(pathlib.Path(path).read_text("utf-8"))
+          legacy = {
+              "mode": "legacy-crate-tag",
+              "version": "0.4.12",
+              "checksum": "dcf2ff724aa2d0ec43173a2d1a7f225ea39efa8c5d61e43b02c82b26a4f7854d",
+              "sourceSha": "9b4725a0e8b160ccacad0d7b858793ba8dee4a89",
+              "archiveMembers": [
+                  "keyrx-0.4.12/.cargo_vcs_info.json",
+                  "keyrx-0.4.12/CHANGELOG.md",
+                  "keyrx-0.4.12/Cargo.lock",
+                  "keyrx-0.4.12/Cargo.toml",
+                  "keyrx-0.4.12/Cargo.toml.orig",
+                  "keyrx-0.4.12/LICENSE",
+                  "keyrx-0.4.12/README.md",
+                  "keyrx-0.4.12/TRADEMARK.md",
+                  "keyrx-0.4.12/src/evm.rs",
+                  "keyrx-0.4.12/src/main.rs",
+                  "keyrx-0.4.12/src/ui.rs",
+              ],
+          }
+          expected_assets = [
+              f"keyrx-{version}.crate", f"keyrx-{version}.crate.sha256",
+              f"keyrx-{version}.cdx.json", f"keyrx-{version}.crate.sigstore.json",
+              f"keyrx-{version}.crate.intoto.jsonl", f"keyrx-{version}.SHA256SUMS",
+          ]
+          if (
+              policy.get("version") != version
+              or policy.get("tag") != tag
+              or policy.get("crate") != "keyrx"
+              or policy.get("schema") != 1
+              or policy.get("sourceBranch") != "main"
+              or policy.get("predecessorEvidence") != legacy
+              or policy.get("expectedLiveBefore") != ["0.4.12"]
+              or policy.get("yankTargets") != ["0.4.12"]
+              or policy.get("assets") != expected_assets
+          ):
+              raise SystemExit("effect policy: bytes differ from the exact reviewed migration")
+          PY
+          # INLINE_POLICY_VALIDATOR_END
+          jq -e '.predecessorEvidence |
+            keys == ["archiveMembers","checksum","mode","sourceSha","version"] and
+            (.mode == "legacy-crate-tag" or .mode == "immutable-six-asset")' \
+            release-policy.json > /dev/null
+          jq -e '.predecessorEvidence.version as $predecessor |
+            (.expectedLiveBefore | index($predecessor)) != null' \
+            release-policy.json > /dev/null
+          expected_assets="$(printf '[\"keyrx-%s.crate\",\"keyrx-%s.crate.sha256\",\"keyrx-%s.cdx.json\",\"keyrx-%s.crate.sigstore.json\",\"keyrx-%s.crate.intoto.jsonl\",\"keyrx-%s.SHA256SUMS\"]' "$VERSION" "$VERSION" "$VERSION" "$VERSION" "$VERSION" "$VERSION")"
+          test "$(jq -c .assets release-policy.json)" = "$expected_assets"
+          crate_sha="$(sha256sum "$CRATE_NAME-$VERSION.crate" | cut -d' ' -f1)"
+          test "$(awk 'NF == 2 {print $1}' "$CRATE_NAME-$VERSION.crate.sha256")" = "$crate_sha"
+          test "$(awk 'NF == 2 {print $2}' "$CRATE_NAME-$VERSION.crate.sha256")" = "$CRATE_NAME-$VERSION.crate"
+          upload="$CRATE_NAME-$VERSION.crates-api-upload"
+          metadata_size="$(od --endian=little -An -tu4 -N4 "$upload" | tr -d '[:space:]')"
+          [[ "$metadata_size" =~ ^[0-9]+$ ]]
+          test "$metadata_size" -gt 0 && test "$metadata_size" -le 1048576
+          metadata_end=$((4 + metadata_size))
+          body_size="$(stat -c %s "$upload")"
+          test "$body_size" -gt $((metadata_end + 4))
+          dd if="$upload" bs=1 skip=4 count="$metadata_size" status=none \
+            > "$RUNNER_TEMP/crates-upload-metadata.json"
+          # INLINE_UPLOAD_METADATA_VALIDATOR_BEGIN
+          python3 - "$CRATE_NAME-$VERSION.crate" \
+            "$RUNNER_TEMP/crates-upload-metadata.json" "$VERSION" <<'PY'
+          import json, pathlib, re, sys, tarfile, tomllib
+
+          crate_path = pathlib.Path(sys.argv[1])
+          metadata_path = pathlib.Path(sys.argv[2])
+          version = sys.argv[3]
+          if not re.fullmatch(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)", version):
+              raise SystemExit("upload metadata: non-canonical version")
+          root = f"keyrx-{version}"
+          with tarfile.open(crate_path, "r:gz") as archive:
+              names = archive.getnames()
+              if len(names) != len(set(names)) or len(names) > 4096:
+                  raise SystemExit("upload metadata: unsafe archive member set")
+              def read(name, limit=1024 * 1024):
+                  member = archive.getmember(f"{root}/{name}")
+                  if not member.isfile() or member.size < 0 or member.size > limit:
+                      raise SystemExit(f"upload metadata: unsafe {name}")
+                  stream = archive.extractfile(member)
+                  data = stream.read(limit + 1) if stream else b""
+                  if len(data) != member.size:
+                      raise SystemExit(f"upload metadata: short {name}")
+                  return data
+              manifest = tomllib.loads(read("Cargo.toml.orig").decode("utf-8"))
+              lock = tomllib.loads(read("Cargo.lock", 4 * 1024 * 1024).decode("utf-8"))
+              package = manifest.get("package", {})
+              if package.get("name") != "keyrx" or package.get("version") != version:
+                  raise SystemExit("upload metadata: packaged identity differs")
+              locked = {(item.get("name"), item.get("version")) for item in lock.get("package", [])}
+              def requirement(value):
+                  if not isinstance(value, str) or not value:
+                      raise SystemExit("upload metadata: missing dependency requirement")
+                  return value if value[0] in "<>=~^*" else "^" + value
+              deps = []
+              sections = (("dependencies", "normal", None), ("dev-dependencies", "dev", None), ("build-dependencies", "build", None))
+              for section, kind, target in sections:
+                  for alias, raw in manifest.get(section, {}).items():
+                      item = {"version": raw} if isinstance(raw, str) else dict(raw)
+                      if any(key in item for key in ("git", "path", "registry")):
+                          raise SystemExit("upload metadata: non-default dependency source")
+                      name = item.get("package", alias)
+                      req = requirement(item.get("version"))
+                      if not any(locked_name == name for locked_name, _ in locked):
+                          raise SystemExit(f"upload metadata: {name} absent from Cargo.lock")
+                      deps.append({
+                          "name": name, "version_req": req,
+                          "features": item.get("features", []),
+                          "optional": item.get("optional", False),
+                          "default_features": item.get("default-features", True),
+                          "target": target, "kind": kind, "registry": None,
+                          "explicit_name_in_toml": alias if name != alias else None,
+                      })
+              deps.sort(key=lambda item: (item["name"], item["kind"], item["target"] or ""))
+              readme_file = package.get("readme")
+              readme = read(readme_file).decode("utf-8") if isinstance(readme_file, str) else None
+              license_file = package.get("license-file")
+              if isinstance(license_file, str):
+                  read(license_file)
+              expected = {
+                  "name": "keyrx", "vers": version, "deps": deps,
+                  "features": manifest.get("features", {}),
+                  "authors": package.get("authors", []),
+                  "description": package.get("description"),
+                  "documentation": package.get("documentation"),
+                  "homepage": package.get("homepage"),
+                  "readme": readme, "readme_file": readme_file,
+                  "keywords": package.get("keywords", []),
+                  "categories": package.get("categories", []),
+                  "license": package.get("license"), "license_file": license_file,
+                  "repository": package.get("repository"), "badges": {},
+                  "links": package.get("links"), "rust_version": package.get("rust-version"),
+              }
+          raw_metadata = metadata_path.read_bytes()
+          def reject_duplicates(pairs):
+              value = {}
+              for key, item in pairs:
+                  if key in value: raise SystemExit("upload metadata: duplicate JSON key")
+                  value[key] = item
+              return value
+          actual = json.loads(raw_metadata.decode("utf-8"), object_pairs_hook=reject_duplicates)
+          canonical = json.dumps(actual, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode("utf-8")
+          if raw_metadata != canonical:
+              raise SystemExit("upload metadata: not the one canonical serialization")
+          if actual != expected:
+              raise SystemExit("upload metadata: candidate body differs from packaged manifest and lock")
+          PY
+          # INLINE_UPLOAD_METADATA_VALIDATOR_END
+          embedded_size="$(od --endian=little -An -tu4 -j "$metadata_end" -N4 "$upload" | tr -d '[:space:]')"
+          [[ "$embedded_size" =~ ^[0-9]+$ ]]
+          test "$body_size" -eq $((metadata_end + 4 + embedded_size))
+          test "$embedded_size" -eq "$(stat -c %s "$CRATE_NAME-$VERSION.crate")"
+          cmp -s <(dd if="$upload" bs=1 skip=$((metadata_end + 4)) status=none) \
+            "$CRATE_NAME-$VERSION.crate"
+          source_dir="$RUNNER_TEMP/source-blobs"; mkdir "$source_dir"
+          curl -fsSL -H 'Accept: application/vnd.github+json' -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'X-GitHub-Api-Version: 2026-03-10' \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/git/commits/$SOURCE_SHA" \
+            > "$RUNNER_TEMP/source-commit.json"
+          jq -e --arg source "$SOURCE_SHA" '.sha == $source' \
+            "$RUNNER_TEMP/source-commit.json" > /dev/null
+          tree_sha="$(jq -er '.tree.sha' "$RUNNER_TEMP/source-commit.json")"
+          [[ "$tree_sha" =~ ^[0-9a-f]{40}$ ]]
+          curl -fsSL -H 'Accept: application/vnd.github+json' -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'X-GitHub-Api-Version: 2026-03-10' \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/git/trees/$tree_sha?recursive=1" \
+            > "$RUNNER_TEMP/source-tree.json"
+          # INLINE_TREE_RESPONSE_VALIDATOR_BEGIN
+          python3 - "$RUNNER_TEMP/source-tree.json" "$tree_sha" <<'PY'
+          import json, pathlib, re, sys
+          response = json.loads(pathlib.Path(sys.argv[1]).read_text("utf-8"))
+          expected = sys.argv[2]
+          if not re.fullmatch(r"[0-9a-f]{40}", expected) or response.get("sha") != expected or response.get("truncated") is not False:
+              raise SystemExit("source tree: response identity or completeness differs")
+          PY
+          # INLINE_TREE_RESPONSE_VALIDATOR_END
+          source_paths=(CHANGELOG.md Cargo.lock Cargo.toml LICENSE README.md TRADEMARK.md \
+            src/evm.rs src/main.rs src/ui.rs)
+          for path in "${source_paths[@]}"; do
+            blob="$(jq -er --arg path "$path" \
+              '[.tree[] | select(.path == $path and .type == "blob" and
+                .mode == "100644")] |
+               if length == 1 then .[0].sha else error("source blob cardinality") end' \
+              "$RUNNER_TEMP/source-tree.json")"
+            mkdir -p "$source_dir/$(dirname "$path")"
+            curl -fsSL -H 'Accept: application/vnd.github+json' -H "Authorization: Bearer $GH_TOKEN" \
+              -H 'X-GitHub-Api-Version: 2026-03-10' \
+              "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/git/blobs/$blob" \
+              > "$RUNNER_TEMP/source-blob.json"
+            jq -e --arg sha "$blob" '.sha == $sha and .encoding == "base64" and
+              (.content | type) == "string"' "$RUNNER_TEMP/source-blob.json" > /dev/null
+            jq -r '.content' "$RUNNER_TEMP/source-blob.json" | tr -d '\n' | base64 -d \
+              > "$source_dir/$path"
+            test "$(git hash-object "$source_dir/$path")" = "$blob"
           done
-      # Provenance: a signed statement (Sigstore, via GitHub) that THIS workflow, from THIS commit,
-      # built the .crate whose digest it names - the same file cargo just sent to the registry.
-      # Anyone can check it: `gh attestation verify --owner keyrx <file>`, or the repo's
-      # Attestations tab. Paired with the reproducible workflow (a fresh build from the tag
-      # must match the registry's checksum) it closes the gap between "the tag" and "the bytes".
-      # Packaged again here, explicitly, so the file the attestation names is the one from
-      # this checkout and not whatever cargo publish left in target/package.
-      - name: the crate, packaged from the tag
+          # INLINE_SOURCE_POLICY_VALIDATOR_BEGIN
+          python3 - "$source_dir/Cargo.toml" "$source_dir/Cargo.lock" \
+            "$RUNNER_TEMP/source-tree.json" "$VERSION" <<'PY'
+          import hashlib, json, pathlib, re, sys, tomllib
+          manifest_path, lock_path, tree_path = map(pathlib.Path, sys.argv[1:4])
+          version = sys.argv[4]
+          manifest = tomllib.loads(manifest_path.read_text("utf-8"))
+          lock = tomllib.loads(lock_path.read_text("utf-8"))
+          tree = json.loads(tree_path.read_text("utf-8"))
+          if hashlib.sha256(manifest_path.read_bytes()).hexdigest() != "8d3150b4f4569a6678e5bca78598dcb5c3352e2250a8250ad3877490b5d58e1b" or hashlib.sha256(lock_path.read_bytes()).hexdigest() != "91427d36286038e4a2553fbb8d97c39e13ed230529842033de29590392d49adf":
+              raise SystemExit("source policy: manifest/lock bytes differ from reviewed 0.4.13 inputs")
+          entries = tree.get("tree", [])
+          paths = {item.get("path") for item in entries}
+          forbidden_paths = {".cargo/config", ".cargo/config.toml", "build.rs"}
+          git_controls = {".gitattributes", ".lfsconfig", ".gitmodules"}
+          if paths & forbidden_paths or any(
+              any(component.casefold() in git_controls for component in path.split("/"))
+              for path in paths if isinstance(path, str)
+          ):
+              raise SystemExit("source policy: candidate Cargo configuration/build hook exists")
+          expected_sources = {"CHANGELOG.md", "Cargo.lock", "Cargo.toml", "LICENSE", "README.md", "TRADEMARK.md", "src/evm.rs", "src/main.rs", "src/ui.rs"}
+          for path in expected_sources:
+              matches = [item for item in entries if item.get("path") == path]
+              if len(matches) != 1 or matches[0].get("type") != "blob" or matches[0].get("mode") != "100644":
+                  raise SystemExit("source policy: fixed source tree identity/mode differs")
+          if set(manifest) != {"package", "bin", "dependencies", "profile"}:
+              raise SystemExit("source policy: workspace/patch/replace or unknown manifest section")
+          package = manifest["package"]
+          package_keys = {"name", "version", "edition", "rust-version", "description", "homepage", "repository", "readme", "license", "keywords", "categories", "include"}
+          if set(package) != package_keys or package.get("name") != "keyrx" or package.get("version") != version or package.get("edition") != "2021" or package.get("rust-version") != "1.85":
+              raise SystemExit("source policy: package schema/identity differs")
+          expected_include = ["/src/**", "/Cargo.toml", "/Cargo.lock", "/README.md", "/LICENSE", "/TRADEMARK.md", "/CHANGELOG.md"]
+          if package.get("include") != expected_include or package.get("readme") != "README.md" or package.get("license") != "MIT" or package.get("repository") != "https://github.com/keyrx/keyrx":
+              raise SystemExit("source policy: package files/license/repository differ")
+          if manifest.get("bin") != [{"name": "keyrx", "path": "src/main.rs"}] or manifest.get("profile") != {"release": {"opt-level": 3, "lto": "fat", "codegen-units": 1}}:
+              raise SystemExit("source policy: target/profile schema differs")
+          expected_dependencies = {"clap", "bip39", "ed25519-dalek", "hmac", "sha2", "bs58", "rand", "zeroize", "ctrlc", "rpassword", "libc", "k256", "sha3"}
+          dependencies = manifest.get("dependencies")
+          if not isinstance(dependencies, dict) or set(dependencies) != expected_dependencies:
+              raise SystemExit("source policy: dependency set differs")
+          for name, raw in dependencies.items():
+              item = {"version": raw} if isinstance(raw, str) else raw
+              if not isinstance(item, dict) or set(item) - {"version", "features", "default-features"}:
+                  raise SystemExit(f"source policy: {name} has path/git/registry/source or unknown keys")
+              if not isinstance(item.get("version"), str) or not item["version"]:
+                  raise SystemExit(f"source policy: {name} version is absent")
+              if "features" in item and (not isinstance(item["features"], list) or any(not isinstance(value, str) for value in item["features"]) or len(item["features"]) != len(set(item["features"]))):
+                  raise SystemExit(f"source policy: {name} features are not canonical")
+              if "default-features" in item and type(item["default-features"]) is not bool:
+                  raise SystemExit(f"source policy: {name} default-features is not boolean")
+          if set(lock) != {"version", "package"} or lock.get("version") != 4 or not isinstance(lock.get("package"), list):
+              raise SystemExit("source policy: lock schema differs")
+          seen = set()
+          for item in lock["package"]:
+              if not isinstance(item, dict) or set(item) - {"name", "version", "source", "checksum", "dependencies"}:
+                  raise SystemExit("source policy: lock package schema differs")
+              identity = (item.get("name"), item.get("version"))
+              if not all(isinstance(value, str) and value for value in identity) or identity in seen:
+                  raise SystemExit("source policy: lock package identity differs")
+              seen.add(identity)
+              if identity == ("keyrx", version):
+                  if "source" in item or "checksum" in item:
+                      raise SystemExit("source policy: root lock source differs")
+              elif item.get("source") != "registry+https://github.com/rust-lang/crates.io-index" or not re.fullmatch(r"[0-9a-f]{64}", item.get("checksum", "")):
+                  raise SystemExit("source policy: dependency is not checksum-bound default crates.io")
+              deps = item.get("dependencies", [])
+              if not isinstance(deps, list) or any(not isinstance(value, str) for value in deps):
+                  raise SystemExit("source policy: lock dependency rows differ")
+          if ("keyrx", version) not in seen:
+              raise SystemExit("source policy: root absent from lock")
+          PY
+          # INLINE_SOURCE_POLICY_VALIDATOR_END
+          # INLINE_SOURCE_BINDER_BEGIN
+          python3 - "$CRATE_NAME-$VERSION.crate" "$source_dir" release-notes.md \
+            "$CRATE_NAME-$VERSION.cdx.json" "$SOURCE_SHA" "$VERSION" <<'PY'
+          import datetime, gzip, hashlib, io, json, pathlib, re, sys, tarfile, tomllib, uuid, zlib
+
+          crate, source_dir, notes, cdx = map(pathlib.Path, sys.argv[1:5])
+          source_sha, version = sys.argv[5:7]
+          root = f"keyrx-{version}"
+          source_map = {
+              f"{root}/CHANGELOG.md": "CHANGELOG.md", f"{root}/Cargo.lock": "Cargo.lock",
+              f"{root}/Cargo.toml.orig": "Cargo.toml", f"{root}/LICENSE": "LICENSE",
+              f"{root}/README.md": "README.md", f"{root}/TRADEMARK.md": "TRADEMARK.md",
+              f"{root}/src/evm.rs": "src/evm.rs", f"{root}/src/main.rs": "src/main.rs",
+              f"{root}/src/ui.rs": "src/ui.rs",
+          }
+          expected_order = [f"{root}/{name}" for name in (".cargo_vcs_info.json", "CHANGELOG.md", "Cargo.lock", "Cargo.toml", "Cargo.toml.orig", "LICENSE", "README.md", "TRADEMARK.md", "src/evm.rs", "src/main.rs", "src/ui.rs")]
+          expected_members = set(expected_order)
+          compressed = crate.read_bytes()
+          decoder = zlib.decompressobj(16 + zlib.MAX_WBITS)
+          tar_bytes = decoder.decompress(compressed) + decoder.flush()
+          if not decoder.eof or decoder.unused_data or decoder.unconsumed_tail:
+              raise SystemExit("source bind: gzip is not one fully-consumed member")
+          if len(tar_bytes) % 512 or len(tar_bytes) < 1024:
+              raise SystemExit("source bind: tar length is not canonical")
+          terminal = None
+          for offset in range(0, len(tar_bytes) - 511, 512):
+              if tar_bytes[offset:offset + 1024] == b"\0" * 1024:
+                  terminal = offset; break
+          if terminal is None or any(tar_bytes[terminal:]):
+              raise SystemExit("source bind: tar is not fully terminated without trailers")
+          with tarfile.open(fileobj=io.BytesIO(tar_bytes), mode="r:") as archive:
+              members = archive.getmembers()
+              if [m.name for m in members] != expected_order:
+                  raise SystemExit("source bind: crate member set differs")
+              if archive.pax_headers or any(not m.isfile() or m.type != tarfile.REGTYPE or m.size < 0 or m.size > 8 * 1024 * 1024 or m.mode != 0o644 or m.uid != 0 or m.gid != 0 or m.uname != "" or m.gname != "" or m.linkname != "" or m.devmajor != 0 or m.devminor != 0 or m.pax_headers for m in members):
+                  raise SystemExit("source bind: unsafe/non-canonical crate metadata")
+              generated_names = {f"{root}/.cargo_vcs_info.json", f"{root}/Cargo.lock", f"{root}/Cargo.toml"}
+              source_mtimes = {m.mtime for m in members if m.name not in generated_names}
+              if any(archive.getmember(name).mtime != 1 for name in generated_names) or len(source_mtimes) != 1 or next(iter(source_mtimes)) <= 1:
+                  raise SystemExit("source bind: non-canonical crate timestamps")
+              if sum(m.size for m in members) > 64 * 1024 * 1024:
+                  raise SystemExit("source bind: crate exceeds total bound")
+              def read(name):
+                  member = archive.getmember(name); stream = archive.extractfile(member)
+                  data = stream.read(member.size + 1) if stream else b""
+                  if len(data) != member.size: raise SystemExit("source bind: short member")
+                  return data
+              for member, path in source_map.items():
+                  if read(member) != (source_dir / path).read_bytes():
+                      raise SystemExit(f"source bind: {member} differs from Git blob")
+              original = tomllib.loads(read(f"{root}/Cargo.toml.orig").decode("utf-8"))
+              generated_raw = read(f"{root}/Cargo.toml").decode("utf-8")
+              if not generated_raw.startswith("# THIS FILE IS AUTOMATICALLY GENERATED BY CARGO\n"):
+                  raise SystemExit("source bind: generated manifest marker absent")
+              generated = tomllib.loads(generated_raw)
+              op, gp = original["package"], generated["package"]
+              if set(generated) != {"package", "bin", "dependencies", "profile"}:
+                  raise SystemExit("source bind: generated manifest sections differ")
+              auto = {"build": False, "autolib": False, "autobins": False, "autoexamples": False, "autotests": False, "autobenches": False}
+              if set(gp) != set(op) | set(auto) or any(gp.get(key) != value for key, value in auto.items()):
+                  raise SystemExit("source bind: generated package normalization differs")
+              for key, value in op.items():
+                  if gp.get(key) != value: raise SystemExit(f"source bind: generated package {key} differs")
+              if generated.get("bin") != original.get("bin") or generated.get("profile") != original.get("profile"):
+                  raise SystemExit("source bind: generated targets/profile differ")
+              def deps(manifest):
+                  result = {}
+                  for name, raw in manifest.get("dependencies", {}).items():
+                      item = {"version": raw} if isinstance(raw, str) else dict(raw)
+                      allowed = {"version", "features", "default-features", "optional", "package"}
+                      if set(item) - allowed or any(key in item for key in ("git", "path", "registry", "source")):
+                          raise SystemExit("source bind: dependency has forbidden/unknown keys")
+                      if not isinstance(item.get("version"), str) or not item["version"]:
+                          raise SystemExit("source bind: dependency version is absent")
+                      result[name] = {"version": item.get("version"), "features": item.get("features", []), "default-features": item.get("default-features", True), "optional": item.get("optional", False), "package": item.get("package")}
+                  return result
+              if deps(generated) != deps(original): raise SystemExit("source bind: generated dependencies differ")
+              vcs = json.loads(read(f"{root}/.cargo_vcs_info.json"))
+              if vcs != {"git": {"sha1": source_sha}, "path_in_vcs": ""}:
+                  raise SystemExit("source bind: VCS identity differs")
+          changelog = (source_dir / "CHANGELOG.md").read_text("utf-8")
+          if "\r" in changelog or "\0" in changelog: raise SystemExit("source bind: changelog encoding is not canonical")
+          visible = []; in_comment = False; fence = None; offset = 0
+          opening_fence_re = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
+          closing_fence_re = re.compile(r"^ {0,3}(`{3,}|~{3,})[ \t]*$")
+          h2_re = re.compile(r"^ {0,3}##[ \t]+(.+?)[ \t]*#*[ \t]*$")
+          def opening_fence(line):
+              match = opening_fence_re.match(line)
+              if not match: return None
+              marker, suffix = match.groups()
+              if marker[0] == "`" and "`" in suffix: return None
+              return marker
+          for line_with_end in changelog.splitlines(keepends=True):
+              line = line_with_end.rstrip("\r\n")
+              if fence is not None:
+                  match = closing_fence_re.match(line)
+                  if match and match.group(1)[0] == fence[0] and len(match.group(1)) >= fence[1]: fence = None
+                  offset += len(line_with_end); continue
+              marker = opening_fence(line) if not in_comment else None
+              if marker:
+                  fence = (marker[0], len(marker)); offset += len(line_with_end); continue
+              output = ""; rest = line
+              while rest:
+                  if in_comment:
+                      close = rest.find("-->")
+                      if close < 0: rest = ""; break
+                      in_comment = False; rest = rest[close + 3:]; continue
+                  open_at = rest.find("<!--")
+                  if open_at < 0: output += rest; break
+                  output += rest[:open_at]; rest = rest[open_at + 4:]; in_comment = True
+              marker = opening_fence(output) if not in_comment else None
+              if marker:
+                  fence = (marker[0], len(marker))
+                  offset += len(line_with_end); continue
+              match = h2_re.match(output)
+              if match: visible.append((offset, offset + len(line), match.group(1).strip()))
+              offset += len(line_with_end)
+          if in_comment or fence is not None: raise SystemExit("source bind: unterminated changelog comment/fence")
+          releases = []
+          for start, end, title in visible:
+              if not re.match(r"^(?:0|[1-9][0-9]*)\.", title): continue
+              match = re.fullmatch(r"((?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)) - ([0-9]{4}-[0-9]{2}-[0-9]{2})", title)
+              if not match: raise SystemExit("source bind: malformed release heading")
+              try: datetime.date.fromisoformat(match.group(2))
+              except ValueError: raise SystemExit("source bind: invalid release date")
+              releases.append((start, end, match.group(1)))
+          keys = [tuple(map(int, item[2].split("."))) for item in releases]
+          if any(newer <= older for newer, older in zip(keys, keys[1:])):
+              raise SystemExit("source bind: release headings are not unique strictly descending")
+          matches = [item for item in releases if item[2] == version]
+          if len(matches) != 1 or not releases or releases[0] != matches[0]:
+              raise SystemExit("source bind: release is not unique newest heading")
+          heading = matches[0]; later = [item for item in releases if item[0] > heading[0]]
+          end = later[0][0] if later else len(changelog)
+          expected_notes = changelog[heading[1]:end].strip() + "\n"
+          if expected_notes == "\n": raise SystemExit("source bind: release notes are empty")
+          if notes.read_text("utf-8") != expected_notes: raise SystemExit("source bind: release notes differ")
+          lock = tomllib.loads((source_dir / "Cargo.lock").read_text("utf-8"))
+          locked = {(item["name"], item["version"]) for item in lock.get("package", [])}
+          raw_cdx = cdx.read_bytes()
+          def no_duplicates(pairs):
+              value = {}
+              for key, item in pairs:
+                  if key in value: raise SystemExit("source bind: CDX duplicate key")
+                  value[key] = item
+              return value
+          bom = json.loads(raw_cdx.decode("utf-8"), object_pairs_hook=no_duplicates)
+          if raw_cdx != json.dumps(bom, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode("utf-8"):
+              raise SystemExit("source bind: CDX is not canonical JSON")
+          if set(bom) != {"bomFormat", "specVersion", "serialNumber", "version", "metadata", "components", "dependencies"} or bom.get("specVersion") != "1.5" or bom.get("version") != 1:
+              raise SystemExit("source bind: CDX top-level schema differs")
+          component = bom.get("metadata", {}).get("component", {})
+          serial = str(uuid.UUID(hashlib.sha256((source_sha + "\0keyrx-cdx-1.5").encode()).hexdigest()[:32]))
+          expected_root = {"type": "application", "bom-ref": f"pkg:cargo/keyrx@{version}", "name": "keyrx", "version": version, "purl": f"pkg:cargo/keyrx@{version}", "licenses": [{"license": {"id": original["package"]["license"]}}]}
+          if bom.get("bomFormat") != "CycloneDX" or bom.get("serialNumber") != f"urn:uuid:{serial}" or bom.get("metadata") != {"component": expected_root}:
+              raise SystemExit("source bind: SBOM root differs")
+          expected_components = [{"type": "library", "bom-ref": f"pkg:cargo/{item[0]}@{item[1]}", "name": item[0], "version": item[1], "purl": f"pkg:cargo/{item[0]}@{item[1]}"} for item in sorted(locked) if item != ("keyrx", version)]
+          if bom.get("components") != expected_components:
+              raise SystemExit("source bind: SBOM component set differs from Cargo.lock")
+          all_components = [component] + bom.get("components", [])
+          refs = {}
+          for item in all_components:
+              identity = (item.get("name"), item.get("version"))
+              expected_purl = f"pkg:cargo/{identity[0]}@{identity[1]}"
+              if item.get("purl") != expected_purl or not isinstance(item.get("bom-ref"), str):
+                  raise SystemExit("source bind: SBOM component identity is not canonical cargo purl")
+              refs[identity] = item["bom-ref"]
+          by_name = {}
+          for identity in locked: by_name.setdefault(identity[0], []).append(identity)
+          expected_edges = {}
+          for package in lock.get("package", []):
+              identity = (package["name"], package["version"])
+              dependencies = set()
+              for raw in package.get("dependencies", []):
+                  parts = raw.split()
+                  candidates = [item for item in by_name.get(parts[0], []) if len(parts) == 1 or item[1] == parts[1]]
+                  if len(candidates) != 1: raise SystemExit("source bind: Cargo.lock dependency is ambiguous")
+                  dependencies.add(refs[candidates[0]])
+              expected_edges[refs[identity]] = dependencies
+          edges = bom.get("dependencies", [])
+          if not isinstance(edges, list) or len(edges) != len(expected_edges):
+              raise SystemExit("source bind: SBOM dependency rows differ from Cargo.lock")
+          actual_edges = {}
+          for item in edges:
+              if not isinstance(item, dict) or set(item) != {"ref", "dependsOn"} or not isinstance(item["ref"], str) or not isinstance(item["dependsOn"], list) or any(not isinstance(value, str) for value in item["dependsOn"]) or len(item["dependsOn"]) != len(set(item["dependsOn"])) or item["ref"] in actual_edges:
+                  raise SystemExit("source bind: SBOM dependency row is not canonical unique JSON")
+              actual_edges[item["ref"]] = set(item["dependsOn"])
+          if actual_edges != expected_edges:
+              raise SystemExit("source bind: SBOM dependency graph differs from Cargo.lock")
+          PY
+          # INLINE_SOURCE_BINDER_END
+          # Only after the source binder has admitted the exact Git manifest,
+          # lock, source payloads, fixed schema, and default-registry dependency
+          # contract may Cargo interpret any candidate-controlled bytes.
+          # Independently reproduce Cargo's complete archive bytes. Materialize
+          # only the admitted raw Git blob bytes with no Git worktree checkout,
+          # so attributes/LFS/smudge/clean filters and submodules cannot run.
+          trusted_checkout="$RUNNER_TEMP/trusted-package-source"
+          mkdir "$trusted_checkout"
+          # INLINE_RAW_SOURCE_MATERIALIZER_BEGIN
+          python3 - "$source_dir" "$trusted_checkout" <<'PY'
+          import os, pathlib, stat, sys
+          source, target = map(pathlib.Path, sys.argv[1:3])
+          expected = ("Cargo.toml", "Cargo.lock", "CHANGELOG.md", "LICENSE", "README.md", "TRADEMARK.md", "src/evm.rs", "src/main.rs", "src/ui.rs")
+          for relative in expected:
+              incoming = source / relative
+              source_descriptor = os.open(incoming, os.O_RDONLY | os.O_NOFOLLOW)
+              try:
+                  source_info = os.fstat(source_descriptor)
+                  if not stat.S_ISREG(source_info.st_mode) or source_info.st_nlink != 1 or source_info.st_size < 0 or source_info.st_size > 8 * 1024 * 1024:
+                      raise SystemExit("raw materialize: admitted source is not one bounded regular file")
+                  chunks = []
+                  while True:
+                      chunk = os.read(source_descriptor, 1024 * 1024)
+                      if not chunk: break
+                      chunks.append(chunk)
+                  data = b"".join(chunks)
+                  if len(data) != source_info.st_size:
+                      raise SystemExit("raw materialize: admitted source changed during read")
+              finally: os.close(source_descriptor)
+              destination = target / relative
+              parent = target
+              for component in pathlib.PurePosixPath(relative).parts[:-1]:
+                  parent = parent / component
+                  try: os.mkdir(parent, 0o755)
+                  except FileExistsError:
+                      info = os.lstat(parent)
+                      if not stat.S_ISDIR(info.st_mode): raise SystemExit("raw materialize: parent replacement")
+              descriptor = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+              try:
+                  offset = 0
+                  while offset < len(data): offset += os.write(descriptor, data[offset:])
+                  os.fchmod(descriptor, 0o644); os.fsync(descriptor)
+                  info = os.fstat(descriptor)
+                  if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_size != len(data):
+                      raise SystemExit("raw materialize: written identity differs")
+              finally: os.close(descriptor)
+          PY
+          # INLINE_RAW_SOURCE_MATERIALIZER_END
+          git -C "$trusted_checkout" init -q
+          git -C "$trusted_checkout" remote add origin \
+            "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git"
+          basic_auth="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null git -C "$trusted_checkout" \
+            -c "http.$GITHUB_SERVER_URL/.extraheader=AUTHORIZATION: basic $basic_auth" \
+            fetch --no-tags --depth=1 origin "refs/tags/$TAG:refs/tags/$TAG"
+          unset basic_auth
+          GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null \
+            git -C "$trusted_checkout" update-ref --no-deref HEAD "$SOURCE_SHA"
+          GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null \
+            git -C "$trusted_checkout" read-tree "$SOURCE_SHA"
+          GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null git -C "$trusted_checkout" ls-files -z \
+            | GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null \
+              git -C "$trusted_checkout" update-index -z --skip-worktree --stdin
+          printf '%s\0' Cargo.toml Cargo.lock CHANGELOG.md LICENSE README.md TRADEMARK.md \
+            src/evm.rs src/main.rs src/ui.rs \
+            | GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null \
+              git -C "$trusted_checkout" update-index -z --no-skip-worktree --stdin
+          test "$(git -C "$trusted_checkout" rev-parse HEAD)" = "$SOURCE_SHA"
+          test -z "$(GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null \
+            git -C "$trusted_checkout" status --porcelain=v1 --untracked-files=all)"
+          # CARGO_INVOCATION_BOUNDARY: from here the admitted fixed manifest/
+          # lock may cause only pinned Rust-distribution and explicitly configured
+          # crates.io reads. No candidate-selected endpoint can reach this marker.
+          RUSTUP_DIST_SERVER=https://static.rust-lang.org \
+            RUSTUP_UPDATE_ROOT=https://static.rust-lang.org/rustup \
+            rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --no-self-update
+          test "$(rustup run "$RUST_TOOLCHAIN" cargo --version)" = \
+            "cargo 1.85.0 (d73d2caf9 2024-12-31)"
+          trusted_target="$RUNNER_TEMP/trusted-package-target"
+          # The admitted fixed manifest/lock can use only the explicitly
+          # configured crates.io sparse index; env -i drops registry/source
+          # overrides inherited from the runner.
+          env -i PATH="$PATH" HOME="$HOME" \
+            RUSTUP_HOME="${RUSTUP_HOME:-$HOME/.rustup}" \
+            GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null \
+            CARGO_HOME="$RUNNER_TEMP/trusted-cargo-home" CARGO_TARGET_DIR="$trusted_target" \
+            rustup run "$RUST_TOOLCHAIN" cargo package --locked --no-verify \
+            --config 'source.crates-io.registry="sparse+https://index.crates.io/"' \
+            --manifest-path "$trusted_checkout/Cargo.toml"
+          trusted_crate="$trusted_target/package/$CRATE_NAME-$VERSION.crate"
+          test -f "$trusted_crate"
+          # INLINE_EXACT_CRATE_BINDER_BEGIN
+          python3 - "$CRATE_NAME-$VERSION.crate" "$trusted_crate" <<'PY'
+          import pathlib, sys
+          candidate, derived = map(pathlib.Path, sys.argv[1:3])
+          if candidate.read_bytes() != derived.read_bytes():
+              raise SystemExit("exact crate bind: candidate bytes differ from independently derived Cargo archive")
+          PY
+          # INLINE_EXACT_CRATE_BINDER_END
+          echo "crate_sha=$crate_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Prove external prerequisites before requesting an attestation
+        id: prerequisite
+        env:
+          GH_ADMIN_READ_TOKEN: ${{ secrets.GH_ADMIN_READ_TOKEN }}
+        shell: bash
         run: |
-          cargo package --no-verify
-          ls -la target/package/keyrx-${GITHUB_REF_NAME#v}.crate
-      - name: attest the published crate
+          set -euo pipefail
+          api() {
+            curl --fail --silent --show-error --location \
+              -H 'Accept: application/vnd.github+json' \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H 'X-GitHub-Api-Version: 2026-03-10' "$@"
+          }
+          peel_ref() {
+            local ref="$1" record type sha
+            record="$(api "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/git/ref/$ref")"
+            type="$(jq -er '.object.type' <<<"$record")"
+            sha="$(jq -er '.object.sha' <<<"$record")"
+            while test "$type" = tag; do
+              record="$(api "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/git/tags/$sha")"
+              type="$(jq -er '.object.type' <<<"$record")"
+              sha="$(jq -er '.object.sha' <<<"$record")"
+            done
+            test "$type" = commit
+            printf '%s' "$sha"
+          }
+          bind_tag() {
+            test "$(peel_ref tags/$TAG)" = "$SOURCE_SHA"
+          }
+          bind_source_authority() {
+            local registry_state="$1" main_sha comparison
+            main_sha="$(peel_ref heads/main)"
+            if test "$registry_state" = absent; then
+              test "$main_sha" = "$SOURCE_SHA"
+            else
+              test "$registry_state" = exact
+              comparison="$(api "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/compare/$SOURCE_SHA...main")"
+              jq -e --arg source "$SOURCE_SHA" --arg main "$main_sha" \
+                '.merge_base_commit.sha == $source and .base_commit.sha == $source and
+                 ((.status == "identical" and $main == $source) or
+                  (.status == "ahead" and .commits[-1].sha == $main))' \
+                <<<"$comparison" > /dev/null
+            fi
+            bind_tag
+          }
+          bind_tag
+          test -n "$GH_ADMIN_READ_TOKEN"
+          immutable_status="$(curl -sS -L -o "$RUNNER_TEMP/immutable-capability.json" -w '%{http_code}' \
+            -H 'Accept: application/vnd.github+json' \
+            -H "Authorization: Bearer $GH_ADMIN_READ_TOKEN" \
+            -H 'X-GitHub-Api-Version: 2026-03-10' \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/immutable-releases")"
+          test "$immutable_status" = 200
+          jq -e 'keys == ["enabled"] and .enabled == true' \
+            "$RUNNER_TEMP/immutable-capability.json" > /dev/null
+          curl -fsSL -A 'keyrx release workflow (dev@keyrx.tech)' \
+            "https://crates.io/api/v1/crates/$CRATE_NAME" > "$RUNNER_TEMP/registry-all.json"
+          expected_live="$(jq -c .expectedLiveBefore "$RUNNER_TEMP/prepared/release-policy.json")"
+          actual_live="$(jq -c --arg current "$VERSION" \
+            '[.versions[] | select(.yanked == false and .num != $current) | .num] |
+             sort_by(split(".") | map(tonumber))' "$RUNNER_TEMP/registry-all.json")"
+          test "$actual_live" = "$expected_live" || test "$actual_live" = '[]'
+          jq -e --arg current "$VERSION" '
+            def key: split(".") | map(tonumber);
+            [.versions[] | select(.num | test("^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$")) |
+             select((.num | key) > ($current | key))] | length == 0' \
+            "$RUNNER_TEMP/registry-all.json" > /dev/null
+
+          evidence_mode="$(jq -er .predecessorEvidence.mode "$RUNNER_TEMP/prepared/release-policy.json")"
+          predecessor="$(jq -er .predecessorEvidence.version "$RUNNER_TEMP/prepared/release-policy.json")"
+          expected_predecessor_sha="$(jq -er .predecessorEvidence.sourceSha "$RUNNER_TEMP/prepared/release-policy.json")"
+          expected_predecessor_checksum="$(jq -er .predecessorEvidence.checksum "$RUNNER_TEMP/prepared/release-policy.json")"
+          curl -fsSL -A 'keyrx release workflow (dev@keyrx.tech)' \
+            "https://crates.io/api/v1/crates/$CRATE_NAME/$predecessor" \
+            > "$RUNNER_TEMP/predecessor.json"
+          predecessor_sha="$(jq -er --arg version "$predecessor" --arg repo "$GITHUB_REPOSITORY" \
+            '.version | select(.num == $version and
+             .trustpub_data.provider == "github" and .trustpub_data.repository == $repo) |
+             .trustpub_data.sha' "$RUNNER_TEMP/predecessor.json")"
+          predecessor_yanked="$(jq -er '.version.yanked | if . == true then "true" elif . == false then "false" else error("predecessor yank state") end' "$RUNNER_TEMP/predecessor.json")"
+          [[ "$predecessor_sha" =~ ^[0-9a-f]{40}$ ]]
+          test "$predecessor_sha" = "$expected_predecessor_sha"
+          predecessor_tag="$(api "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/git/ref/tags/v$predecessor")"
+          if test "$evidence_mode" = legacy-crate-tag; then
+            jq -e --arg sha "$expected_predecessor_sha" \
+              '.object.type == "commit" and .object.sha == $sha' <<<"$predecessor_tag" > /dev/null
+          else
+            test "$evidence_mode" = immutable-six-asset
+            test "$(peel_ref "tags/v$predecessor")" = "$expected_predecessor_sha"
+          fi
+          predecessor_checksum="$(jq -er .version.checksum "$RUNNER_TEMP/predecessor.json")"
+          test "$predecessor_checksum" = "$expected_predecessor_checksum"
+          curl -fsSL -A 'keyrx release workflow (dev@keyrx.tech)' \
+            -o "$RUNNER_TEMP/predecessor.crate" \
+            "https://crates.io/api/v1/crates/$CRATE_NAME/$predecessor/download"
+          test "$(sha256sum "$RUNNER_TEMP/predecessor.crate" | cut -d' ' -f1)" = "$predecessor_checksum"
+          LC_ALL=C tar -tzf "$RUNNER_TEMP/predecessor.crate" > "$RUNNER_TEMP/predecessor-members.txt"
+          test "$(stat -c %s "$RUNNER_TEMP/predecessor-members.txt")" -le 65536
+          test "$(wc -l < "$RUNNER_TEMP/predecessor-members.txt")" -le 4096
+          LC_ALL=C sort "$RUNNER_TEMP/predecessor-members.txt" \
+            > "$RUNNER_TEMP/predecessor-members-sorted.txt"
+          jq -er '.predecessorEvidence.archiveMembers[]' \
+            "$RUNNER_TEMP/prepared/release-policy.json" | LC_ALL=C sort \
+            > "$RUNNER_TEMP/predecessor-members-expected.txt"
+          diff -u "$RUNNER_TEMP/predecessor-members-expected.txt" \
+            "$RUNNER_TEMP/predecessor-members-sorted.txt"
+          LC_ALL=C tar -tvzf "$RUNNER_TEMP/predecessor.crate" \
+            > "$RUNNER_TEMP/predecessor-members-verbose.txt"
+          awk 'BEGIN { total=0 }
+            $1 !~ /^-/ { exit 1 }
+            $3 !~ /^[0-9]+$/ || $3 > 8388608 { exit 1 }
+            { total += $3; if (total > 67108864) exit 1 }
+            END { if (NR == 0) exit 1 }' "$RUNNER_TEMP/predecessor-members-verbose.txt"
+          tar -xOzf "$RUNNER_TEMP/predecessor.crate" \
+            "$CRATE_NAME-$predecessor/.cargo_vcs_info.json" > "$RUNNER_TEMP/predecessor-vcs.json"
+          jq -e --arg sha "$expected_predecessor_sha" \
+            '.git.sha1 == $sha and (.git.dirty // false) == false and .path_in_vcs == ""' \
+            "$RUNNER_TEMP/predecessor-vcs.json" > /dev/null
+          tar -xOzf "$RUNNER_TEMP/predecessor.crate" \
+            "$CRATE_NAME-$predecessor/Cargo.toml.orig" > "$RUNNER_TEMP/predecessor-Cargo.toml.orig"
+          python3 -c 'import pathlib,sys,tomllib; p=tomllib.loads(pathlib.Path(sys.argv[1]).read_text("utf-8")); raise SystemExit(0 if p.get("package",{}).get("name")=="keyrx" and p["package"].get("version")==sys.argv[2] else 1)' \
+            "$RUNNER_TEMP/predecessor-Cargo.toml.orig" "$predecessor"
+
+          releases="$RUNNER_TEMP/releases.jsonl"; : > "$releases"
+          for page in $(seq 1 100); do
+            page_json="$(api "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/releases?per_page=100&page=$page")"
+            jq -c '.[]' <<<"$page_json" >> "$releases"
+            test "$(jq 'length' <<<"$page_json")" -eq 100 || break
+            test "$page" -lt 100
+          done
+          jq -se --arg current "$VERSION" '
+            def key: split(".") | map(tonumber);
+            [.[] | select(.draft == false and .prerelease == false) |
+             .tag_name as $tag | select($tag | test("^v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$")) |
+             select(($tag[1:] | key) > ($current | key))] | length == 0' \
+            "$releases" > /dev/null
+          jq -sc --arg tag "v$predecessor" '[.[] | select(.tag_name == $tag)]' \
+            "$releases" > "$RUNNER_TEMP/predecessor-releases.json"
+          if test "$evidence_mode" = legacy-crate-tag; then
+            test "$(jq 'length' "$RUNNER_TEMP/predecessor-releases.json")" -eq 0
+          else
+            jq -e 'if length == 1 then .[0] else error("predecessor release cardinality") end |
+              select(.draft == false and .prerelease == false and .immutable == true)' \
+              "$RUNNER_TEMP/predecessor-releases.json" > "$RUNNER_TEMP/predecessor-release.json"
+            pred_dir="$RUNNER_TEMP/predecessor-assets"; mkdir "$pred_dir"
+            jq -e '(.assets | length) == 6 and all(.assets[]; .state == "uploaded" and
+              (.id | type) == "number" and (.url | type) == "string")' \
+              "$RUNNER_TEMP/predecessor-release.json" > /dev/null
+            while IFS=$'\t' read -r id name url; do
+              expected_url="$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/releases/assets/$id"
+              test "$url" = "$expected_url"
+              case "$name" in
+                "$CRATE_NAME-$predecessor.crate"|"$CRATE_NAME-$predecessor.crate.sha256"|\
+                "$CRATE_NAME-$predecessor.cdx.json"|"$CRATE_NAME-$predecessor.crate.sigstore.json"|\
+                "$CRATE_NAME-$predecessor.crate.intoto.jsonl"|"$CRATE_NAME-$predecessor.SHA256SUMS") ;;
+                *) echo "unexpected predecessor asset: $name" >&2; exit 1 ;;
+              esac
+              api -o "$pred_dir/$name" "$expected_url"
+            done < <(jq -r '.assets[] | [.id,.name,.url] | @tsv' "$RUNNER_TEMP/predecessor-release.json")
+            test "$(find "$pred_dir" -type f | wc -l)" -eq 6
+            (cd "$pred_dir" && sha256sum --check --strict "$CRATE_NAME-$predecessor.SHA256SUMS")
+            python3 - "$pred_dir" "$predecessor" <<'PY'
+          import hashlib, json, pathlib, re, sys
+          directory, version = pathlib.Path(sys.argv[1]), sys.argv[2]
+          expected = [f"keyrx-{version}{suffix}" for suffix in (".crate", ".crate.sha256", ".cdx.json", ".crate.sigstore.json", ".crate.intoto.jsonl")]
+          lines = (directory / f"keyrx-{version}.SHA256SUMS").read_text("ascii").splitlines()
+          if len(lines) != 5: raise SystemExit("asset manifest: wrong line count")
+          seen = {}
+          for line in lines:
+              match = re.fullmatch(r"([0-9a-f]{64})  ([^/\\]+)", line)
+              if not match or match.group(2) not in expected or match.group(2) in seen: raise SystemExit("asset manifest: non-canonical entry")
+              seen[match.group(2)] = match.group(1)
+          if set(seen) != set(expected): raise SystemExit("asset manifest: coverage differs")
+          for name, digest in seen.items():
+              if hashlib.sha256((directory / name).read_bytes()).hexdigest() != digest: raise SystemExit("asset manifest: digest differs")
+          bundle = json.loads((directory / f"keyrx-{version}.crate.sigstore.json").read_text("utf-8"))
+          canonical = (json.dumps(bundle["dsseEnvelope"], ensure_ascii=False, separators=(",", ":")) + "\n").encode()
+          if (directory / f"keyrx-{version}.crate.intoto.jsonl").read_bytes() != canonical: raise SystemExit("intoto is not the bundle dsseEnvelope")
+          PY
+            cmp -s "$pred_dir/$CRATE_NAME-$predecessor.crate" "$RUNNER_TEMP/predecessor.crate"
+            signer_host="${GITHUB_SERVER_URL#*://}"
+            signer_workflow="$signer_host/$GITHUB_REPOSITORY/.github/workflows/publish.yml"
+            GH_NO_UPDATE_NOTIFIER=1 gh attestation verify \
+              "$pred_dir/$CRATE_NAME-$predecessor.crate" --repo "$GITHUB_REPOSITORY" \
+              --bundle "$pred_dir/$CRATE_NAME-$predecessor.crate.sigstore.json" \
+              --signer-workflow "$signer_workflow" --source-digest "$predecessor_sha" \
+              > "$RUNNER_TEMP/predecessor-attestation.json"
+            GH_NO_UPDATE_NOTIFIER=1 gh release verify "v$predecessor" --repo "$GITHUB_REPOSITORY" \
+              > "$RUNNER_TEMP/predecessor-immutable.json"
+          fi
+
+          current_registry="$(jq -c --arg version "$VERSION" '[.versions[] | select(.num == $version)]' "$RUNNER_TEMP/registry-all.json")"
+          case "$(jq 'length' <<<"$current_registry")" in
+            0) registry_state=absent ;;
+            1)
+              curl -fsSL -A 'keyrx release workflow (dev@keyrx.tech)' \
+                "https://crates.io/api/v1/crates/$CRATE_NAME/$VERSION" \
+                > "$RUNNER_TEMP/current-version.json"
+              jq -e --arg version "$VERSION" \
+                --arg checksum "${{ steps.prepared.outputs.crate_sha }}" \
+                --arg repo "$GITHUB_REPOSITORY" --arg sha "$SOURCE_SHA" \
+                '.version | .num == $version and .yanked == false and .checksum == $checksum and
+                 .trustpub_data.provider == "github" and
+                 .trustpub_data.repository == $repo and .trustpub_data.sha == $sha' \
+                "$RUNNER_TEMP/current-version.json" > /dev/null
+              registry_state=exact ;;
+            *) exit 1 ;;
+          esac
+          jq -sc --arg tag "$TAG" '[.[] | select(.tag_name == $tag)]' "$releases" \
+            > "$RUNNER_TEMP/current-releases.json"
+          count="$(jq 'length' "$RUNNER_TEMP/current-releases.json")"
+          if test "$count" -eq 0; then
+            release_state=absent; release_id=0
+          elif test "$count" -eq 1; then
+            jq -e --arg tag "$TAG" --arg title "$TITLE" \
+              --rawfile body "$RUNNER_TEMP/prepared/release-notes.md" \
+              '.[0] | .tag_name == $tag and .name == $title and .body == $body and
+               .prerelease == false' "$RUNNER_TEMP/current-releases.json" > /dev/null
+            release_id="$(jq -er '.[0].id' "$RUNNER_TEMP/current-releases.json")"
+            if jq -e '.[0].draft == false and .[0].immutable == true' "$RUNNER_TEMP/current-releases.json" > /dev/null; then
+              release_state=published-exact
+            else
+              jq '.[0]' "$RUNNER_TEMP/current-releases.json" > "$RUNNER_TEMP/current-draft.json"
+              # INLINE_DRAFT_SUBSET_VALIDATOR_BEGIN
+              release_state="$(python3 - "$RUNNER_TEMP/current-draft.json" \
+                "$RUNNER_TEMP/prepared/release-notes.md" "$VERSION" "$TAG" "$TITLE" \
+                "$GITHUB_API_URL" "$GITHUB_REPOSITORY" <<'PY'
+          import json, pathlib, re, sys
+          release = json.loads(pathlib.Path(sys.argv[1]).read_text("utf-8"))
+          notes = pathlib.Path(sys.argv[2]).read_text("utf-8")
+          version, tag, title, api, repository = sys.argv[3:8]
+          if release.get("tag_name") != tag or release.get("name") != title or release.get("body") != notes or release.get("draft") is not True or release.get("prerelease") is not False:
+              raise SystemExit("draft subset: release metadata differs")
+          expected = [f"keyrx-{version}{suffix}" for suffix in (".crate", ".crate.sha256", ".cdx.json", ".crate.sigstore.json", ".crate.intoto.jsonl", ".SHA256SUMS")]
+          assets = release.get("assets")
+          if not isinstance(assets, list) or len(assets) > 6 or [item.get("name") for item in assets] != expected[:len(assets)]:
+              raise SystemExit("draft subset: not the exact upload prefix")
+          for item in assets:
+              if not isinstance(item.get("id"), int) or item.get("url") != f"{api}/repos/{repository}/releases/assets/{item['id']}" or item.get("state") != "uploaded" or not re.fullmatch(r"sha256:[0-9a-f]{64}", item.get("digest", "")):
+                  raise SystemExit("draft subset: asset identity differs")
+          print("draft-empty" if not assets else "draft-exact" if len(assets) == 6 else "draft-partial-manual")
+          PY
+          )"
+              # INLINE_DRAFT_SUBSET_VALIDATOR_END
+              if test "$release_state" = draft-partial-manual; then
+                echo 'manual recovery required: an authorized release-environment reviewer must delete this exact inert prefix draft; rerun only after tag release cardinality is zero' >&2
+                exit 2
+              fi
+            fi
+          else
+            echo "multiple releases use $TAG" >&2; exit 1
+          fi
+          test "$release_state" != published-exact || test "$registry_state" = exact
+          current_detail=-
+          test "$registry_state" = absent || current_detail="$RUNNER_TEMP/current-version.json"
+          # INLINE_PREREQUISITE_STATE_VALIDATOR_BEGIN
+          prerequisite_state="$(python3 - "$RUNNER_TEMP/registry-all.json" \
+            "$RUNNER_TEMP/predecessor.json" "$current_detail" \
+            "$RUNNER_TEMP/prepared/release-policy.json" "$VERSION" \
+            "${{ steps.prepared.outputs.crate_sha }}" "$GITHUB_REPOSITORY" "$SOURCE_SHA" \
+            "$release_state" <<'PY'
+          import json, pathlib, re, sys
+          registry = json.loads(pathlib.Path(sys.argv[1]).read_text("utf-8"))
+          predecessor = json.loads(pathlib.Path(sys.argv[2]).read_text("utf-8"))["version"]
+          detail_path, policy_path = sys.argv[3:5]
+          policy = json.loads(pathlib.Path(policy_path).read_text("utf-8"))
+          version, checksum, repository, source, release_state = sys.argv[5:10]
+          canonical = re.compile(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\Z")
+          key = lambda value: tuple(map(int, value.split(".")))
+          stable = [item for item in registry.get("versions", []) if canonical.fullmatch(item.get("num", ""))]
+          current_rows = [item for item in stable if item["num"] == version]
+          if len(current_rows) > 1 or any(key(item["num"]) > key(version) for item in stable):
+              raise SystemExit("prerequisite state: current cardinality or newer stable differs")
+          current_state = "absent" if not current_rows else "exact"
+          if current_state == "exact":
+              detail = json.loads(pathlib.Path(detail_path).read_text("utf-8"))["version"]
+              row = current_rows[0]
+              if row.get("yanked") is not False or row.get("checksum") != checksum:
+                  raise SystemExit("prerequisite state: current full row differs")
+              trust = detail.get("trustpub_data", {})
+              if detail.get("num") != version or detail.get("yanked") is not False or detail.get("checksum") != checksum or trust.get("provider") != "github" or trust.get("repository") != repository or trust.get("sha") != source:
+                  raise SystemExit("prerequisite state: current detail differs")
+          elif detail_path != "-":
+              raise SystemExit("prerequisite state: absent current has detail")
+          pred_expected = policy["predecessorEvidence"]
+          trust = predecessor.get("trustpub_data", {})
+          if predecessor.get("num") != pred_expected["version"] or predecessor.get("checksum") != pred_expected["checksum"] or trust.get("provider") != "github" or trust.get("repository") != repository or trust.get("sha") != pred_expected["sourceSha"]:
+              raise SystemExit("prerequisite state: predecessor identity differs")
+          pred_rows = [item for item in stable if item["num"] == pred_expected["version"]]
+          if len(pred_rows) != 1 or pred_rows[0].get("checksum") != pred_expected["checksum"] or pred_rows[0].get("yanked") is not predecessor.get("yanked"):
+              raise SystemExit("prerequisite state: predecessor full row/detail disagree")
+          live_old = sorted((item["num"] for item in stable if item["num"] != version and item.get("yanked") is False), key=key)
+          if predecessor.get("yanked") is False and live_old == policy["yankTargets"]:
+              yank_state = "initial"
+          elif predecessor.get("yanked") is True and live_old == [] and current_state == "exact" and release_state == "published-exact":
+              yank_state = "terminal"
+          else:
+              raise SystemExit("prerequisite state: not exact initial or terminal")
+          print(json.dumps({"registry_state": current_state, "yank_state": yank_state}, sort_keys=True, separators=(",", ":")))
+          PY
+          )"
+          # INLINE_PREREQUISITE_STATE_VALIDATOR_END
+          test "$(jq -r .registry_state <<<"$prerequisite_state")" = "$registry_state"
+          yank_state="$(jq -r .yank_state <<<"$prerequisite_state")"
+          bind_source_authority "$registry_state"
+          {
+            echo "registry_state=$registry_state"
+            if test "$registry_state" = absent; then
+              echo "registry_authorization=issue-token"
+            else
+              echo "registry_authorization=no-token"
+            fi
+            echo "release_state=$release_state"
+            echo "release_id=$release_id"
+            echo "yank_state=$yank_state"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Attest the archive before any draft or registry effect
+        if: steps.prerequisite.outputs.release_state == 'absent' || steps.prerequisite.outputs.release_state == 'draft-empty'
+        id: attest
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
-          subject-path: target/package/keyrx-*.crate
+          subject-path: ${{ runner.temp }}/prepared/keyrx-${{ needs.prepare.outputs.version }}.crate
+
+      - name: Validate and stage new provenance without candidate code
+        if: steps.prerequisite.outputs.release_state == 'absent' || steps.prerequisite.outputs.release_state == 'draft-empty'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/prepared"
+          cp -- "${{ steps.attest.outputs.bundle-path }}" "$CRATE_NAME-$VERSION.crate.sigstore.json"
+          jq -c '.dsseEnvelope' "$CRATE_NAME-$VERSION.crate.sigstore.json" \
+            > "$CRATE_NAME-$VERSION.crate.intoto.jsonl"
+          jq -er '.payload' "$CRATE_NAME-$VERSION.crate.intoto.jsonl" | base64 -d \
+            > "$RUNNER_TEMP/provenance.json"
+          jq -e --arg name "$CRATE_NAME-$VERSION.crate" \
+            --arg checksum "${{ steps.prepared.outputs.crate_sha }}" \
+            '(.predicateType | startswith("https://slsa.dev/provenance/")) and
+             (.subject | length) == 1 and .subject[0].name == $name and
+             .subject[0].digest.sha256 == $checksum' "$RUNNER_TEMP/provenance.json" > /dev/null
+          signer_host="${GITHUB_SERVER_URL#*://}"
+          signer_workflow="$signer_host/$GITHUB_REPOSITORY/.github/workflows/publish.yml"
+          GH_NO_UPDATE_NOTIFIER=1 gh attestation verify "$CRATE_NAME-$VERSION.crate" \
+            --repo "$GITHUB_REPOSITORY" --bundle "$CRATE_NAME-$VERSION.crate.sigstore.json" \
+            --signer-workflow "$signer_workflow" --source-digest "$SOURCE_SHA" \
+            > "$RUNNER_TEMP/current-attestation.json"
+          LC_ALL=C sha256sum "$CRATE_NAME-$VERSION.crate" \
+            "$CRATE_NAME-$VERSION.crate.sha256" "$CRATE_NAME-$VERSION.cdx.json" \
+            "$CRATE_NAME-$VERSION.crate.sigstore.json" \
+            "$CRATE_NAME-$VERSION.crate.intoto.jsonl" > "$CRATE_NAME-$VERSION.SHA256SUMS"
+          sha256sum --check --strict "$CRATE_NAME-$VERSION.SHA256SUMS"
+
+      - name: Rebind main and tag before creating the inert draft
+        if: steps.prerequisite.outputs.release_state == 'absent'
+        shell: bash
+        run: |
+          set -euo pipefail
+          get() { curl -fsSL -H 'Accept: application/vnd.github+json' -H "Authorization: Bearer $GH_TOKEN" -H 'X-GitHub-Api-Version: 2026-03-10' "$1"; }
+          test "$(get "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/git/ref/heads/main" | jq -er .object.sha)" = "$SOURCE_SHA"
+          get "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" > /dev/null
+          test "$(get "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/commits/$TAG" | jq -er .sha)" = "$SOURCE_SHA"
+
+      - name: Create one inert draft after provenance is green
+        if: steps.prerequisite.outputs.release_state == 'absent'
+        id: create_draft
+        shell: bash
+        run: |
+          set -euo pipefail
+          get() { curl -fsSL -H 'Accept: application/vnd.github+json' -H "Authorization: Bearer $GH_TOKEN" -H 'X-GitHub-Api-Version: 2026-03-10' "$1"; }
+          test "$(get "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/git/ref/heads/main" | jq -er .object.sha)" = "$SOURCE_SHA"
+          get "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" > /dev/null
+          test "$(get "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/commits/$TAG" | jq -er .sha)" = "$SOURCE_SHA"
+          jq -n --arg tag "$TAG" --arg sha "$SOURCE_SHA" --arg title "$TITLE" \
+            --rawfile body "$RUNNER_TEMP/prepared/release-notes.md" \
+            '{tag_name:$tag,target_commitish:$sha,name:$title,body:$body,
+              draft:true,prerelease:false,make_latest:"false"}' \
+            > "$RUNNER_TEMP/create-release.json"
+          response="$RUNNER_TEMP/created-release.json"
+          curl -fsSL -X POST -H 'Accept: application/vnd.github+json' \
+            -H "Authorization: Bearer $GH_TOKEN" -H 'X-GitHub-Api-Version: 2026-03-10' \
+            -H 'Content-Type: application/json' --data-binary @"$RUNNER_TEMP/create-release.json" \
+            -o "$response" "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/releases"
+          jq -e --arg tag "$TAG" '.tag_name == $tag and .draft == true and
+            (.assets | length) == 0' "$response" > /dev/null
+          echo "release_id=$(jq -er .id "$response")" >> "$GITHUB_OUTPUT"
+
+      - name: Upload exactly six validated assets to the draft
+        if: steps.prerequisite.outputs.release_state == 'absent' || steps.prerequisite.outputs.release_state == 'draft-empty'
+        env:
+          NEW_RELEASE_ID: ${{ steps.create_draft.outputs.release_id }}
+          OLD_RELEASE_ID: ${{ steps.prerequisite.outputs.release_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          get() { curl -fsSL -H 'Accept: application/vnd.github+json' -H "Authorization: Bearer $GH_TOKEN" -H 'X-GitHub-Api-Version: 2026-03-10' "$1"; }
+          test "$(get "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/git/ref/heads/main" | jq -er .object.sha)" = "$SOURCE_SHA"
+          get "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" > /dev/null
+          test "$(get "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/commits/$TAG" | jq -er .sha)" = "$SOURCE_SHA"
+          release_id="${NEW_RELEASE_ID:-$OLD_RELEASE_ID}"
+          test "$release_id" -gt 0
+          cd "$RUNNER_TEMP/prepared"
+          for name in "$CRATE_NAME-$VERSION.crate" "$CRATE_NAME-$VERSION.crate.sha256" \
+            "$CRATE_NAME-$VERSION.cdx.json" "$CRATE_NAME-$VERSION.crate.sigstore.json" \
+            "$CRATE_NAME-$VERSION.crate.intoto.jsonl" "$CRATE_NAME-$VERSION.SHA256SUMS"; do
+            response="$RUNNER_TEMP/upload-$name.json"
+            curl -fsSL -X POST -H 'Accept: application/vnd.github+json' \
+              -H "Authorization: Bearer $GH_TOKEN" -H 'X-GitHub-Api-Version: 2026-03-10' \
+              -H 'Content-Type: application/octet-stream' --data-binary "@$name" -o "$response" \
+              "$GITHUB_UPLOAD_URL/repos/$GITHUB_REPOSITORY/releases/$release_id/assets?name=$name"
+            id="$(jq -er .id "$response")"
+            expected_url="$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/releases/assets/$id"
+            jq -e --arg name "$name" --arg url "$expected_url" \
+              '.name == $name and .state == "uploaded" and .url == $url' "$response" > /dev/null
+          done
+
+      - name: Verify exact draft bytes and provenance before crates.io
+        id: draft
+        env:
+          NEW_RELEASE_ID: ${{ steps.create_draft.outputs.release_id }}
+          OLD_RELEASE_ID: ${{ steps.prerequisite.outputs.release_id }}
+          RELEASE_STATE: ${{ steps.prerequisite.outputs.release_state }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_id="${NEW_RELEASE_ID:-$OLD_RELEASE_ID}"
+          test "$release_id" -gt 0
+          release_json="$RUNNER_TEMP/verified-draft.json"
+          curl -fsSL -H 'Accept: application/vnd.github+json' -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'X-GitHub-Api-Version: 2026-03-10' -o "$release_json" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/releases/$release_id"
+          jq -e --arg tag "$TAG" --arg title "$TITLE" --arg state "$RELEASE_STATE" \
+            --rawfile body "$RUNNER_TEMP/prepared/release-notes.md" \
+            '.tag_name == $tag and .name == $title and .body == $body and .prerelease == false and
+             (($state == "published-exact" and .draft == false and .immutable == true) or
+              ($state != "published-exact" and .draft == true)) and
+             (.assets | length) == 6 and all(.assets[]; .state == "uploaded" and
+             (.id | type) == "number" and (.url | type) == "string")' "$release_json" > /dev/null
+          dir="$RUNNER_TEMP/draft-assets"; mkdir "$dir"
+          while IFS=$'\t' read -r id name url; do
+            expected="$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/releases/assets/$id"
+            test "$url" = "$expected"
+            case "$name" in
+              "$CRATE_NAME-$VERSION.crate"|"$CRATE_NAME-$VERSION.crate.sha256"|\
+              "$CRATE_NAME-$VERSION.cdx.json"|"$CRATE_NAME-$VERSION.crate.sigstore.json"|\
+              "$CRATE_NAME-$VERSION.crate.intoto.jsonl"|"$CRATE_NAME-$VERSION.SHA256SUMS") ;;
+              *) exit 1 ;;
+            esac
+            curl -fsSL -H 'Accept: application/octet-stream' -H "Authorization: Bearer $GH_TOKEN" \
+              -H 'X-GitHub-Api-Version: 2026-03-10' -o "$dir/$name" "$expected"
+          done < <(jq -r '.assets[] | [.id,.name,.url] | @tsv' "$release_json")
+          test "$(find "$dir" -type f | wc -l)" -eq 6
+          (cd "$dir" && sha256sum --check --strict "$CRATE_NAME-$VERSION.SHA256SUMS")
+          python3 - "$dir" "$VERSION" <<'PY'
+          import hashlib, json, pathlib, re, sys
+          directory, version = pathlib.Path(sys.argv[1]), sys.argv[2]
+          expected = [f"keyrx-{version}{suffix}" for suffix in (".crate", ".crate.sha256", ".cdx.json", ".crate.sigstore.json", ".crate.intoto.jsonl")]
+          lines = (directory / f"keyrx-{version}.SHA256SUMS").read_text("ascii").splitlines()
+          if len(lines) != 5: raise SystemExit("asset manifest: wrong line count")
+          seen = {}
+          for line in lines:
+              match = re.fullmatch(r"([0-9a-f]{64})  ([^/\\]+)", line)
+              if not match or match.group(2) not in expected or match.group(2) in seen: raise SystemExit("asset manifest: non-canonical entry")
+              seen[match.group(2)] = match.group(1)
+          if set(seen) != set(expected): raise SystemExit("asset manifest: coverage differs")
+          for name, digest in seen.items():
+              if hashlib.sha256((directory / name).read_bytes()).hexdigest() != digest: raise SystemExit("asset manifest: digest differs")
+          bundle = json.loads((directory / f"keyrx-{version}.crate.sigstore.json").read_text("utf-8"))
+          canonical = (json.dumps(bundle["dsseEnvelope"], ensure_ascii=False, separators=(",", ":")) + "\n").encode()
+          if (directory / f"keyrx-{version}.crate.intoto.jsonl").read_bytes() != canonical: raise SystemExit("intoto is not the bundle dsseEnvelope")
+          PY
+          for name in "$CRATE_NAME-$VERSION.crate" "$CRATE_NAME-$VERSION.crate.sha256" \
+            "$CRATE_NAME-$VERSION.cdx.json"; do
+            cmp -s "$dir/$name" "$RUNNER_TEMP/prepared/$name"
+          done
+          signer_host="${GITHUB_SERVER_URL#*://}"
+          signer_workflow="$signer_host/$GITHUB_REPOSITORY/.github/workflows/publish.yml"
+          GH_NO_UPDATE_NOTIFIER=1 gh attestation verify "$dir/$CRATE_NAME-$VERSION.crate" \
+            --repo "$GITHUB_REPOSITORY" --bundle "$dir/$CRATE_NAME-$VERSION.crate.sigstore.json" \
+            --signer-workflow "$signer_workflow" --source-digest "$SOURCE_SHA" \
+            > "$RUNNER_TEMP/verified-draft-attestation.json"
+          if test "$RELEASE_STATE" = draft-exact || test "$RELEASE_STATE" = published-exact; then
+            # A fresh handoff contains seven prepare files, never prior-run
+            # provenance. Only after remote identities, checksums, exact
+            # dsseEnvelope relation, and provider attestation verify do these
+            # three bytes become the held effective set for resume.
+            cp -- "$dir/$CRATE_NAME-$VERSION.crate.sigstore.json" \
+              "$dir/$CRATE_NAME-$VERSION.crate.intoto.jsonl" \
+              "$dir/$CRATE_NAME-$VERSION.SHA256SUMS" "$RUNNER_TEMP/prepared/"
+          else
+            test "$RELEASE_STATE" = absent || test "$RELEASE_STATE" = draft-empty
+            for name in "$CRATE_NAME-$VERSION.crate.sigstore.json" \
+              "$CRATE_NAME-$VERSION.crate.intoto.jsonl" "$CRATE_NAME-$VERSION.SHA256SUMS"; do
+              cmp -s "$dir/$name" "$RUNNER_TEMP/prepared/$name"
+            done
+          fi
+          jq -cS '[.assets[] | {id,name,url,digest,state}] | sort_by(.name)' "$release_json" \
+            > "$RUNNER_TEMP/draft-asset-identities.json"
+          echo "release_id=$release_id" >> "$GITHUB_OUTPUT"
+          echo "asset_identity_sha256=$(sha256sum "$RUNNER_TEMP/draft-asset-identities.json" | cut -d' ' -f1)" \
+            >> "$GITHUB_OUTPUT"
+
+      - name: Rebind refs and registry immediately before registry authority
+        if: steps.prerequisite.outputs.registry_authorization == 'issue-token'
+        env:
+          GH_ADMIN_READ_TOKEN: ${{ secrets.GH_ADMIN_READ_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          get() { curl -fsSL -H 'Accept: application/vnd.github+json' -H "Authorization: Bearer $GH_TOKEN" -H 'X-GitHub-Api-Version: 2026-03-10' "$1"; }
+          test "$(get "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/git/ref/heads/main" | jq -er .object.sha)" = "$SOURCE_SHA"
+          get "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" > /dev/null
+          test "$(get "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/commits/$TAG" | jq -er .sha)" = "$SOURCE_SHA"
+          test -n "$GH_ADMIN_READ_TOKEN"
+          immutable_status="$(curl -sS -L -o "$RUNNER_TEMP/immutable-before-token.json" -w '%{http_code}' \
+            -H 'Accept: application/vnd.github+json' \
+            -H "Authorization: Bearer $GH_ADMIN_READ_TOKEN" \
+            -H 'X-GitHub-Api-Version: 2026-03-10' \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/immutable-releases")"
+          test "$immutable_status" = 200
+          jq -e 'keys == ["enabled"] and .enabled == true' \
+            "$RUNNER_TEMP/immutable-before-token.json" > /dev/null
+          curl -fsSL -A 'keyrx release workflow (dev@keyrx.tech)' \
+            "https://crates.io/api/v1/crates/$CRATE_NAME" > "$RUNNER_TEMP/registry-before-effect.json"
+          expected="$(jq -c .expectedLiveBefore "$RUNNER_TEMP/prepared/release-policy.json")"
+          actual="$(jq -c --arg current "$VERSION" \
+            '[.versions[] | select(.yanked == false and .num != $current) | .num] |
+             sort_by(split(".") | map(tonumber))' "$RUNNER_TEMP/registry-before-effect.json")"
+          test "$actual" = "$expected"
+          test "$(jq -c --arg current "$VERSION" '[.versions[] | select(.num == $current)] | length' "$RUNNER_TEMP/registry-before-effect.json")" -eq 0
+          jq -e --arg current "$VERSION" '
+            def key: split(".") | map(tonumber);
+            [.versions[] | select(.num | test("^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$")) |
+             select((.num | key) > ($current | key))] | length == 0' \
+            "$RUNNER_TEMP/registry-before-effect.json" > /dev/null
+
+      - name: Obtain one short-lived trusted-publisher token
+        if: steps.prerequisite.outputs.registry_authorization == 'issue-token'
+        id: crates_auth
+        uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1
+
+      - name: Upload the preserved crate only when absent
+        if: steps.prerequisite.outputs.registry_authorization == 'issue-token'
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.crates_auth.outputs.token }}
+          GH_ADMIN_READ_TOKEN: ${{ secrets.GH_ADMIN_READ_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          get() { curl -fsSL -H 'Accept: application/vnd.github+json' -H "Authorization: Bearer $GH_TOKEN" -H 'X-GitHub-Api-Version: 2026-03-10' "$1"; }
+          test "$(get "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/git/ref/heads/main" | jq -er .object.sha)" = "$SOURCE_SHA"
+          test "$(get "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/commits/$TAG" | jq -er .sha)" = "$SOURCE_SHA"
+          test -n "$GH_ADMIN_READ_TOKEN"
+          immutable_status="$(curl -sS -L -o "$RUNNER_TEMP/immutable-at-put.json" -w '%{http_code}' \
+            -H 'Accept: application/vnd.github+json' \
+            -H "Authorization: Bearer $GH_ADMIN_READ_TOKEN" \
+            -H 'X-GitHub-Api-Version: 2026-03-10' \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/immutable-releases")"
+          test "$immutable_status" = 200
+          jq -e 'keys == ["enabled"] and .enabled == true' \
+            "$RUNNER_TEMP/immutable-at-put.json" > /dev/null
+          curl -fsSL -A 'keyrx release workflow (dev@keyrx.tech)' \
+            "https://crates.io/api/v1/crates/$CRATE_NAME" > "$RUNNER_TEMP/registry-at-put.json"
+          expected="$(jq -c .expectedLiveBefore "$RUNNER_TEMP/prepared/release-policy.json")"
+          actual="$(jq -c --arg current "$VERSION" \
+            '[.versions[] | select(.yanked == false and .num != $current) | .num] |
+             sort_by(split(".") | map(tonumber))' "$RUNNER_TEMP/registry-at-put.json")"
+          test "$actual" = "$expected"
+          test "$(jq -c --arg current "$VERSION" '[.versions[] | select(.num == $current)] | length' "$RUNNER_TEMP/registry-at-put.json")" -eq 0
+          jq -e --arg current "$VERSION" '
+            def key: split(".") | map(tonumber);
+            [.versions[] | select(.num | test("^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$")) |
+             select((.num | key) > ($current | key))] | length == 0' \
+            "$RUNNER_TEMP/registry-at-put.json" > /dev/null
+          curl --fail-with-body --silent --show-error --location -X PUT \
+            -H 'Accept: application/json' -H 'Content-Type: application/octet-stream' \
+            -H "Authorization: $CARGO_REGISTRY_TOKEN" \
+            --data-binary "@$RUNNER_TEMP/prepared/$CRATE_NAME-$VERSION.crates-api-upload" \
+            -o "$RUNNER_TEMP/crates-upload-response.json" 'https://crates.io/api/v1/crates/new'
+
+      - name: Require crates.io to hold the exact prepared archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          found=false
+          for attempt in $(seq 1 60); do
+            status="$(curl -sS -L -A 'keyrx release workflow (dev@keyrx.tech)' \
+              -o "$RUNNER_TEMP/current-registry.json" -w '%{http_code}' \
+              "https://crates.io/api/v1/crates/$CRATE_NAME/$VERSION")"
+            if test "$status" = 200; then found=true; break; fi
+            test "$status" = 404; sleep 10
+          done
+          test "$found" = true
+          jq -e --arg version "$VERSION" --arg checksum "${{ steps.prepared.outputs.crate_sha }}" \
+            --arg repo "$GITHUB_REPOSITORY" --arg sha "$SOURCE_SHA" \
+            '.version | .num == $version and .yanked == false and .checksum == $checksum and
+             .trustpub_data.provider == "github" and .trustpub_data.repository == $repo and
+             .trustpub_data.sha == $sha' "$RUNNER_TEMP/current-registry.json" > /dev/null
+          curl -fsSL -A 'keyrx release workflow (dev@keyrx.tech)' \
+            -o "$RUNNER_TEMP/current-registry.crate" \
+            "https://crates.io/api/v1/crates/$CRATE_NAME/$VERSION/download"
+          cmp -s "$RUNNER_TEMP/current-registry.crate" \
+            "$RUNNER_TEMP/prepared/$CRATE_NAME-$VERSION.crate"
+
+      - name: Rebind main and tag before immutable publication
+        if: steps.prerequisite.outputs.release_state != 'published-exact'
+        env:
+          GH_ADMIN_READ_TOKEN: ${{ secrets.GH_ADMIN_READ_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          get() { curl -fsSL -H 'Accept: application/vnd.github+json' -H "Authorization: Bearer $GH_TOKEN" -H 'X-GitHub-Api-Version: 2026-03-10' "$1"; }
+          main_sha="$(get "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/git/ref/heads/main" | jq -er .object.sha)"
+          get "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/compare/$SOURCE_SHA...main" \
+            > "$RUNNER_TEMP/main-comparison.json"
+          # INLINE_MAIN_ANCESTRY_VALIDATOR_BEGIN
+          python3 - "$RUNNER_TEMP/main-comparison.json" "$SOURCE_SHA" "$main_sha" exact <<'PY'
+          import json, pathlib, sys
+          comparison = json.loads(pathlib.Path(sys.argv[1]).read_text("utf-8"))
+          source, main, registry_state = sys.argv[2:5]
+          if registry_state == "absent":
+              if main != source: raise SystemExit("main authority: initial main is not exact source")
+          elif registry_state == "exact":
+              if comparison.get("merge_base_commit", {}).get("sha") != source or comparison.get("base_commit", {}).get("sha") != source:
+                  raise SystemExit("main authority: source is not the proven merge base")
+              commits = comparison.get("commits", [])
+              if not ((comparison.get("status") == "identical" and main == source) or (comparison.get("status") == "ahead" and commits and commits[-1].get("sha") == main)):
+                  raise SystemExit("main authority: current main is not the proven source descendant")
+          else: raise SystemExit("main authority: unknown registry state")
+          PY
+          # INLINE_MAIN_ANCESTRY_VALIDATOR_END
+          get "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" > /dev/null
+          test "$(get "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/commits/$TAG" | jq -er .sha)" = "$SOURCE_SHA"
+          test -n "$GH_ADMIN_READ_TOKEN"
+          immutable_status="$(curl -sS -L -o "$RUNNER_TEMP/immutable-before-release.json" -w '%{http_code}' \
+            -H 'Accept: application/vnd.github+json' \
+            -H "Authorization: Bearer $GH_ADMIN_READ_TOKEN" \
+            -H 'X-GitHub-Api-Version: 2026-03-10' \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/immutable-releases")"
+          test "$immutable_status" = 200
+          jq -e 'keys == ["enabled"] and .enabled == true' \
+            "$RUNNER_TEMP/immutable-before-release.json" > /dev/null
+
+      - name: Publish the already-proven draft as immutable
+        if: steps.prerequisite.outputs.release_state != 'published-exact'
+        env:
+          GH_ADMIN_READ_TOKEN: ${{ secrets.GH_ADMIN_READ_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          get() { curl -fsSL -H 'Accept: application/vnd.github+json' -H "Authorization: Bearer $GH_TOKEN" -H 'X-GitHub-Api-Version: 2026-03-10' "$1"; }
+          main_sha="$(get "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/git/ref/heads/main" | jq -er .object.sha)"
+          comparison="$(get "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/compare/$SOURCE_SHA...main")"
+          jq -e --arg source "$SOURCE_SHA" --arg main "$main_sha" \
+            '.merge_base_commit.sha == $source and .base_commit.sha == $source and
+             ((.status == "identical" and $main == $source) or
+              (.status == "ahead" and .commits[-1].sha == $main))' <<<"$comparison" > /dev/null
+          get "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" > /dev/null
+          test "$(get "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/commits/$TAG" | jq -er .sha)" = "$SOURCE_SHA"
+          test -n "$GH_ADMIN_READ_TOKEN"
+          immutable="$(curl -fsSL -H 'Accept: application/vnd.github+json' \
+            -H "Authorization: Bearer $GH_ADMIN_READ_TOKEN" \
+            -H 'X-GitHub-Api-Version: 2026-03-10' \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/immutable-releases")"
+          jq -e '.enabled == true' <<<"$immutable" > /dev/null
+          curl -fsSL -A 'keyrx release workflow (dev@keyrx.tech)' \
+            "https://crates.io/api/v1/crates/$CRATE_NAME" > "$RUNNER_TEMP/registry-at-release.json"
+          curl -fsSL -A 'keyrx release workflow (dev@keyrx.tech)' \
+            "https://crates.io/api/v1/crates/$CRATE_NAME/$VERSION" > "$RUNNER_TEMP/current-at-release.json"
+          # INLINE_CURRENT_REGISTRY_VALIDATOR_BEGIN
+          python3 - "$RUNNER_TEMP/registry-at-release.json" \
+            "$RUNNER_TEMP/current-at-release.json" "$RUNNER_TEMP/prepared/release-policy.json" \
+            "$VERSION" "${{ steps.prepared.outputs.crate_sha }}" \
+            "$GITHUB_REPOSITORY" "$SOURCE_SHA" <<'PY'
+          import json, pathlib, re, sys
+
+          registry = json.loads(pathlib.Path(sys.argv[1]).read_text("utf-8"))
+          current = json.loads(pathlib.Path(sys.argv[2]).read_text("utf-8")).get("version", {})
+          policy = json.loads(pathlib.Path(sys.argv[3]).read_text("utf-8"))
+          version, checksum, repository, source = sys.argv[4:8]
+          if current != {**current, "num": version, "yanked": False, "checksum": checksum}:
+              raise SystemExit("registry boundary: current identity or live state differs")
+          trust = current.get("trustpub_data", {})
+          if trust.get("provider") != "github" or trust.get("repository") != repository or trust.get("sha") != source:
+              raise SystemExit("registry boundary: trusted publisher identity differs")
+          canonical = re.compile(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)")
+          key = lambda value: tuple(map(int, value.split(".")))
+          stable = [item for item in registry.get("versions", []) if canonical.fullmatch(item.get("num", ""))]
+          current_rows = [item for item in stable if item["num"] == version]
+          if len(current_rows) != 1:
+              raise SystemExit("registry boundary: current cardinality differs")
+          listed = current_rows[0]
+          if listed.get("yanked") is not False or listed.get("checksum") != checksum:
+              raise SystemExit("registry boundary: current list row differs from exact detail")
+          if any(key(item["num"]) > key(version) for item in stable):
+              raise SystemExit("registry boundary: newer stable version exists")
+          live_old = sorted((item["num"] for item in stable if not item.get("yanked") and item["num"] != version), key=key)
+          if live_old != policy.get("yankTargets"):
+              raise SystemExit("registry boundary: live predecessor set differs")
+          PY
+          # INLINE_CURRENT_REGISTRY_VALIDATOR_END
+          jq -e --arg version "$VERSION" --arg checksum "${{ steps.prepared.outputs.crate_sha }}" \
+            --arg repo "$GITHUB_REPOSITORY" --arg sha "$SOURCE_SHA" \
+            '.version | .num == $version and .yanked == false and .checksum == $checksum and
+             .trustpub_data.provider == "github" and .trustpub_data.repository == $repo and
+             .trustpub_data.sha == $sha' "$RUNNER_TEMP/current-at-release.json" > /dev/null
+          jq -e --arg current "$VERSION" '
+            def key: split(".") | map(tonumber);
+            [.versions[] | select(.num | test("^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$")) |
+             select((.num | key) > ($current | key))] | length == 0' \
+            "$RUNNER_TEMP/registry-at-release.json" > /dev/null
+          : > "$RUNNER_TEMP/releases-at-close.jsonl"
+          for page in $(seq 1 100); do
+            page_json="$(get "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/releases?per_page=100&page=$page")"
+            jq -c '.[]' <<<"$page_json" >> "$RUNNER_TEMP/releases-at-close.jsonl"
+            test "$(jq 'length' <<<"$page_json")" -eq 100 || break
+            test "$page" -lt 100
+          done
+          # INLINE_LATEST_VALIDATOR_BEGIN
+          python3 - "$RUNNER_TEMP/releases-at-close.jsonl" "$VERSION" <<'PY'
+          import json, pathlib, re, sys
+          path, current = pathlib.Path(sys.argv[1]), sys.argv[2]
+          canonical = re.compile(r"v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\Z")
+          current_key = tuple(map(int, current.split(".")))
+          seen = set()
+          for line in path.read_text("utf-8").splitlines():
+              item = json.loads(line)
+              tag = item.get("tag_name", "")
+              match = canonical.fullmatch(tag)
+              if item.get("draft") is False and item.get("prerelease") is False and match:
+                  if tag in seen: raise SystemExit("latest boundary: duplicate release tag")
+                  seen.add(tag)
+                  if tuple(map(int, match.groups())) > current_key:
+                      raise SystemExit("latest boundary: newer published stable release exists")
+          PY
+          # INLINE_LATEST_VALIDATOR_END
+          # Close the draft verification window immediately before PATCH. GitHub
+          # does not document If-Match semantics for this endpoint, so exact
+          # re-read/download verification minimizes but cannot eliminate the
+          # provider-side atomicity gap between this read and the PATCH.
+          close_release="$RUNNER_TEMP/draft-at-close.json"
+          curl -fsSL -H 'Accept: application/vnd.github+json' -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'X-GitHub-Api-Version: 2026-03-10' -o "$close_release" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/releases/${{ steps.draft.outputs.release_id }}"
+          # INLINE_DRAFT_CLOSE_VALIDATOR_BEGIN
+          python3 - "$close_release" "$RUNNER_TEMP/draft-asset-identities.json" \
+            "$RUNNER_TEMP/prepared/release-notes.md" "$VERSION" "$TAG" "$TITLE" \
+            "$GITHUB_API_URL" "$GITHUB_REPOSITORY" <<'PY'
+          import json, pathlib, sys
+
+          release_path, identity_path, notes_path = map(pathlib.Path, sys.argv[1:4])
+          version, tag, title, api, repository = sys.argv[4:9]
+          release = json.loads(release_path.read_text("utf-8"))
+          if (
+              release.get("tag_name") != tag
+              or release.get("name") != title
+              or release.get("body") != notes_path.read_text("utf-8")
+              or release.get("draft") is not True
+              or release.get("prerelease") is not False
+              or release.get("immutable") is not False
+          ):
+              raise SystemExit("draft close: release metadata changed")
+          suffixes = (".crate", ".crate.sha256", ".cdx.json", ".crate.sigstore.json", ".crate.intoto.jsonl", ".SHA256SUMS")
+          expected_names = {f"keyrx-{version}{suffix}" for suffix in suffixes}
+          assets = release.get("assets")
+          if not isinstance(assets, list) or len(assets) != 6:
+              raise SystemExit("draft close: asset cardinality changed")
+          identities = []
+          for asset in assets:
+              if not {"id", "name", "url", "digest", "state"} <= set(asset):
+                  raise SystemExit("draft close: asset identity fields missing")
+              if (
+                  not isinstance(asset["id"], int)
+                  or asset["name"] not in expected_names
+                  or asset["url"] != f"{api}/repos/{repository}/releases/assets/{asset['id']}"
+                  or not isinstance(asset["digest"], str)
+                  or not asset["digest"].startswith("sha256:")
+                  or asset["state"] != "uploaded"
+              ):
+                  raise SystemExit("draft close: asset identity changed")
+              identities.append({key: asset[key] for key in ("id", "name", "url", "digest", "state")})
+          if {item["name"] for item in identities} != expected_names:
+              raise SystemExit("draft close: asset name set changed")
+          prior = json.loads(identity_path.read_text("utf-8"))
+          if sorted(identities, key=lambda item: item["name"]) != prior:
+              raise SystemExit("draft close: asset identity set changed")
+          PY
+          # INLINE_DRAFT_CLOSE_VALIDATOR_END
+          jq -e --arg tag "$TAG" --arg title "$TITLE" \
+            --rawfile body "$RUNNER_TEMP/prepared/release-notes.md" \
+            '.tag_name == $tag and .name == $title and .body == $body and .draft == true and
+             .prerelease == false and .immutable == false and (.assets | length) == 6 and
+             all(.assets[]; .state == "uploaded" and (.id | type) == "number" and
+               (.url | type) == "string" and (.digest | type) == "string")' \
+            "$close_release" > /dev/null
+          jq -cS '[.assets[] | {id,name,url,digest,state}] | sort_by(.name)' "$close_release" \
+            > "$RUNNER_TEMP/close-asset-identities.json"
+          test "$(sha256sum "$RUNNER_TEMP/close-asset-identities.json" | cut -d' ' -f1)" = \
+            "${{ steps.draft.outputs.asset_identity_sha256 }}"
+          close_dir="$RUNNER_TEMP/close-assets"; mkdir "$close_dir"
+          while IFS=$'\t' read -r id name url digest; do
+            expected_url="$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/releases/assets/$id"
+            test "$url" = "$expected_url"
+            case "$name" in
+              "$CRATE_NAME-$VERSION.crate"|"$CRATE_NAME-$VERSION.crate.sha256"|\
+              "$CRATE_NAME-$VERSION.cdx.json"|"$CRATE_NAME-$VERSION.crate.sigstore.json"|\
+              "$CRATE_NAME-$VERSION.crate.intoto.jsonl"|"$CRATE_NAME-$VERSION.SHA256SUMS") ;;
+              *) exit 1 ;;
+            esac
+            curl -fsSL -H 'Accept: application/octet-stream' -H "Authorization: Bearer $GH_TOKEN" \
+              -H 'X-GitHub-Api-Version: 2026-03-10' -o "$close_dir/$name" "$expected_url"
+            test "$digest" = "sha256:$(sha256sum "$close_dir/$name" | cut -d' ' -f1)"
+          done < <(jq -r '.assets[] | [.id,.name,.url,.digest] | @tsv' "$close_release")
+          test "$(find "$close_dir" -type f | wc -l)" -eq 6
+          (cd "$close_dir" && sha256sum --check --strict "$CRATE_NAME-$VERSION.SHA256SUMS")
+          # INLINE_ASSET_SET_VALIDATOR_BEGIN
+          python3 - "$close_dir" "$VERSION" <<'PY'
+          import hashlib, json, pathlib, re, sys
+          directory, version = pathlib.Path(sys.argv[1]), sys.argv[2]
+          expected = [f"keyrx-{version}{suffix}" for suffix in (".crate", ".crate.sha256", ".cdx.json", ".crate.sigstore.json", ".crate.intoto.jsonl")]
+          lines = (directory / f"keyrx-{version}.SHA256SUMS").read_text("ascii").splitlines()
+          if len(lines) != 5: raise SystemExit("asset manifest: wrong line count")
+          seen = {}
+          for line in lines:
+              match = re.fullmatch(r"([0-9a-f]{64})  ([^/\\]+)", line)
+              if not match or match.group(2) not in expected or match.group(2) in seen: raise SystemExit("asset manifest: non-canonical entry")
+              seen[match.group(2)] = match.group(1)
+          if set(seen) != set(expected): raise SystemExit("asset manifest: coverage differs")
+          for name, digest in seen.items():
+              if hashlib.sha256((directory / name).read_bytes()).hexdigest() != digest: raise SystemExit("asset manifest: digest differs")
+          bundle = json.loads((directory / f"keyrx-{version}.crate.sigstore.json").read_text("utf-8"))
+          canonical = (json.dumps(bundle["dsseEnvelope"], ensure_ascii=False, separators=(",", ":")) + "\n").encode()
+          if (directory / f"keyrx-{version}.crate.intoto.jsonl").read_bytes() != canonical: raise SystemExit("intoto is not the bundle dsseEnvelope")
+          PY
+          # INLINE_ASSET_SET_VALIDATOR_END
+          for name in "$CRATE_NAME-$VERSION.crate" "$CRATE_NAME-$VERSION.crate.sha256" \
+            "$CRATE_NAME-$VERSION.cdx.json" "$CRATE_NAME-$VERSION.crate.sigstore.json" \
+            "$CRATE_NAME-$VERSION.crate.intoto.jsonl" "$CRATE_NAME-$VERSION.SHA256SUMS"; do
+            cmp -s "$close_dir/$name" "$RUNNER_TEMP/prepared/$name"
+          done
+          signer_host="${GITHUB_SERVER_URL#*://}"
+          signer_workflow="$signer_host/$GITHUB_REPOSITORY/.github/workflows/publish.yml"
+          GH_NO_UPDATE_NOTIFIER=1 gh attestation verify "$close_dir/$CRATE_NAME-$VERSION.crate" \
+            --repo "$GITHUB_REPOSITORY" \
+            --bundle "$close_dir/$CRATE_NAME-$VERSION.crate.sigstore.json" \
+            --signer-workflow "$signer_workflow" --source-digest "$SOURCE_SHA" \
+            > "$RUNNER_TEMP/close-attestation.json"
+          jq -n --arg tag "$TAG" --arg sha "$SOURCE_SHA" --arg title "$TITLE" \
+            --rawfile body "$RUNNER_TEMP/prepared/release-notes.md" \
+            '{tag_name:$tag,target_commitish:$sha,name:$title,body:$body,
+              draft:false,prerelease:false,make_latest:"true"}' > "$RUNNER_TEMP/publish-release.json"
+          curl -fsSL -X PATCH -H 'Accept: application/vnd.github+json' \
+            -H "Authorization: Bearer $GH_TOKEN" -H 'X-GitHub-Api-Version: 2026-03-10' \
+            -H 'Content-Type: application/json' --data-binary @"$RUNNER_TEMP/publish-release.json" \
+            -o "$RUNNER_TEMP/published-release.json" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/releases/${{ steps.draft.outputs.release_id }}"
+          jq -e --arg tag "$TAG" --arg title "$TITLE" \
+            --rawfile body "$RUNNER_TEMP/prepared/release-notes.md" \
+            --arg sha "$SOURCE_SHA" \
+            '.tag_name == $tag and .target_commitish == $sha and .name == $title and .body == $body and .draft == false and
+             .prerelease == false and .immutable == true and (.assets | length) == 6' \
+            "$RUNNER_TEMP/published-release.json" > /dev/null
+          jq -cS '[.assets[] | {id,name,url,digest,state}] | sort_by(.name)' \
+            "$RUNNER_TEMP/published-release.json" > "$RUNNER_TEMP/published-asset-identities.json"
+          test "$(sha256sum "$RUNNER_TEMP/published-asset-identities.json" | cut -d' ' -f1)" = \
+            "${{ steps.draft.outputs.asset_identity_sha256 }}"
+
+      - name: Verify immutable release and exact asset API identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          release="$RUNNER_TEMP/final-release.json"
+          curl -fsSL -H 'Accept: application/vnd.github+json' -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'X-GitHub-Api-Version: 2026-03-10' -o "$release" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/releases/${{ steps.draft.outputs.release_id }}"
+          jq -e --arg tag "$TAG" --arg title "$TITLE" \
+            --rawfile body "$RUNNER_TEMP/prepared/release-notes.md" \
+            --arg sha "$SOURCE_SHA" \
+            '.tag_name == $tag and .target_commitish == $sha and .name == $title and .body == $body and .draft == false and
+            .prerelease == false and .immutable == true and (.assets | length) == 6 and
+            all(.assets[]; .state == "uploaded")' "$release" > /dev/null
+          final_dir="$RUNNER_TEMP/final-assets"; mkdir "$final_dir"
+          while IFS=$'\t' read -r id name url; do
+            expected="$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/releases/assets/$id"
+            test "$url" = "$expected"
+            case "$name" in
+              "$CRATE_NAME-$VERSION.crate"|"$CRATE_NAME-$VERSION.crate.sha256"|\
+              "$CRATE_NAME-$VERSION.cdx.json"|"$CRATE_NAME-$VERSION.crate.sigstore.json"|\
+              "$CRATE_NAME-$VERSION.crate.intoto.jsonl"|"$CRATE_NAME-$VERSION.SHA256SUMS") ;;
+              *) exit 1 ;;
+            esac
+            curl -fsSL -H 'Accept: application/octet-stream' -H "Authorization: Bearer $GH_TOKEN" \
+              -H 'X-GitHub-Api-Version: 2026-03-10' -o "$final_dir/$name" "$expected"
+          done < <(jq -r '.assets[] | [.id,.name,.url] | @tsv' "$release")
+          test "$(find "$final_dir" -type f | wc -l)" -eq 6
+          jq -cS '[.assets[] | {id,name,url,digest,state}] | sort_by(.name)' "$release" \
+            > "$RUNNER_TEMP/final-asset-identities.json"
+          test "$(sha256sum "$RUNNER_TEMP/final-asset-identities.json" | cut -d' ' -f1)" = \
+            "${{ steps.draft.outputs.asset_identity_sha256 }}"
+          (cd "$final_dir" && sha256sum --check --strict "$CRATE_NAME-$VERSION.SHA256SUMS")
+          python3 - "$final_dir" "$VERSION" <<'PY'
+          import hashlib, json, pathlib, re, sys
+          directory, version = pathlib.Path(sys.argv[1]), sys.argv[2]
+          expected = [f"keyrx-{version}{suffix}" for suffix in (".crate", ".crate.sha256", ".cdx.json", ".crate.sigstore.json", ".crate.intoto.jsonl")]
+          lines = (directory / f"keyrx-{version}.SHA256SUMS").read_text("ascii").splitlines()
+          if len(lines) != 5: raise SystemExit("asset manifest: wrong line count")
+          seen = {}
+          for line in lines:
+              match = re.fullmatch(r"([0-9a-f]{64})  ([^/\\]+)", line)
+              if not match or match.group(2) not in expected or match.group(2) in seen: raise SystemExit("asset manifest: non-canonical entry")
+              seen[match.group(2)] = match.group(1)
+          if set(seen) != set(expected): raise SystemExit("asset manifest: coverage differs")
+          for name, digest in seen.items():
+              if hashlib.sha256((directory / name).read_bytes()).hexdigest() != digest: raise SystemExit("asset manifest: digest differs")
+          bundle = json.loads((directory / f"keyrx-{version}.crate.sigstore.json").read_text("utf-8"))
+          canonical = (json.dumps(bundle["dsseEnvelope"], ensure_ascii=False, separators=(",", ":")) + "\n").encode()
+          if (directory / f"keyrx-{version}.crate.intoto.jsonl").read_bytes() != canonical: raise SystemExit("intoto is not the bundle dsseEnvelope")
+          PY
+          for name in "$CRATE_NAME-$VERSION.crate" "$CRATE_NAME-$VERSION.crate.sha256" \
+            "$CRATE_NAME-$VERSION.cdx.json" "$CRATE_NAME-$VERSION.crate.sigstore.json" \
+            "$CRATE_NAME-$VERSION.crate.intoto.jsonl" "$CRATE_NAME-$VERSION.SHA256SUMS"; do
+            cmp -s "$final_dir/$name" "$RUNNER_TEMP/prepared/$name"
+          done
+          signer_host="${GITHUB_SERVER_URL#*://}"
+          signer_workflow="$signer_host/$GITHUB_REPOSITORY/.github/workflows/publish.yml"
+          GH_NO_UPDATE_NOTIFIER=1 gh attestation verify "$final_dir/$CRATE_NAME-$VERSION.crate" \
+            --repo "$GITHUB_REPOSITORY" --bundle "$final_dir/$CRATE_NAME-$VERSION.crate.sigstore.json" \
+            --signer-workflow "$signer_workflow" --source-digest "$SOURCE_SHA" \
+            > "$RUNNER_TEMP/final-attestation.json"
+          GH_NO_UPDATE_NOTIFIER=1 gh release verify "$TAG" --repo "$GITHUB_REPOSITORY" \
+            > "$RUNNER_TEMP/final-immutable.json"
+          curl -fsSL -H 'Accept: application/vnd.github+json' -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'X-GitHub-Api-Version: 2026-03-10' \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/releases/latest" \
+            > "$RUNNER_TEMP/latest-after-publication.json"
+          # INLINE_LATEST_ID_VALIDATOR_BEGIN
+          python3 - "$RUNNER_TEMP/latest-after-publication.json" \
+            "${{ steps.draft.outputs.release_id }}" "$TAG" <<'PY'
+          import json, pathlib, re, sys
+          latest = json.loads(pathlib.Path(sys.argv[1]).read_text("utf-8"))
+          release_id, tag = int(sys.argv[2]), sys.argv[3]
+          if not re.fullmatch(r"v(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)", tag):
+              raise SystemExit("latest identity: expected tag is not canonical semver")
+          if latest.get("id") != release_id or latest.get("tag_name") != tag or latest.get("draft") is not False or latest.get("prerelease") is not False or latest.get("immutable") is not True:
+              raise SystemExit("latest identity: endpoint does not name exact immutable release")
+          PY
+          # INLINE_LATEST_ID_VALIDATOR_END
+
+      - name: Rebind refs and require exact reviewed yank inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          get() { curl -fsSL -H 'Accept: application/vnd.github+json' -H "Authorization: Bearer $GH_TOKEN" -H 'X-GitHub-Api-Version: 2026-03-10' "$1"; }
+          main_sha="$(get "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/git/ref/heads/main" | jq -er .object.sha)"
+          comparison="$(get "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/compare/$SOURCE_SHA...main")"
+          jq -e --arg source "$SOURCE_SHA" --arg main "$main_sha" \
+            '.merge_base_commit.sha == $source and .base_commit.sha == $source and
+             ((.status == "identical" and $main == $source) or
+              (.status == "ahead" and .commits[-1].sha == $main))' <<<"$comparison" > /dev/null
+          test "$(get "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/commits/$TAG" | jq -er .sha)" = "$SOURCE_SHA"
+          get "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/releases/latest" \
+            > "$RUNNER_TEMP/latest-before-yank.json"
+          jq -e --argjson id "${{ steps.draft.outputs.release_id }}" --arg tag "$TAG" \
+            '.id == $id and .tag_name == $tag and .draft == false and
+             .prerelease == false and .immutable == true' \
+            "$RUNNER_TEMP/latest-before-yank.json" > /dev/null
+          curl -fsSL -A 'keyrx release workflow (dev@keyrx.tech)' \
+            "https://crates.io/api/v1/crates/$CRATE_NAME" > "$RUNNER_TEMP/registry-before-yank.json"
+          curl -fsSL -A 'keyrx release workflow (dev@keyrx.tech)' \
+            "https://crates.io/api/v1/crates/$CRATE_NAME/$VERSION" > "$RUNNER_TEMP/current-before-yank.json"
+          jq -e --arg version "$VERSION" --arg checksum "${{ steps.prepared.outputs.crate_sha }}" \
+            --arg repo "$GITHUB_REPOSITORY" --arg sha "$SOURCE_SHA" \
+            '.version | .num == $version and .yanked == false and .checksum == $checksum and
+             .trustpub_data.provider == "github" and .trustpub_data.repository == $repo and
+             .trustpub_data.sha == $sha' "$RUNNER_TEMP/current-before-yank.json" > /dev/null
+          jq -e --arg current "$VERSION" '
+            def key: split(".") | map(tonumber);
+            [.versions[] | select(.num | test("^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$")) |
+             select((.num | key) > ($current | key))] | length == 0' \
+            "$RUNNER_TEMP/registry-before-yank.json" > /dev/null
+          jq -e --arg current "$VERSION" --arg checksum "${{ steps.prepared.outputs.crate_sha }}" \
+            '[.versions[] | select(.num == $current and .yanked == false and .checksum == $checksum)] |
+             length == 1' "$RUNNER_TEMP/registry-before-yank.json" > /dev/null
+          targets="$(jq -c .yankTargets "$RUNNER_TEMP/prepared/release-policy.json")"
+          live_old="$(jq -c --arg current "$VERSION" \
+            '[.versions[] | select(.yanked == false and .num != $current) | .num] |
+             sort_by(split(".") | map(tonumber))' "$RUNNER_TEMP/registry-before-yank.json")"
+          if test "${{ steps.prerequisite.outputs.yank_state }}" = initial; then
+            test "$live_old" = "$targets"
+          else
+            test "${{ steps.prerequisite.outputs.yank_state }}" = terminal
+            test "$live_old" = '[]'
+          fi
+
+      - name: Yank only the exact reviewed predecessor set
+        if: steps.prerequisite.outputs.yank_state != 'terminal'
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_YANK_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$CARGO_REGISTRY_TOKEN"
+          mapfile -t targets < <(jq -er '.yankTargets[]' "$RUNNER_TEMP/prepared/release-policy.json")
+          test "${#targets[@]}" -gt 0
+          for old in "${targets[@]}"; do
+            get() { curl -fsSL -H 'Accept: application/vnd.github+json' -H "Authorization: Bearer $GH_TOKEN" -H 'X-GitHub-Api-Version: 2026-03-10' "$1"; }
+            main_sha="$(get "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/git/ref/heads/main" | jq -er .object.sha)"
+            comparison="$(get "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/compare/$SOURCE_SHA...main")"
+            jq -e --arg source "$SOURCE_SHA" --arg main "$main_sha" \
+              '.merge_base_commit.sha == $source and .base_commit.sha == $source and
+               ((.status == "identical" and $main == $source) or
+                (.status == "ahead" and .commits[-1].sha == $main))' <<<"$comparison" > /dev/null
+            get "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" > /dev/null
+            test "$(get "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/commits/$TAG" | jq -er .sha)" = "$SOURCE_SHA"
+            curl -fsSL -A 'keyrx release workflow (dev@keyrx.tech)' \
+              "https://crates.io/api/v1/crates/$CRATE_NAME" > "$RUNNER_TEMP/registry-at-yank.json"
+            curl -fsSL -A 'keyrx release workflow (dev@keyrx.tech)' \
+              "https://crates.io/api/v1/crates/$CRATE_NAME/$VERSION" > "$RUNNER_TEMP/current-at-yank.json"
+            jq -e --arg version "$VERSION" --arg checksum "${{ steps.prepared.outputs.crate_sha }}" \
+              --arg repo "$GITHUB_REPOSITORY" --arg sha "$SOURCE_SHA" \
+              '.version | .num == $version and .yanked == false and .checksum == $checksum and
+               .trustpub_data.provider == "github" and .trustpub_data.repository == $repo and
+               .trustpub_data.sha == $sha' "$RUNNER_TEMP/current-at-yank.json" > /dev/null
+            jq -e --arg current "$VERSION" '
+              def key: split(".") | map(tonumber);
+              [.versions[] | select(.num | test("^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$")) |
+               select((.num | key) > ($current | key))] | length == 0' \
+              "$RUNNER_TEMP/registry-at-yank.json" > /dev/null
+            jq -e --arg current "$VERSION" --arg checksum "${{ steps.prepared.outputs.crate_sha }}" \
+              '[.versions[] | select(.num == $current and .yanked == false and .checksum == $checksum)] |
+               length == 1' "$RUNNER_TEMP/registry-at-yank.json" > /dev/null
+            expected="$(jq -c .yankTargets "$RUNNER_TEMP/prepared/release-policy.json")"
+            actual="$(jq -c --arg current "$VERSION" \
+              '[.versions[] | select(.yanked == false and .num != $current) | .num] |
+               sort_by(split(".") | map(tonumber))' "$RUNNER_TEMP/registry-at-yank.json")"
+            if test "$actual" = "$expected"; then
+              cargo yank "$CRATE_NAME" --vers "$old"
+            elif test "$actual" = '[]'; then
+              # The prior authorized attempt completed the registry effect but
+              # lost its response/poll. Never repeat an already-applied yank.
+              break
+            else
+              echo 'registry is neither the exact reviewed initial nor terminal yank state' >&2
+              exit 1
+            fi
+          done
+          for attempt in $(seq 1 60); do
+            curl -fsSL -A 'keyrx release workflow (dev@keyrx.tech)' \
+              "https://crates.io/api/v1/crates/$CRATE_NAME" > "$RUNNER_TEMP/registry-final.json"
+            live="$(jq -c '[.versions[] | select(.yanked == false) | .num] |
+              sort_by(split(".") | map(tonumber))' "$RUNNER_TEMP/registry-final.json")"
+            if test "$live" = "[\"$VERSION\"]"; then
+              curl -fsSL -A 'keyrx release workflow (dev@keyrx.tech)' \
+                "https://crates.io/api/v1/crates/$CRATE_NAME/$VERSION" \
+                > "$RUNNER_TEMP/current-final.json"
+              jq -e --arg version "$VERSION" --arg checksum "${{ steps.prepared.outputs.crate_sha }}" \
+                --arg repo "$GITHUB_REPOSITORY" --arg sha "$SOURCE_SHA" \
+                '.version | .num == $version and .yanked == false and .checksum == $checksum and
+                 .trustpub_data.provider == "github" and .trustpub_data.repository == $repo and
+                 .trustpub_data.sha == $sha' "$RUNNER_TEMP/current-final.json" > /dev/null
+              jq -e --arg current "$VERSION" --arg checksum "${{ steps.prepared.outputs.crate_sha }}" '
+                def key: split(".") | map(tonumber);
+                ([.versions[] | select(.num == $current and .yanked == false and .checksum == $checksum)] | length == 1) and
+                ([.versions[] | select(.num | test("^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$")) |
+                  select((.num | key) > ($current | key))] | length == 0)' \
+                "$RUNNER_TEMP/registry-final.json" > /dev/null
+              exit 0
+            fi
+            sleep 10
+          done
+          echo 'registry did not converge to the one reviewed live version' >&2
+          exit 1

@@ -19,7 +19,13 @@ fn on() -> bool {
 
 macro_rules! code {
     ($name:ident, $seq:expr) => {
-        pub fn $name() -> &'static str { if on() { $seq } else { "" } }
+        pub fn $name() -> &'static str {
+            if on() {
+                $seq
+            } else {
+                ""
+            }
+        }
     };
 }
 // `ink`: ok = neutral grey 245, warn = amber 179, crit = rose 167,
@@ -40,15 +46,50 @@ code!(wht, "\x1b[38;5;251m");
 /// terminal hyperlink takes. Everything this module measures goes through here.
 fn walk(s: &str, mut f: impl FnMut(char, bool)) {
     #[derive(Clone, Copy)]
-    enum St { Text, Esc, Csi, Osc, OscEsc }
+    enum St {
+        Text,
+        Esc,
+        Csi,
+        Osc,
+        OscEsc,
+    }
     let mut st = St::Text;
     for ch in s.chars() {
         match st {
-            St::Text => { if ch == '\x1b' { st = St::Esc; f(ch, false); } else { f(ch, true); } }
-            St::Esc => { f(ch, false); st = match ch { '[' => St::Csi, ']' => St::Osc, _ => St::Text }; }
-            St::Csi => { f(ch, false); if ('@'..='~').contains(&ch) { st = St::Text; } }
-            St::Osc => { f(ch, false); st = match ch { '\x07' => St::Text, '\x1b' => St::OscEsc, _ => St::Osc }; }
-            St::OscEsc => { f(ch, false); st = if ch == '\\' { St::Text } else { St::Osc }; }
+            St::Text => {
+                if ch == '\x1b' {
+                    st = St::Esc;
+                    f(ch, false);
+                } else {
+                    f(ch, true);
+                }
+            }
+            St::Esc => {
+                f(ch, false);
+                st = match ch {
+                    '[' => St::Csi,
+                    ']' => St::Osc,
+                    _ => St::Text,
+                };
+            }
+            St::Csi => {
+                f(ch, false);
+                if ('@'..='~').contains(&ch) {
+                    st = St::Text;
+                }
+            }
+            St::Osc => {
+                f(ch, false);
+                st = match ch {
+                    '\x07' => St::Text,
+                    '\x1b' => St::OscEsc,
+                    _ => St::Osc,
+                };
+            }
+            St::OscEsc => {
+                f(ch, false);
+                st = if ch == '\\' { St::Text } else { St::Osc };
+            }
         }
     }
 }
@@ -58,7 +99,11 @@ fn walk(s: &str, mut f: impl FnMut(char, bool)) {
 /// marks), so char count is column count.
 pub fn vis(s: &str) -> usize {
     let mut n = 0;
-    walk(s, |_, v| if v { n += 1 });
+    walk(s, |_, v| {
+        if v {
+            n += 1
+        }
+    });
     n
 }
 
@@ -66,28 +111,74 @@ pub fn vis(s: &str) -> usize {
 #[cfg_attr(not(test), allow(dead_code))]
 pub fn plain(s: &str) -> String {
     let mut out = String::new();
-    walk(s, |ch, v| if v { out.push(ch) });
+    walk(s, |ch, v| {
+        if v {
+            out.push(ch)
+        }
+    });
     out
 }
 
 /// Clip a (possibly coloured, possibly linked) string to at most `n` visible
-/// columns, keeping escapes intact, closing any hyperlink the cut left open,
-/// and closing with a reset.
+/// columns. A real cut always ends in an ASCII `...` marker, so a bounded
+/// terminal field can never look like complete prose. Escapes remain intact,
+/// an open hyperlink is closed before the marker, and the result is reset.
 pub fn clip(s: &str, n: usize) -> String {
-    if vis(s) <= n { return s.to_string(); }
+    if vis(s) <= n {
+        return s.to_string();
+    }
+    let marker_len = n.min(3);
+    let mut keep = n - marker_len;
+    // `path_text` renders one non-ASCII/control scalar as a printable Rust
+    // escape. If the visible boundary lands inside `\u{754c}` or `\x80`, back
+    // up to the token start rather than printing an escape fragment that can
+    // be mistaken for the actual path. The result may be narrower than `n`;
+    // frame callers fill the remaining cells.
+    let visible: Vec<char> = plain(s).chars().collect();
+    let mut i = 0usize;
+    while i < visible.len() {
+        if visible[i] != '\\' {
+            i += 1;
+            continue;
+        }
+        let end = if visible.get(i + 1) == Some(&'u') && visible.get(i + 2) == Some(&'{') {
+            visible[i + 3..]
+                .iter()
+                .position(|ch| *ch == '}')
+                .map(|offset| i + 3 + offset + 1)
+        } else if visible.get(i + 1) == Some(&'x') {
+            Some((i + 4).min(visible.len()))
+        } else {
+            Some((i + 2).min(visible.len()))
+        };
+        let Some(end) = end else { break };
+        if i < keep && keep < end {
+            keep = i;
+            break;
+        }
+        i = end;
+    }
     let mut out = String::new();
     let mut seen = 0;
     let mut stop = false;
     walk(s, |ch, v| {
-        if stop { return; }
+        if stop {
+            return;
+        }
         if v {
-            if seen >= n { stop = true; return; }
+            if seen >= keep {
+                stop = true;
+                return;
+            }
             seen += 1;
         }
         out.push(ch);
     });
-    if link_open(&out) { out.push_str(LINK_END); }
+    if link_open(&out) {
+        out.push_str(LINK_END);
+    }
     out.push_str(r());
+    out.push_str(&".".repeat(marker_len));
     out
 }
 
@@ -110,7 +201,11 @@ fn link_open(s: &str) -> bool {
 /// WezTerm, foot, Konsole - and plain `text` everywhere else, including piped
 /// output, where no escape is ever emitted.
 pub fn link(url: &str, text: &str) -> String {
-    if on() { format!("\x1b]8;;{}\x1b\\{}{}", url, text, LINK_END) } else { text.to_string() }
+    if on() {
+        format!("\x1b]8;;{}\x1b\\{}{}", url, text, LINK_END)
+    } else {
+        text.to_string()
+    }
 }
 
 /// A `file://` URL for a local path, in the form the terminal's host can open.
@@ -127,12 +222,34 @@ pub fn file_url(p: &std::path::Path) -> String {
     }
 }
 
+/// Render a path as inert terminal text. URLs are percent-encoded separately;
+/// this protects the visible label and plain/log output from control sequences
+/// and bidi overrides carried by cwd, HOME/XDG, or another filesystem name.
+pub fn path_text(p: &std::path::Path) -> String {
+    p.as_os_str()
+        .to_string_lossy()
+        .chars()
+        .flat_map(|ch| {
+            // Framed terminal rows count columns, not Unicode scalar values.
+            // Escape every non-ASCII character as well as controls so a wide
+            // CJK glyph or combining mark cannot violate the width invariant.
+            if !ch.is_ascii() || ch.is_control() {
+                ch.escape_default().collect::<Vec<_>>()
+            } else {
+                vec![ch]
+            }
+        })
+        .collect()
+}
+
 /// Percent-encode everything outside the URL-safe set; `/` stays a separator.
 fn pct(s: &str) -> String {
     let mut out = String::new();
     for b in s.bytes() {
         match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' | b'/' | b':' => out.push(b as char),
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' | b'/' | b':' => {
+                out.push(b as char)
+            }
             _ => out.push_str(&format!("%{:02X}", b)),
         }
     }
@@ -141,12 +258,14 @@ fn pct(s: &str) -> String {
 
 /// A directory, printed as itself and clickable where the terminal allows it.
 pub fn dir_link(p: &std::path::Path) -> String {
-    link(&file_url(p), &p.display().to_string())
+    link(&file_url(p), &path_text(p))
 }
 
 /// Whether links are being emitted at all (a terminal, no NO_COLOR) - the hint
 /// below is printed only then, so piped output never mentions clicking.
-pub fn links_on() -> bool { on() }
+pub fn links_on() -> bool {
+    on()
+}
 
 /// The one line that explains the links. Terminals differ on the modifier -
 /// Windows Terminal, VS Code, GNOME and Konsole want ctrl, iTerm2 and VS Code on
@@ -158,32 +277,70 @@ pub fn top(title: &str, sub: &str) -> String {
     // geometry: ' ╔══' (4) + tabs + fill + tail + '╗' (1) == W, and W == IN + 3,
     // so tabs + fill + tail == IN - 2. The sub is decoration and goes first;
     // then the title clips; the frame itself never gives.
-    let mk_tabs = |t: &str| format!("{}▌{}{}{} {} {}{}▐{}", accent(), r(), b(), wht(), t, r(), accent(), r());
-    let mut tabs = mk_tabs(title);
-    let mut tail = if sub.is_empty() { String::new() } else { format!("{} {} {}", gry(), sub, r()) };
+    let mk_tabs = |t: &str| {
+        format!(
+            "{}▌{}{}{} {} {}{}▐{}",
+            accent(),
+            r(),
+            b(),
+            wht(),
+            t,
+            r(),
+            accent(),
+            r()
+        )
+    };
     let budget = IN as isize - 2;
-    let mut fill = budget - vis(&tabs) as isize - vis(&tail) as isize;
-    if fill < 1 && !tail.is_empty() {
-        tail.clear();
-        fill = budget - vis(&tabs) as isize;
-    }
-    if fill < 1 {
-        // title alone overflows: clip it to leave one cell of fill
-        let room = (budget - 1 - 4).max(1) as usize;   // 4 = "▌ " + " ▐"
-        let t: String = title.chars().take(room).collect();
-        tabs = mk_tabs(&t);
-        fill = budget - vis(&tabs) as isize;
-    }
+    // Reserve one fill cell and the fixed punctuation around each field. When
+    // both values are long the title keeps the larger share, but the subtitle
+    // always keeps enough room for `clip`'s visible `...` marker. Dynamic
+    // context must never disappear merely because it is long.
+    let (shown_title, shown_sub) = if sub.is_empty() {
+        let title_room = (budget - 1 - 4).max(1) as usize; // 4 = "▌ " + " ▐"
+        (clip(title, title_room), String::new())
+    } else {
+        let content_room = (budget - 1 - 4 - 2).max(2) as usize; // tail adds two spaces
+        let sub_reserve = vis(sub).min(3).min(content_room.saturating_sub(1));
+        let title_room = vis(title).min(content_room.saturating_sub(sub_reserve));
+        let sub_room = content_room.saturating_sub(title_room);
+        (clip(title, title_room), clip(sub, sub_room))
+    };
+    let tabs = mk_tabs(&shown_title);
+    let tail = if shown_sub.is_empty() {
+        String::new()
+    } else {
+        format!("{} {} {}", gry(), shown_sub, r())
+    };
+    let fill = budget - vis(&tabs) as isize - vis(&tail) as isize;
     let fill = fill.max(1) as usize;
-    format!("\n\n {}╔══{}{}{}{}{}{}{}╗{}\n{}",
-        accent(), r(), tabs, accent(), "═".repeat(fill), r(), tail, accent(), r(), mid(""))
+    format!(
+        "\n\n {}╔══{}{}{}{}{}{}{}╗{}\n{}",
+        accent(),
+        r(),
+        tabs,
+        accent(),
+        "═".repeat(fill),
+        r(),
+        tail,
+        accent(),
+        r(),
+        mid("")
+    )
 }
 
 /// ║ text ║ - padded to the inner width, clipped if longer.
 pub fn mid(text: &str) -> String {
     let t = clip(text, IN);
     let pad = IN.saturating_sub(vis(&t));
-    format!(" {}║{}{}{}{}║{}", accent(), r(), t, " ".repeat(pad), accent(), r())
+    format!(
+        " {}║{}{}{}{}║{}",
+        accent(),
+        r(),
+        t,
+        " ".repeat(pad),
+        accent(),
+        r()
+    )
 }
 
 /// A blank row of air, then ╚══ note ═══╝.
@@ -193,7 +350,15 @@ pub fn bot(note: &str) -> String {
     } else {
         let n = clip(&format!("{} {} {}", gry(), note, r()), IN - 3);
         let fill = (IN as isize - vis(&n) as isize - 2).max(1) as usize;
-        format!(" {}╚══{}{}{}{}╝{}", accent(), r(), n, accent(), "═".repeat(fill), r())
+        format!(
+            " {}╚══{}{}{}{}╝{}",
+            accent(),
+            r(),
+            n,
+            accent(),
+            "═".repeat(fill),
+            r()
+        )
     };
     format!("{}\n{}", mid(""), body)
 }
@@ -201,23 +366,54 @@ pub fn bot(note: &str) -> String {
 /// Gauge bar: █ fill with a ▌ half-cell cap, ░ track. Colour by severity of
 /// the percentage the way the board colours a plan: grey, amber at 70, rose
 /// at 90.
+#[allow(dead_code)] // retained as a tested UI primitive; no current command renders a gauge
 pub fn bar(pct: f64, w: usize) -> String {
     let full = ((pct / 100.0 * w as f64).round() as usize).min(w);
     let full = if pct > 0.0 { full.max(1) } else { full };
-    let col = if pct >= 90.0 { crit() } else if pct >= 70.0 { warn() } else { ok() };
+    let col = if pct >= 90.0 {
+        crit()
+    } else if pct >= 70.0 {
+        warn()
+    } else {
+        ok()
+    };
     let cap = if full > 0 && full < w { "▌" } else { "" };
     let track = w - full - cap.chars().count();
-    format!("{}{}{}{}{}{}", col, "█".repeat(full), cap, faint(), "░".repeat(track), r())
+    format!(
+        "{}{}{}{}{}{}",
+        col,
+        "█".repeat(full),
+        cap,
+        faint(),
+        "░".repeat(track),
+        r()
+    )
 }
 
 /// A key/value row inside a panel: two-space gutter, grey key, white value.
 pub fn kv(key: &str, val: &str) -> String {
-    mid(&format!("  {}{:<11}{}{}{}{}", gry(), key, r(), wht(), val, r()))
+    mid(&format!(
+        "  {}{:<11}{}{}{}{}",
+        gry(),
+        key,
+        r(),
+        wht(),
+        val,
+        r()
+    ))
 }
 
 /// Same with a wide key column - for flag names, which run long.
 pub fn kvw(key: &str, val: &str) -> String {
-    mid(&format!("  {}{:<16}{}{}{}{}", gry(), key, r(), wht(), val, r()))
+    mid(&format!(
+        "  {}{:<16}{}{}{}{}",
+        gry(),
+        key,
+        r(),
+        wht(),
+        val,
+        r()
+    ))
 }
 
 /// Continuation line under a wide-key row: text aligned to the value column.
@@ -227,7 +423,15 @@ pub fn cont(text: &str) -> String {
 
 /// Same, with the value in the accent colour (a number worth reading).
 pub fn kv_accent(key: &str, val: &str) -> String {
-    mid(&format!("  {}{:<11}{}{}{}{}", gry(), key, r(), accent(), val, r()))
+    mid(&format!(
+        "  {}{:<11}{}{}{}{}",
+        gry(),
+        key,
+        r(),
+        accent(),
+        val,
+        r()
+    ))
 }
 
 pub fn note(text: &str) -> String {
@@ -246,8 +450,8 @@ pub fn crit_line(text: &str) -> String {
     mid(&format!("  {}▲ {}{}", crit(), text, r()))
 }
 
-/// The masthead: ▐▌ keyRX  one mnemonic, unlimited addresses     right-hand note
-/// The mark: a seal, sealed on chain. Sixty-four hex digits on an 8x8 grid, a cell lit where the
+/// The masthead: ▐▌ keyRX  one seed, many addresses     right-hand note
+/// The mark: a sixty-four-digit record rendered on an 8x8 grid, with a cell lit where the
 /// digit is 8 or above. Two grid rows per text line in half-blocks: rows 0-3 blue, rows 4-7 amber.
 /// The same glyph is the site's favicon and the repository's avatar; here it is text.
 pub const SEAL: &str = "fbd454bdefee923628fcb6f24667b772ea942f176f9c7988b5e2d2264b335ac8";
@@ -256,11 +460,16 @@ pub const SEAL: &str = "fbd454bdefee923628fcb6f24667b772ea942f176f9c7988b5e2d226
 /// a terminal cell is about twice as tall as it is wide, so 16 x 8 is the mark's true square.
 /// Coloured when stdout is a terminal.
 pub fn seal_lines() -> [String; 8] {
-    let lit: Vec<bool> = SEAL.bytes().map(|b| (b as char).to_digit(16).unwrap_or(0) >= 8).collect();
+    let lit: Vec<bool> = SEAL
+        .bytes()
+        .map(|b| (b as char).to_digit(16).unwrap_or(0) >= 8)
+        .collect();
     let mut out: [String; 8] = Default::default();
     for (row, line) in out.iter_mut().enumerate() {
         let mut s = String::new();
-        for c in 0..8 { s.push_str(if lit[row * 8 + c] { "██" } else { "  " }); }
+        for c in 0..8 {
+            s.push_str(if lit[row * 8 + c] { "██" } else { "  " });
+        }
         *line = format!("{}{}{}", if row < 4 { accent() } else { warn() }, s, r());
     }
     out
@@ -271,14 +480,24 @@ pub const SITE: &str = "keyRX.tech";
 pub const CONTACT: &str = "dev@keyrx.tech";
 pub const ABOUT: [&str; 4] = [
     "Solana and EVM vanity address grinder.",
-    "One seed, unlimited addresses, keys for every wallet.",
-    "Offline. Open. Verified.",
+    "One seed, many addresses, exact keys and paths.",
+    "Offline grinding. Open. Verified.",
     "The mark is a record. What it seals comes next.",
 ];
 
 pub fn masthead(right: &str) {
     let seal = seal_lines();
-    let name = format!("{}{}keyRX{} {}|{} {}{}CLI{}", b(), wht(), r(), faint(), r(), b(), wht(), r());
+    let name = format!(
+        "{}{}keyRX{} {}|{} {}{}CLI{}",
+        b(),
+        wht(),
+        r(),
+        faint(),
+        r(),
+        b(),
+        wht(),
+        r()
+    );
     let head = format!(" {}  {}", seal[0], name);
     let rt = format!("{}{}{}", gry(), right, r());
     let gap = (W as isize - vis(&head) as isize - vis(&rt) as isize - 1).max(1) as usize;
@@ -293,7 +512,8 @@ pub fn masthead(right: &str) {
                 // the bottom line: the site at the text column, the contact at the right edge
                 let left = format!(" {}  {}{}{}", l, gry(), SITE, r());
                 let right = format!("{}{}{}", gry(), CONTACT, r());
-                let gap = (W as isize - vis(&left) as isize - vis(&right) as isize - 1).max(1) as usize;
+                let gap =
+                    (W as isize - vis(&left) as isize - vis(&right) as isize - 1).max(1) as usize;
                 println!("{}{}{}", left, " ".repeat(gap), right);
             }
             _ => println!(" {}", l),
@@ -308,8 +528,10 @@ mod tests {
 
     #[test]
     fn the_about_lines_fit_beside_the_seal() {
-        for l in ABOUT { assert!(l.len() <= W - 1 - 16 - 2, "{}", l); }
-        assert_eq!(ABOUT.join(" "), "Solana and EVM vanity address grinder. One seed, unlimited addresses, keys for every wallet. Offline. Open. Verified. The mark is a record. What it seals comes next.");
+        for l in ABOUT {
+            assert!(l.len() <= W - 1 - 16 - 2, "{}", l);
+        }
+        assert_eq!(ABOUT.join(" "), "Solana and EVM vanity address grinder. One seed, many addresses, exact keys and paths. Offline grinding. Open. Verified. The mark is a record. What it seals comes next.");
     }
 
     #[test]
@@ -325,18 +547,27 @@ mod tests {
                 assert_eq!(cell, if lit { "██" } else { "  " }, "row {} col {}", r, c);
             }
         }
-        assert_eq!(SEAL.bytes().filter(|b| (*b as char).to_digit(16).unwrap() >= 8).count(), 33);
+        assert_eq!(
+            SEAL.bytes()
+                .filter(|b| (*b as char).to_digit(16).unwrap() >= 8)
+                .count(),
+            33
+        );
     }
 
     fn frame_lines(s: &str) -> Vec<&str> {
-        s.lines().filter(|l| {
-            let p = strip(l);
-            let t = p.trim_start();
-            t.starts_with('╔') || t.starts_with('║') || t.starts_with('╚')
-        }).collect()
+        s.lines()
+            .filter(|l| {
+                let p = strip(l);
+                let t = p.trim_start();
+                t.starts_with('╔') || t.starts_with('║') || t.starts_with('╚')
+            })
+            .collect()
     }
 
-    fn strip(s: &str) -> String { plain(s) }
+    fn strip(s: &str) -> String {
+        plain(s)
+    }
 
     #[test]
     fn links_measure_as_their_text_and_never_widen_a_frame() {
@@ -350,7 +581,12 @@ mod tests {
         assert_eq!(plain(&l), "matches");
         let bel = format!("\x1b]8;;{}\x07matches\x1b]8;;\x07", url);
         assert_eq!(vis(&bel), "matches".len());
-        for line in frame_lines(&format!("{}\n{}\n{}", top("T", &l), mid(&format!("  in {}", l)), bot(&format!("in {}", l)))) {
+        for line in frame_lines(&format!(
+            "{}\n{}\n{}",
+            top("T", &l),
+            mid(&format!("  in {}", l)),
+            bot(&format!("in {}", l))
+        )) {
             assert_eq!(strip(line).chars().count(), W, "ragged: {:?}", strip(line));
         }
         // clipping through a link closes it before the reset, so the rest of the
@@ -358,7 +594,8 @@ mod tests {
         let long = format!("\x1b]8;;{}\x1b\\{}\x1b]8;;\x1b\\", url, "m".repeat(200));
         let c = clip(&long, 10);
         assert_eq!(vis(&c), 10);
-        assert!(c.ends_with(&format!("\x1b]8;;\x1b\\{}", r())), "{:?}", c);
+        assert!(c.contains(LINK_END), "{:?}", c);
+        assert!(plain(&c).ends_with("..."), "{:?}", c);
         assert_eq!(vis(&clip("abc", 10)), 3);
     }
 
@@ -367,7 +604,13 @@ mod tests {
         assert_eq!(pct("/home/me/a b/ü"), "/home/me/a%20b/%C3%BC");
         let u = file_url(std::path::Path::new("/home/me/.local/share/keyrx/matches"));
         match std::env::var("WSL_DISTRO_NAME") {
-            Ok(d) if !d.is_empty() => assert_eq!(u, format!("file://wsl.localhost/{}/home/me/.local/share/keyrx/matches", pct(&d))),
+            Ok(d) if !d.is_empty() => assert_eq!(
+                u,
+                format!(
+                    "file://wsl.localhost/{}/home/me/.local/share/keyrx/matches",
+                    pct(&d)
+                )
+            ),
             _ => assert_eq!(u, "file:///home/me/.local/share/keyrx/matches"),
         }
     }
@@ -377,22 +620,61 @@ mod tests {
         // The invariant that broke three times on the board: measure, do not
         // eyeball. Head, body, over-long body, foot, empty foot, coloured body.
         let long = "x".repeat(300);
-        let panel = format!("{}\n{}\n{}\n{}\n{}\n{}",
+        let panel = format!(
+            "{}\n{}\n{}\n{}\n{}\n{}",
             top("PLAN", "a subtitle"),
             mid("  hello"),
             mid(&long),
             kv("key", "value"),
-            mid(&format!("  {}coloured{} {}text{}", crit(), r(), accent(), r())),
-            bot("a note at the foot"));
+            mid(&format!(
+                "  {}coloured{} {}text{}",
+                crit(),
+                r(),
+                accent(),
+                r()
+            )),
+            bot("a note at the foot")
+        );
         for l in frame_lines(&panel) {
             assert_eq!(strip(l).chars().count(), W, "ragged: {:?}", strip(l));
         }
         for l in frame_lines(&format!("{}\n{}", top(&long, &long), bot(&long))) {
-            assert_eq!(strip(l).chars().count(), W, "ragged on overlong: {:?}", strip(l));
+            assert_eq!(
+                strip(l).chars().count(),
+                W,
+                "ragged on overlong: {:?}",
+                strip(l)
+            );
         }
         for l in frame_lines(&format!("{}\n{}", top("T", ""), bot(""))) {
             assert_eq!(strip(l).chars().count(), W);
         }
+    }
+
+    #[test]
+    fn overlong_top_fields_are_visibly_clipped_not_silently_dropped() {
+        let long_title = "T".repeat(200);
+        let long_sub = "S".repeat(200);
+        let both = plain(&top(&long_title, &long_sub));
+        assert!(
+            both.contains("T..."),
+            "title was not visibly clipped: {both:?}"
+        );
+        assert!(
+            both.matches("...").count() >= 2,
+            "one dynamic field was silently dropped: {both:?}"
+        );
+        for line in frame_lines(&top(&long_title, &long_sub)) {
+            assert_eq!(plain(line).chars().count(), W, "ragged: {:?}", plain(line));
+        }
+
+        let long_sub_only = plain(&top("MATCHES", &long_sub));
+        assert!(long_sub_only.contains("MATCHES"));
+        assert!(long_sub_only.contains("SSS"));
+        assert!(
+            long_sub_only.contains("..."),
+            "subtitle looked complete: {long_sub_only:?}"
+        );
     }
 
     #[test]
@@ -405,29 +687,48 @@ mod tests {
         }
         assert!(strip(&bar(0.0, 10)).chars().all(|c| c == '░'));
         assert!(strip(&bar(100.0, 10)).chars().all(|c| c == '█'));
-        assert!(strip(&bar(0.4, 10)).starts_with('█'), "tiny nonzero still lights a cell");
+        assert!(
+            strip(&bar(0.4, 10)).starts_with('█'),
+            "tiny nonzero still lights a cell"
+        );
     }
 
     #[test]
     fn no_fallback_risk_glyphs() {
         // The glyphs that staggered a frame under font fallback. None may
         // appear anywhere in this module's output.
-        let banned = ['—', '–', '‘', '’', '“', '”', '→', '▟', '▛', '▎', '▋', '▁', '▂', '▃', '▄', '▅', '▆', '▇'];
-        let all = format!("{}{}{}{}{}{}{}", top("T", "s"), mid("m"), bot("n"), bar(33.0, 20),
-            kv("k", "v"), warn_line("w"), crit_line("c"));
+        let banned = [
+            '\u{2014}', '\u{2013}', '\u{2018}', '\u{2019}', '\u{201c}', '\u{201d}', '\u{2192}',
+            '\u{259f}', '\u{259b}', '\u{258e}', '\u{258b}', '\u{2581}', '\u{2582}', '\u{2583}',
+            '\u{2584}', '\u{2585}', '\u{2586}', '\u{2587}',
+        ];
+        let all = format!(
+            "{}{}{}{}{}{}{}",
+            top("T", "s"),
+            mid("m"),
+            bot("n"),
+            bar(33.0, 20),
+            kv("k", "v"),
+            warn_line("w"),
+            crit_line("c")
+        );
         for ch in strip(&all).chars() {
             assert!(!banned.contains(&ch), "fallback-risk glyph {:?}", ch);
         }
     }
-
 
     #[test]
     fn eight_seed_words_never_clip() {
         // longest BIP39 English word is 8 chars: 8*8 + 7 spaces + 4 indent = 75 <= IN (75)
         let worst = ["abstract"; 8].join(" ");
         let row = mid(&format!("    {}", worst));
-        assert!(strip(&row).contains("abstract abstract abstract abstract abstract abstract abstract abstract"),
-            "seed row clipped: {:?}", strip(&row));
+        assert!(
+            strip(&row).contains(
+                "abstract abstract abstract abstract abstract abstract abstract abstract"
+            ),
+            "seed row clipped: {:?}",
+            strip(&row)
+        );
     }
 
     #[test]
@@ -435,6 +736,11 @@ mod tests {
         let s = format!("{}abc{}def", crit(), r());
         assert_eq!(vis(&s), 6);
         assert_eq!(vis(&clip(&s, 4)), 4);
+        assert_eq!(plain(&clip(&s, 4)), "a...");
+        assert_eq!(plain(&clip("plain", 2)), "..");
+        assert_eq!(plain(&clip("plain", 0)), "");
         assert_eq!(vis(&clip("plain", 99)), 5);
+        assert_eq!(plain(&clip("path-\\u{754c}-tail", 12)), "path-...");
+        assert!(!plain(&clip("path-\\x80-tail", 10)).contains("\\x"));
     }
 }

@@ -6,8 +6,15 @@
 use std::fs;
 
 const FILES: &[&str] = &[
-    "src/main.rs", "src/ui.rs", "site/index.html", "README.md", "CHANGELOG.md", "TRADEMARK.md",
-    "assets/LICENSE", "CONTRIBUTING.md", "SECURITY.md",
+    "src/main.rs",
+    "src/ui.rs",
+    "site/index.html",
+    "README.md",
+    "CHANGELOG.md",
+    "TRADEMARK.md",
+    "assets/LICENSE",
+    "CONTRIBUTING.md",
+    "SECURITY.md",
 ];
 
 #[test]
@@ -16,10 +23,14 @@ fn no_em_or_en_dash_anywhere_a_reader_meets_it() {
     let mut hits = Vec::new();
     for f in FILES {
         let path = format!("{root}/{f}");
-        let Ok(text) = fs::read_to_string(&path) else { continue };
+        let Ok(text) = fs::read_to_string(&path) else {
+            continue;
+        };
         for (n, line) in text.lines().enumerate() {
             // the one sanctioned occurrence: the list of banned glyphs itself
-            if line.contains("let banned = [") { continue; }
+            if line.contains("let banned = [") {
+                continue;
+            }
             if line.contains('\u{2014}') || line.contains('\u{2013}') {
                 hits.push(format!("{f}:{}: {}", n + 1, line.trim()));
             }

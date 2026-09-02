@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>keyRX CLI - Solana and EVM vanity addresses, keys for every wallet</title>
-<meta name="description" content="The keyRX CLI: Solana and EVM vanity address grinder. One seed, unlimited addresses, keys for every wallet. Offline. Open. Verified. The mark is a record. What it seals comes next.">
+<title>keyRX CLI - Solana and EVM vanity address grinder</title>
+<meta name="description" content="The keyRX CLI: Solana and EVM vanity address grinder. One seed, many addresses, exact keys and paths. Offline grinding. Open. Verified. The mark is a record. What it seals comes next.">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' blob:; style-src 'unsafe-inline'; font-src data:; img-src 'self' data:; worker-src blob:; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <link rel="canonical" href="https://keyrx.tech/">
@@ -13,9 +13,14 @@
 <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png">
 <link rel="apple-touch-icon" sizes="180x180" href="/favicon-180.png">
 <meta property="og:image" content="https://keyrx.tech/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="keyRX CLI: Solana and EVM vanity address grinder">
+<meta property="og:type" content="website">
 <meta name="twitter:card" content="summary_large_image">
-<meta property="og:title" content="keyRX CLI - vanity addresses, keys for every wallet">
-<meta property="og:description" content="The keyRX CLI: Solana and EVM vanity address grinder. One seed, unlimited addresses, keys for every wallet. Offline. Open. Verified. The mark is a record. What it seals comes next.">
+<meta name="twitter:site" content="@keyrx_tech">
+<meta property="og:title" content="keyRX CLI - Solana and EVM vanity address grinder">
+<meta property="og:description" content="One seed, many addresses, exact keys and paths. Offline grinding. Open. Verified.">
 <meta property="og:url" content="https://keyrx.tech/">
 <style>
 /* The frame is only square if every glyph agrees on its width. System monos
@@ -27,7 +32,7 @@
 :root{
   --field:#091228; --panel:#0e1b3c; --edge:#22345f; --shadow:rgba(1,4,14,.45);
   --white:#dbe3f2; --cyan:#5aa6c9; --yellow:#c9974f; --gray:#8a98b6;
-  --dim:#7686aa; --red:#c47070; --green:#6ea888;
+  --dim:#7a8bb1; --red:#c47070; --green:#6ea888;
   --barbg:#8d9cbe; --barink:#091228;
   --mono:'KXMono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
   --fs:14px; --nudge:0ch;
@@ -53,78 +58,85 @@ b{font-weight:400}
 .pan>div{padding:0 .1em}
 a{color:var(--cyan);text-decoration:none;border-bottom:1px dotted rgba(90,166,201,.5)}
 a:hover{color:var(--white)}
-.addr,.inst,.cmdcopy{cursor:pointer;border-bottom:1px dotted rgba(90,166,201,.45)}
+.copy{appearance:none;background:transparent;border:0;border-bottom:1px dotted rgba(90,166,201,.45);
+  color:inherit;cursor:pointer;font:inherit;line-height:inherit;padding:0;text-align:left;white-space:pre}
 #prompt{display:flex;align-items:center;gap:.6em;margin-top:.9em;color:var(--yellow)}
 #in{background:transparent;border:0;outline:0;color:var(--white);font:inherit;
   caret-color:transparent;width:1ch;padding:0}
 #cur{display:inline-block;width:.6em;height:1.15em;background:var(--white);
-  animation:blink 1.1s steps(1) infinite;margin-left:-.5em;vertical-align:text-bottom}
+  margin-left:-.5em;opacity:0;vertical-align:text-bottom}
+#in:focus+#cur{animation:blink 1.1s steps(1) infinite;opacity:1}
 @keyframes blink{50%{opacity:0}}
 #keys{position:fixed;left:0;right:0;bottom:0;height:1.7em;display:flex;align-items:stretch;
   background:var(--field);border-top:1px solid var(--edge);z-index:50;font-size:.95em;padding:0 .55em}
 #keys b{display:flex;align-items:center;color:var(--dim);padding:0 .4em 0 .55em;flex:none}
-#keys i{display:flex;align-items:center;background:var(--barbg);color:var(--barink);
-  padding:0 .7em;font-style:normal;cursor:pointer;flex:none}
-#keys i:hover{background:var(--white)}
+#keys button,#keys a{appearance:none;display:flex;align-items:center;background:var(--barbg);border:0;
+  border-radius:0;color:var(--barink);font:inherit;padding:0 .7em;text-decoration:none;cursor:pointer;flex:none}
+#keys button:hover,#keys a:hover{background:var(--white);color:var(--barink)}
+#keys button:focus-visible,#keys a:focus-visible,.copy:focus-visible{
+  outline:2px solid var(--white);outline-offset:-2px}
 #keys .sp{flex:1}
-@media (pointer:coarse){#keys{font-size:max(.9em,13px);height:3em}#keys i{padding:0 .9em}#scr{padding-bottom:4.6em}}
+@media (pointer:coarse){#keys{font-size:max(.9em,13px);height:3em}#keys button,#keys a{padding:0 .9em}#scr{padding-bottom:4.6em}}
 @media (max-width:700px){
   #keys{height:2.6em;padding:0 .3em;justify-content:space-around;font-size:max(.84em,12px)}
   #keys b,#keys .x,#keys .sp{display:none}
-  #keys i{flex:1;justify-content:center;margin:0 1px;padding:0 .2em;min-width:0;overflow:hidden}
+  #keys button,#keys a{flex:1;justify-content:center;margin:0 1px;padding:0 .2em;min-width:0;overflow:hidden}
   #page{max-width:100%}
   #scr{padding-bottom:4.2em}
 }
+@media (prefers-reduced-motion:reduce){#in:focus+#cur{animation:none}}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 noscript div{white-space:normal;max-width:68ch;color:var(--gray);padding:1em 0}
 </style>
 </head>
 <body>
-<div id="scr"><div id="page">
+<main id="scr"><div id="page">
+<h1 class="sr">keyRX CLI: Solana and EVM vanity address grinder</h1>
 <noscript><div>
-  <h1>keyRX</h1>
-  <p>Solana vanity addresses, 20-60x faster than solana-keygen grind, and EVM addresses the same way
+  <h2>keyRX</h2>
+  <p>Solana vanity addresses, measured at 19.5-32.2x the aggregate throughput of the cited
+  solana-keygen grind baseline (33-55x per core), and EVM addresses the same way
   (Ethereum, Base, Arbitrum, Optimism, Polygon, BNB: one key, every chain). One seed phrase is a tree
   of addresses: keyRX pays the expensive step once per seed and walks the branches. Every match writes
-  the address, its derivation path, the seed, and the key in every wallet-import form (base58 and JSON
-  array for Solana, 0x hex for EVM). One Rust binary. No daemon, no service, no network.</p>
-  <pre>cargo install keyrx && clear && keyrx
+  the address, its derivation path, the seed, and the supported import material (base58 and JSON
+  array for Solana, 0x hex for EVM). One Rust binary. No daemon or service; grinding is offline.</p>
+  <pre>cargo install --locked keyrx
+keyrx
 keyrx verify
 keyrx grind --ends-with KEYRX --indices 128</pre>
   <p><a href="https://github.com/keyrx/keyrx">github.com/keyrx/keyrx</a></p>
 </div></noscript>
-<div id="out" aria-live="polite"></div>
+<div id="out" role="region" aria-label="keyRX terminal output"></div>
 <div id="prompt" style="display:none"><span>keyRX&gt;</span><input id="in" autocomplete="off" spellcheck="false" aria-label="command"><span id="cur"></span></div>
-</div></div>
-<div class="sr" id="sr" aria-live="polite"></div>
-<div id="keys" role="toolbar" aria-label="keys">
-  <b>F1</b><i data-c="grind" role="button" tabindex="0">Grind</i>
-  <b>F2</b><i data-c="what" role="button" tabindex="0">What</i>
-  <b>F3</b><i data-c="install" role="button" tabindex="0">Install</i>
-  <b>F4</b><i class="x" data-c="match" role="button" tabindex="0">A match</i>
-  <b>F5</b><i data-c="wallets" role="button" tabindex="0">Wallets</i>
-  <b>F6</b><i class="x" data-c="verified" role="button" tabindex="0">Verified</i>
-  <b>F7</b><i class="x" data-c="donate" role="button" tabindex="0">Donate</i>
-  <b>F8</b><i data-c="evm" role="button" tabindex="0">EVM</i>
+</div></main>
+<div class="sr" id="sr" role="status" aria-live="polite" aria-atomic="true"></div>
+<nav id="keys" aria-label="keyRX commands and official links">
+  <b aria-hidden="true">01</b><button type="button" data-c="grind">Grind</button>
+  <b aria-hidden="true">02</b><button type="button" data-c="what">What</button>
+  <b aria-hidden="true">03</b><button type="button" data-c="install">Install</button>
+  <b aria-hidden="true">04</b><button type="button" class="x" data-c="match">A match</button>
+  <b aria-hidden="true">05</b><button type="button" data-c="wallets">Wallets</button>
+  <b aria-hidden="true">06</b><button type="button" class="x" data-c="verified">Verified</button>
+  <b aria-hidden="true">07</b><button type="button" class="x" data-c="donate">Donate</button>
+  <b aria-hidden="true">08</b><button type="button" data-c="evm">EVM</button>
   <span class="sp"></span>
-  <b>F9</b><i data-c="github" role="button" tabindex="0">GitHub</i>
-  <b>F10</b><i class="x" data-c="x" role="button" tabindex="0">X</i>
-</div>
+  <b aria-hidden="true">09</b><a href="https://github.com/keyrx/keyrx" target="_blank" rel="noopener noreferrer">GitHub</a>
+  <b aria-hidden="true">10</b><a class="x" href="https://x.com/keyrx_tech" target="_blank" rel="noopener noreferrer">X</a>
+</nav>
 <script>
 (function(){
-/* The version the masthead shows. It must equal Cargo.toml's - a cargo test reads this
-   file and fails the publish if the two ever drift (ruled 2026-08-19: always updated
-   together). The only place on the site a version is written. */
-var VERSION='0.4.12';
+/* The masthead version must equal Cargo.toml. A repository test enforces the
+   pair, and this is the only place on the site where the version is written. */
+var VERSION='0.4.13';
 var out=document.getElementById('out'),scr=document.getElementById('scr'),
     inp=document.getElementById('in'),prom=document.getElementById('prompt'),
     sr=document.getElementById('sr');
 /* One place for the donation address; the CLI carries the same string in
-   its DONATE_SOL const - change both together. Empty until the keyRX vanity
-   grind lands; the panel says so rather than show an address that is not ours. */
+   its DONATE_SOL const - change both together. Empty remains supported and
+   makes the panel say that no Solana donation address is configured. */
 var DONATE_SOL='2pSgpgA6TqdynuAdVpFEZbyVRrKi5oTyvxGL9gjKEYRX';
 /* The EVM donation address - one address for every EVM chain - ground with keyrx --chain evm. Same rule: the CLI's
-   DONATE_EVM const carries the same string, change both together. Empty until set; the panel then shows Solana alone. */
+   DONATE_EVM const carries the same string, change both together. Empty means the panel shows Solana alone. */
 var DONATE_EVM='0x036CC610fb2883DB9504dD172FA94fEe89900000';
 var MOBILE=false, W=78, IN=76;
 function setMode(m){MOBILE=m; W=m?42:78; IN=W-2;}
@@ -148,7 +160,9 @@ function put(s){var d=document.createElement('div');d.innerHTML=paint(s||' ');(o
 function head(t,sub){pan();
   var l='[[c]]╔══[[/]][[w]]▌ '+t+' ▐[[/]]', r=sub?'[[d]] '+sub+' [[/]]':'';
   if(IN-vis(l)-vis(r)+1<2)r='';
-  put(l+'[[c]]'+'═'.repeat(Math.max(2,IN-vis(l)-vis(r)+1))+'[[/]]'+r+'[[c]]╗[[/]]');row('');}
+  var h=put(l+'[[c]]'+'═'.repeat(Math.max(2,IN-vis(l)-vis(r)+1))+'[[/]]'+r+'[[c]]╗[[/]]');
+  h.setAttribute('role','heading');h.setAttribute('aria-level','2');
+  h.setAttribute('aria-label',t+(sub?': '+sub:''));row('');}
 function row(t){return put('[[c]]║[[/]]'+pad(t||'',IN)+'[[c]]║[[/]]');}
 function foot(n){row('');
   if(n&&IN-vis('[[d]] '+n+' [[/]]')-2<2)n='';
@@ -172,9 +186,44 @@ function okl(t){var ls=wrapWords(t,IN-6);row('  [[g]]● '+ls[0]+'[[/]]');
   for(var i=1;i<ls.length;i++)row('    [[g]]'+ls[i]+'[[/]]');}
 function group(n){return Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g,',');}
 function fmtDur(s){if(!isFinite(s)||s<0)return '--';if(s<90)return Math.round(s)+'s';if(s<5400)return (s/60).toFixed(1)+'m';if(s<172800)return (s/3600).toFixed(1)+'h';return (s/86400).toFixed(1)+'d';}
+var B58='123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+function toyOdds(pattern,ic){
+  var variants=1;
+  if(ic)for(var i=0;i<pattern.length;i++)if(/[a-z]/i.test(pattern[i])){
+    var c=pattern[i],n=0;
+    for(var j=0;j<B58.length;j++)if(B58[j].toLowerCase()===c.toLowerCase())n++;
+    variants*=Math.max(1,n);
+  }
+  return Math.pow(58,pattern.length)/variants;
+}
+function copyify(b,value,note){
+  if(!b||!b.replaceWith)return null;
+  var q=document.createElement('button');q.type='button';
+  q.className=(b.className?b.className+' ':'')+'copy';q.textContent=b.textContent;
+  q.setAttribute('data-copy',value);q.setAttribute('data-copy-note',note||'value');
+  q.setAttribute('aria-label','Copy '+(note||'value')+': '+value);
+  q.title=MOBILE?'tap to copy':'click to copy';b.replaceWith(q);return q;
+}
+function copyIn(d,text,value,note){
+  if(!d||!d.getElementsByTagName)return null;
+  var bs=d.getElementsByTagName('b');
+  for(var i=0;i<bs.length;i++)if(bs[i].textContent===text)return copyify(bs[i],value,note);
+  return null;
+}
+function commandRows(c,desc,col){
+  col=col||'y';var parts=[],cur='',limit=IN-3;
+  c.split(' ').forEach(function(w){var nx=cur?cur+' '+w:w;if(vis(nx)>limit&&cur){parts.push(cur);cur=w;}else cur=nx;});
+  if(cur)parts.push(cur);
+  var inline=!MOBILE&&parts.length===1&&(!desc||4+vis(c)+4+vis(desc)<=IN);
+  parts.forEach(function(pt,i){
+    var d=row((i?'   ':' [[y]]$[[/]] ')+'[['+col+']]'+pt+'[[/]]'+(inline&&desc?'  [[d]]# '+desc+'[[/]]':''));
+    copyIn(d,pt,c,'command');
+  });
+  if(desc&&!inline)row('   [[d]]# '+desc+'[[/]]');
+}
 
 /* ── masthead ─────────────────────────────────────────────────────────── */
-/* the mark: a seal, sealed on chain. 64 hex digits on an 8x8 grid, a cell lit where the digit is 8
+/* the mark: a seal derived from 64 hex digits on an 8x8 grid, a cell lit where the digit is 8
    or above; one grid row per text line, a lit cell two full blocks - a text cell is about twice as
    tall as it is wide, so 16x8 is the mark's true square. Rows 0-3 cyan, 4-7 amber. The same glyph
    the CLI prints and the site's favicon shows. */
@@ -182,11 +231,11 @@ var SEAL='fbd454bdefee923628fcb6f24667b772ea942f176f9c7988b5e2d2264b335ac8';
 function sealLines(){var out=[];
   for(var r=0;r<8;r++){var s='';for(var c=0;c<8;c++)s+=parseInt(SEAL[r*8+c],16)>=8?'██':'  ';
     out.push('[['+(r<4?'c':'y')+']]'+s+'[[/]]');}return out;}
-var ABOUT=['Solana and EVM vanity address grinder.','One seed, unlimited addresses, keys for every wallet.','Offline. Open. Verified.','The mark is a record. What it seals comes next.'];
+var ABOUT=['Solana and EVM vanity address grinder.','One seed, many addresses, exact keys and paths.','Offline grinding. Open. Verified.','The mark is a record. What it seals comes next.'];
 function masthead(right){
   var rt='[[d]]'+right+'[[/]]',h='[[w]]keyRX[[/]] [[f]]|[[/]] [[w]]CLI[[/]]';
   if(MOBILE){var sl=sealLines();   // the same 16x8 seal as the desktop; the words beside it, wrapped to the phone grid
-    var side=['[[d]]Solana and EVM vanity[[/]]','[[d]]address grinder. One[[/]]','[[d]]seed, unlimited[[/]]','[[d]]addresses, keys for[[/]]','[[d]]every wallet. Offline.[[/]]','[[d]]Open. Verified.[[/]]','[[f]]The mark is a record.[[/]]'];
+    var side=['[[d]]Solana and EVM vanity[[/]]','[[d]]address grinder. One[[/]]','[[d]]seed, many addresses.[[/]]','[[d]]Exact keys and paths.[[/]]','[[d]]Offline grinding.[[/]]','[[d]]Open. Verified.[[/]]','[[f]]The mark is a record.[[/]]'];
     line(' '+sl[0]+' '+h+' '.repeat(Math.max(1,W-16-1-vis(h)-vis(rt)-2))+rt);
     for(var i=1;i<8;i++)line(' '+sl[i]+(side[i-1]?' '+side[i-1]:''));
     line(' [[f]]What it seals comes next.[[/]]');
@@ -199,68 +248,79 @@ function masthead(right){
   line(' [[f]]'+'━'.repeat(W-2)+'[[/]]');
 }
 
-/* ── the toy grind: REAL random keys, REAL base58, in a worker ─────────── */
+/* ── suffix probability demo: random 32-byte values, real base58 ──────── */
 var WORKER_SRC=[
-'var B58="123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";',
+'var B58="'+B58+'";',
 'function b58(bytes){var d=[0],i,j;for(i=0;i<bytes.length;i++){var c=bytes[i];for(j=0;j<d.length;j++){c+=d[j]<<8;d[j]=c%58;c=(c/58)|0;}while(c>0){d.push(c%58);c=(c/58)|0;}}',
 '  var s="";for(i=0;i<bytes.length&&bytes[i]===0;i++)s+="1";for(j=d.length-1;j>=0;j--)s+=B58[d[j]];return s;}',
 'function suffix(bytes,n){var num=Array.from(bytes),o=new Array(n);for(var i=0;i<n;i++){var rem=0;for(var k=0;k<num.length;k++){var cur=(rem<<8)|num[k];num[k]=(cur/58)|0;rem=cur%58;}o[n-1-i]=B58[rem];}return o.join("");}',
 'var stop=false,tried=0;',
 'onmessage=function(e){var m=e.data;if(m.cmd==="stop"){stop=true;return;}',
-'  stop=false;tried=0;var pat=m.pattern,ic=m.ic,n=pat.length,pk=new Uint8Array(32),last=Date.now(),start=last;',
+'  stop=false;tried=0;var pat=m.pattern,ic=m.ic,n=pat.length,candidate=new Uint8Array(32),last=Date.now(),start=last;',
 '  var want=ic?pat.toLowerCase():pat;',
-'  (function loop(){for(var i=0;i<4000&&!stop;i++){crypto.getRandomValues(pk);var s=suffix(pk,n);if(ic)s=s.toLowerCase();tried++;',
-'     if(s===want){postMessage({hit:true,address:b58(pk),tried:tried,ms:Date.now()-start});return;}}',
+'  (function loop(){for(var i=0;i<4000&&!stop;i++){crypto.getRandomValues(candidate);var s=suffix(candidate,n);if(ic)s=s.toLowerCase();tried++;',
+'     if(s===want){postMessage({hit:true,value:b58(candidate),tried:tried,ms:Date.now()-start});return;}}',
 '   var now=Date.now();if(now-start>90000){postMessage({timeout:true,tried:tried,ms:now-start});return;}',
 '   if(now-last>250){postMessage({hit:false,tried:tried,ms:now-start});last=now;}',
 '   if(!stop)setTimeout(loop,0);})();};'
 ].join('\n');
-var worker=null,grinding=false,liveRow=null,gPattern='',gIc=false,gStart=0;
+var worker=null,workerUrl=null,grinding=false,liveRow=null,gPattern='',gIc=false,gStart=0;
+function releaseWorker(){
+  var active=worker;worker=null;
+  if(active){active.onmessage=null;active.postMessage({cmd:'stop'});active.terminate();}
+  if(workerUrl){URL.revokeObjectURL(workerUrl);workerUrl=null;}
+}
+function settleGrind(label,speak){var active=grinding||!!worker;
+  releaseWorker();grinding=false;
+  if(liveRow){liveRow.remove();liveRow=null;}
+  if(active&&label)line('  [[d]]'+label+'[[/]]');
+  if(active&&speak)announce(speak);
+  return active;
+}
 function startGrind(pattern,ic){
-  if(worker){worker.postMessage({cmd:'stop'});worker.terminate();}
-  worker=new Worker(URL.createObjectURL(new Blob([WORKER_SRC],{type:'text/javascript'})));
+  settleGrind('previous demo stopped',null);
+  workerUrl=URL.createObjectURL(new Blob([WORKER_SRC],{type:'text/javascript'}));
+  var active=new Worker(workerUrl);worker=active;
   grinding=true;gPattern=pattern;gIc=ic;gStart=Date.now();
-  var odds=Math.pow(58,pattern.length)/(ic?Math.pow(2,pattern.replace(/[^a-z]/gi,'').length):1);
-  blank();head('GRIND',MOBILE?'in your browser':'in your browser · nothing leaves it');
+  var odds=toyOdds(pattern,ic);
+  blank();head('SUFFIX DEMO',MOBILE?'in your browser':'random 32-byte values · nothing leaves your browser');
   kv('pattern','*'+pattern+(ic?'   (case-insensitive)':''));
-  kv('odds','1 in '+group(odds));
-  kv('engine',MOBILE?'JS, real keys':'plain JS · real random keys · one thread');
-  if(!MOBILE)note('the Rust binary does 21us per candidate on every core; this is a toy');
-  foot(MOBILE?'stop: type  stop':'a real grind writes secrets to a 0600 file · this shows only the address');
-  liveRow=line('  [[d]]starting…[[/]]');
-  worker.onmessage=function(e){var m=e.data;var rate=m.ms>0?m.tried/(m.ms/1000):0;
+  kv('odds','~1 in '+group(odds));
+  kv('engine',MOBILE?'JS, random values':'plain JS · random 32-byte values · one worker');
+  if(!MOBILE)note('probability and base58 only: no keypair or seed is created here');
+  foot(MOBILE?'stop: type  stop':'the CLI derives controlled wallet addresses; this demo does not');
+  liveRow=line('  [[d]]starting...[[/]]');
+  announce('Suffix demo started for '+pattern);
+  active.onmessage=function(e){if(worker!==active)return;var m=e.data;var rate=m.ms>0?m.tried/(m.ms/1000):0;
     var med=Math.log(0.5)/Math.log(1-1/odds);
-    if(m.timeout){grinding=false;if(liveRow)liveRow.remove();line('  [[d]]the toy stops after 90 s - '+group(m.tried)+' tried, no match; keyrx does not stop[[/]]');bottom();return;}
+    if(m.timeout){releaseWorker();grinding=false;if(liveRow)liveRow.remove();liveRow=null;line('  [[d]]the toy stops after 90 s - '+group(m.tried)+' tried, no match; keyrx does not stop[[/]]');announce('Suffix demo timed out after '+group(m.tried)+' values with no match');bottom();return;}
     if(!m.hit){liveRow.innerHTML=paint(MOBILE
       ?'  [[d]]'+group(m.tried)+' tried · '+group(rate)+'/s · 50% in '+fmtDur(Math.max(0,med/rate-m.ms/1000))+'[[/]]'
       :'  [[d]]'+rpad(group(m.tried),12)+' tried · '+group(rate)+'/sec · '+fmtDur(m.ms/1000)+' · 50% in '+fmtDur(Math.max(0,med/rate-m.ms/1000))+'[[/]]');return;}
-    grinding=false;liveRow.remove();
-    head('MATCH',fmtDur(m.ms/1000)+' · '+group(m.tried)+' tried');
-    var a=m.address;var i=a.length-pattern.length;
+    releaseWorker();grinding=false;liveRow.remove();liveRow=null;
+    head('SUFFIX HIT',fmtDur(m.ms/1000)+' · '+group(m.tried)+' tried');
+    var a=m.value;
     // 44 base58 chars do not fit a 42-column phone row: show head...tail there,
     // with the matched suffix still lit; desktop shows the whole address.
     var shown=MOBILE?(a.slice(0,6)+'...'+a.slice(-(pattern.length+4))):a;
     var j=shown.length-pattern.length;
-    kva('address',shown.slice(0,j)+'[[/]][[y]]'+shown.slice(j));
-    kv('path',"m/44'/501'/0'/0'");
-    kv('seed',MOBILE?'-> [[d]]matches/'+pattern+'.txt[[/]]':'-> [[d]]a real grind writes it to matches/'+pattern+'.txt[[/]]');
-    kv('keys',MOBILE?'-> [[d]]same file, both forms[[/]]':'-> [[d]]base58 + JSON array, same file[[/]]');
+    kva('value',shown.slice(0,j)+'[[/]][[y]]'+shown.slice(j));
+    kv('control',MOBILE?'none - no keypair exists':'none - no keypair, signer, seed or derivation path exists');
     row('');
-    prose('d','this browser toy shows only the address; the binary writes seed, path and both keys to a mode-0600 file. Try again: type  grind XYZ  or press F1');
-    foot(MOBILE?'':'import and verify the address BEFORE funding - always');
-    bottom();};
-  worker.postMessage({pattern:pattern,ic:ic});bottom();
+    prose('d','This is a suffix-and-odds demo, not a wallet. The keyRX CLI derives controlled addresses and writes their recovery material. Try again: type  grind XYZ  or select Grind below.');
+    foot(MOBILE?'never fund this value':'no private key exists for this demo value - never fund it');
+    announce('Suffix hit after '+group(m.tried)+' values');bottom();};
+  active.postMessage({pattern:pattern,ic:ic});bottom();return true;
 }
-function stopGrind(){if(worker){worker.postMessage({cmd:'stop'});worker.terminate();worker=null;}
-  if(grinding){grinding=false;if(liveRow)liveRow.remove();line('  [[d]]stopped[[/]]');}}
+function stopGrind(){return settleGrind('stopped','Suffix demo stopped');}
 
 /* ── panels ───────────────────────────────────────────────────────────── */
 var C={};
 C.what=function(){blank();
-  head('WHAT THIS IS',MOBILE?'':'one seed, unlimited addresses, keys for every wallet');
-  prose('d','Grinds Solana and EVM vanity addresses - an address that ends (or starts) with the letters you choose - and hands you everything a wallet needs to hold it: seed phrase, derivation path, and the key in every import form (base58 and JSON array for Solana, 0x hex for EVM).');row('');
-  prose('d','Fast because solana-keygen grind pays 2048 rounds of PBKDF2 (~1.2 ms) to test ONE address; keyRX pays it once per seed, then walks that seed\'s account indices at ~21 us each: 20-60x the throughput.');row('');
-  prose('d','Standalone. No daemon, no service, no network. Secrets go to a mode-0600 file in a directory of their own, never to the screen unless you ask.');
+  head('WHAT THIS IS',MOBILE?'':'one seed, many addresses, exact keys and paths');
+  prose('d','Grinds Solana and EVM vanity addresses - an address that ends (or starts) with the letters you choose - and writes the seed, derivation path, and supported key forms: base58 and JSON array for Solana, 0x hex for EVM.');row('');
+  prose('d','Fast because solana-keygen grind pays 2048 rounds of PBKDF2 (~1.2 ms) to test ONE address; keyRX pays it once per seed, then walks that seed\'s account indices at ~21 us each. The cited run measured 19.5-32.2x aggregate throughput and 33-55x per core.');row('');
+  prose('d','Standalone. No daemon or service. Grinding is offline; only the explicit --update command asks Cargo to fetch a release. Secrets go to a mode-0600 file on Unix, never to the screen unless you ask.');
   foot('verify -> bench -> estimate -> grind -> show');
   if(!MOBILE){
     head('THE 128','what --indices means and why it matters');
@@ -268,113 +328,100 @@ C.what=function(){blank();
     kv('--indices 8','1.2 ms + 8 x 21 us    =   8 candidates per ~1.4 ms',15);
     kv('--indices 128','1.2 ms + 128 x 21 us  = 128 candidates per ~3.9 ms',15);
     row('');
-    prose('d','The match lands on ANY branch you checked. That only matters if you import the SEED: Solflare takes the path, Phantom clicks "add account" N times. Import the KEY instead and the index never matters - grind wide.');
+    prose('d','The match lands on ANY branch you checked. That only matters if you import the SEED: wallet/version path discovery varies. Import the KEY instead and the index never matters - grind wide.');
     row('');
-    prose('d','EVM: the same 1.2 ms per phrase, then ~65 us per branch (secp256k1 costs more than Ed25519), so --indices buys less there. MetaMask walks indices with "add account" too; the KEY import skips them.');
-    foot('Private key: --indices 128  ·  Seed into Phantom: --indices 8');
+    prose('d','EVM: the same PBKDF2 work per phrase, then one secp256k1 branch at a time, so --indices buys less there. Private-key import skips path navigation; seed recovery requires a wallet that supports the exact printed path.');
+    foot('Private key: --indices 128  ·  Seed recovery: --indices 8');
   }
   blank();};
 C.install=function(){blank();
-  head('INSTALL',MOBILE?'':'Rust 1.85+ · one binary · no dependencies at run time');
-  function crow(c,n){
-    if(!MOBILE){row('  [[y]]$[[/]] '+pad(c,46)+(n?'[[d]]# '+n+'[[/]]':''));return;}   // one note column, shell-comment style; 46 = the longest command + two spaces, so a # never touches a command
-    // phone: the command on its own row (split at a flag boundary if it must), the note beneath as a comment; tap copies the command
-    var parts=[],cur='';c.split(' ').forEach(function(w){var nx=cur?cur+' '+w:w;if(vis(nx)>IN-3&&cur){parts.push(cur);cur=w;}else cur=nx;});if(cur)parts.push(cur);
-    parts.forEach(function(pt,i){var d=row((i?'   ':' [[y]]$[[/]] ')+'[[y]]'+pt+'[[/]]');
-      if(d&&d.getElementsByTagName){var b=d.getElementsByTagName('b');for(var k=0;k<b.length;k++){if(b[k].textContent===pt){b[k].className='y cmdcopy';b[k].setAttribute('data-cmd',c);b[k].title='tap to copy';break;}}}});
-    if(n)row('   [[d]]# '+n+'[[/]]');}
-  crow('cargo install keyrx && clear && keyrx','then the start screen');
-  crow('keyrx verify','run first, always');
-  crow('keyrx bench --indices 128','this box\'s rate, saved');
-  crow('keyrx estimate --ends-with KEYRX --count 10','odds; time to one & ten');
-  crow('keyrx grind --ends-with KEYRX --indices 128','the real thing');
-  crow('keyrx grind --ends-with KEYRX --count 10','ten of them, one file');
-  crow('keyrx grind --ends-with KEYRX --indices 8','Phantom: 8 clicks max');
-  crow('keyrx grind --ends-with KEYRX --passphrase','a 25th word, prompted');
-  crow('keyrx grind --starts-with Key --ends-with RX','both ends at once');
-  crow('keyrx grind --ends-with KEYRX --ignore-case','any case, 32x likelier');
-  crow('keyrx estimate --chain evm --ends-with dead','EVM: hex, any case');
-  crow('keyrx grind --chain evm --ends-with dead','0x…dead, MetaMask/Rabby');
-  crow('keyrx show','every match file');
-  crow('keyrx show KEYRX --keys','one file, keys revealed');
-  crow('keyrx --update','the latest, then this');
+  head('INSTALL',MOBILE?'':'Rust 1.85+ · one binary · no daemon or service');
+  commandRows('cargo install --locked keyrx','install from crates.io');
+  commandRows('keyrx','the start screen');
+  commandRows('keyrx verify','run first, always');
+  commandRows('keyrx bench --indices 128','this box\'s 128-index rate, saved');
+  commandRows('keyrx estimate --ends-with KEYRX --indices 128 --count 10','odds; measured time to one & ten');
+  commandRows('keyrx grind --ends-with KEYRX --indices 128','the real thing');
+  commandRows('keyrx grind --ends-with KEYRX --count 10','ten of them, one file');
+  commandRows('keyrx grind --ends-with KEYRX --indices 8','seed path index bounded to 0-7');
+  commandRows('keyrx grind --ends-with KEYRX --passphrase','a 25th word, prompted');
+  commandRows('keyrx grind --starts-with Key --ends-with RX','both ends at once');
+  commandRows('keyrx grind --ends-with KEYRX --ignore-case','any case, 32x likelier');
+  commandRows('keyrx estimate --chain evm --ends-with dead','EVM: hex, any case');
+  commandRows('keyrx grind --chain evm --ends-with dead','0x...dead, MetaMask/Rabby');
+  commandRows('keyrx show','every match file');
+  commandRows('keyrx show KEYRX --keys','one file, keys revealed');
+  commandRows('keyrx --update','the latest, then this');
   row('');
-  if(MOBILE){note('or from source:');note('git clone github.com/keyrx/keyrx');note('cd keyrx');note('RUSTFLAGS="-C target-cpu=native" \\');note('  cargo install --path .');note('# . = the clone you just entered');
-    foot('keyrx alone prints the start screen');blank();return;}
-  note('or from source:  git clone https://github.com/keyrx/keyrx && cd keyrx');
-  note('                 RUSTFLAGS="-C target-cpu=native" cargo install --path .');
-  note('                 # . = the clone you just entered · tuned to this CPU');
+  note('from source (POSIX shell):');
+  commandRows('git clone https://github.com/keyrx/keyrx','clone the repository');
+  commandRows('cd keyrx','enter the clone');
+  commandRows('RUSTFLAGS="-C target-cpu=native" cargo install --locked --path .','tuned to this CPU');
+  prose('d','bench, grind, and show require Unix owner-only file semantics. On Windows, run them under WSL.');
   foot('keyrx (the command) alone prints a start screen that explains every flag');blank();};
 C.match=function(){blank();
-  head('WHAT A MATCH WRITES',MOBILE?'':'five lines, mode 0600, in a directory of their own');
+  head('WHAT A MATCH WRITES',MOBILE?'':'Solana: five standard lines, mode 0600 on Unix');
   kv('address','the vanity address');
   kv('path',MOBILE?"m/44'/501'/N'/0'":"m/44'/501'/N'/0' - where it sits in the seed's tree");
   kv('seed',MOBILE?'12 or 24 words, whole tree':'the 12 or 24 words - restores the WHOLE tree');
-  kv('privkey',MOBILE?'base58, for Phantom':'base58 keypair - Phantom "Import Private Key"');
-  kv('keypair',MOBILE?'JSON array, for Solflare':'the same key as a JSON array - Solflare, solana-keygen');
+  kv('privkey',MOBILE?'base58, wallet import':'base58 keypair - Phantom/Solflare private-key import');
+  kv('keypair',MOBILE?'JSON, solana-keygen':'the same key as a JSON array - solana-keygen');
   row('');
   row('  [[w]]'+(MOBILE?'EVM: four lines, matches/evm/':'EVM (--chain evm): four lines, under matches/evm/')+'[[/]]');
   kv('address',MOBILE?'0x + 40 hex, EIP-55 case':'0x + forty hex digits, in EIP-55 case');
-  kv('path',MOBILE?"m/44'/60'/0'/0/N":"m/44'/60'/0'/0/N - MetaMask, Rabby, Ledger Live walk it");
+  kv('path',MOBILE?"m/44'/60'/0'/0/N":"m/44'/60'/0'/0/N - the software-wallet account path");
   kv('seed',MOBILE?'12 or 24 words, whole tree':'the 12 or 24 words - restores the WHOLE tree');
   kv('privkey',MOBILE?'0x hex, MetaMask/Rabby':'0x hex - MetaMask/Rabby "Import account -> Private key"');
   row('');
-  prose('d','A key import lands on the exact address in one paste, standalone - a seed will not recover it, so the file IS the backup. Files are named after the pattern: KEYRX.txt.');
+  prose('d','A key import lands on the exact address in one paste, standalone. The receiving wallet\'s unrelated seed will not recover that imported account. Keep the match file, or an equivalent backup of its recovery material; the keyRX seed, exact path and passphrase (if used) can restore it. Files are named after the pattern: KEYRX.txt.');
   prose('d','--passphrase grinds with a BIP39 passphrase (the 25th word): prompted, hidden, never stored. The file then says so - the seed alone will not reach that address; the keys will. Import those by key.');
-  foot(MOBILE?'':'~/.local/share/keyrx/matches/ · never the current directory');blank();};
+  foot(MOBILE?'':'default: managed matches directory · --out overrides');blank();};
 C.wallets=function(){blank();
   head('WALLETS','which route, which flags');
   function wal(w,t){if(MOBILE){row('  [[w]]'+w+'[[/]]');prose('d',t);}else row('  [[w]]'+w+'[[/]]  [[d]]'+t+'[[/]]');}
   function cmd(c){
-    if(!MOBILE){row('    [[c]]'+c+'[[/]]');return;}
+    if(!MOBILE){var d=row('    [[c]]'+c+'[[/]]');copyIn(d,c,c,'command');return;}
     // phone: the command stays INSIDE the box, split at a flag boundary into rows that fit the grid;
     // a tap on either row copies the whole command
     var parts=[],cur='';c.split(' ').forEach(function(w){var nx=cur?cur+' '+w:w;if(vis(nx)>IN-4&&cur){parts.push(cur);cur=w;}else cur=nx;});if(cur)parts.push(cur);
-    parts.forEach(function(pt,i){var d=row((i?'    ':'  ')+'[[c]]'+pt+'[[/]]');
-      if(d&&d.getElementsByTagName){var b=d.getElementsByTagName('b');for(var k=0;k<b.length;k++){if(b[k].textContent===pt){b[k].className='c cmdcopy';b[k].setAttribute('data-cmd',c);b[k].title='tap to copy';break;}}}});}
-  wal('Any wallet','key import - simplest, exact address');
+    parts.forEach(function(pt,i){var d=row((i?'    ':'  ')+'[[c]]'+pt+'[[/]]');copyIn(d,pt,c,'command');});}
+  wal('Private-key route','Phantom/Solflare - simplest, exact address');
   cmd('keyrx grind --ends-with KEYRX --indices 128');
-  prose('d','keyrx show KEYRX --keys: base58 for Phantom, JSON array for Solflare. Standalone; keep the file. A wallet must exist first (any seed; it never sees this key): the key import ADDS an account.');row('');
-  wal('Phantom','by seed - inside a recoverable HD wallet');
+  prose('d','keyrx show KEYRX --keys: base58 for the current Phantom/Solflare private-key flow; JSON is for solana-keygen. UI labels vary by version. Phantom currently offers private-key import during onboarding and inside an existing wallet. The imported account is standalone; keep the file.');row('');
+  wal('Seed route','path discovery depends on the installed wallet/version');
   cmd('keyrx grind --ends-with KEYRX --words 12 --indices 8');
-  prose('d','import the 12 words, then "add account" until the address shows (0-7 clicks). ~4x slower to find.');row('');
-  wal('Solflare','by seed - takes a custom path');
-  cmd('keyrx grind --ends-with KEYRX --indices 128');
-  prose('d','import the words, choose the exact path the match printed.');row('');
+  prose('d','restore with tooling that can select the exact printed path, then verify the address. Eight indices bound the possible match index to 0-7.');row('');
+  wal('Solflare','by seed - path discovery depends on the installed version');
+  cmd('keyrx grind --ends-with KEYRX --indices 8');
+  prose('d','use the printed path where supported and verify the exact address. Private-key import above is the reliable exact-address lane.');row('');
   wal('Passphrase','a 25th word on the seed - import by KEY');
   cmd('keyrx grind --ends-with KEYRX --passphrase');
   prose('d','prompted, hidden, never stored. The seed alone will not reach that address; the privkey will, and most browser wallets have no passphrase field on seed import anyway.');row('');
-  wal('EVM','MetaMask, Rabby, Ledger Live - one key, every EVM chain');
+  wal('EVM','MetaMask and Rabby key import - one key, every EVM chain');
   cmd('keyrx grind --chain evm --ends-with dead');
-  prose('d','hex, any case by default (hex has none of its own); 0x may lead a prefix. The match file carries the 0x hex private key. MetaMask/Rabby: a wallet must exist first (any seed; it never sees this key), then account menu -> Import account -> Private key: the exact address on every EVM chain, including any network you add. Or import THIS seed as the wallet and "add account" N times. --checksum: the letters must also land in EIP-55 case as typed - each letter halves the odds; estimate prints both.');row('');
+  prose('d','hex, any case by default (hex has none of its own); 0x may lead a prefix. The match file carries the 0x hex private key. MetaMask/Rabby: use the installed version\'s Import account -> Private key route for the exact address on every EVM chain, including any network you add. Seed recovery requires a wallet that supports the exact printed path; verify before funding. --checksum adds the typed EIP-55 case; estimate labels partial checksum odds approximate.');row('');
   wal('Prefix','the address STARTS with your letters');
   cmd('keyrx grind --starts-with Key --indices 128');
-  prose('d','slower per candidate - a prefix needs the whole address encoded, a suffix only its last N characters. Same odds per letter. Combinable: --starts-with Key --ends-with RX.');
-  foot('estimate first: it prints the odds for YOUR machine');blank();};
+  prose('d','slower per candidate - a prefix needs the whole address encoded, a suffix only its last N characters. Solana signing-key outputs are not uniform base58 text, so every odds row is an approximate model; prefixes add length bias. Full or near-complete text is refused when a signing-key preimage cannot be proven. Combinable: --starts-with Key --ends-with RX.');
+  foot('probability is not machine-specific · a matching benchmark profile supplies time');blank();};
 C.evm=function(){blank();
   head('EVM',MOBILE?'':'Ethereum, Base, Arbitrum, Polygon, BNB, Robinhood: one key for all');
   // the CLI's EVM panel, row for row: a key column of 16 and values that fit beside it; on
   // the phone each key heads a short paragraph instead, because nothing fits beside anything
   function L(k,lines){if(MOBILE){if(k)row('  [[w]]'+k+'[[/]]');prose('d',lines.join(' '));}else{lines.forEach(function(l,i){kv(i?'':k,l,16);});}}
-  L('--chain evm',['a 0x address: forty hex digits. secp256k1 in the BIP44','tree at m/44\'/60\'/0\'/0/N - the path MetaMask, Rabby,','Ledger Live, Trezor Suite walk. One key, every chain.']);row('');
+  L('--chain evm',['a 0x address: forty hex digits. secp256k1 in the BIP44','tree at m/44\'/60\'/0\'/0/N - the software-wallet','account path keyRX derives. One key, every EVM chain.']);row('');
   L('patterns',['0-9 and a-f. Matched in ANY case by default: hex has','no case of its own. 0x is allowed in front of a prefix.']);
   L('--checksum',['the letters must ALSO come out in EIP-55 case exactly','as you typed them. Each letter halves the odds: rarer,','and it shows. estimate prints both numbers.']);row('');
-  L('import',['MetaMask/Rabby: a wallet must exist first (any seed; it','never sees this key). Then account menu -> Import account','-> Private key -> the 0x hex: this address, every chain.','Or import THIS seed as the wallet, then \'add account\' N','times: account N+1 is this one.']);row('');
+  L('import',['MetaMask/Rabby: use the installed version\'s Import account','-> Private key route -> paste the 0x hex: this address,','every chain. Seed recovery requires support for the exact','printed path; verify the restored address before funding.']);row('');
   L('files',['matches/evm/<pattern>.txt  ·  keyrx show evm/<pattern>']);
   L('measured',['333,501 addresses/sec on 28 threads (11,911 per thread);','six hex in under a minute, eight in hours. bench yours.']);
   L('verify',['the abandon mnemonic, EIP-55\'s examples, private key 1,','and the test seed against an independent implementation.']);row('');
-  function crow(c,n){
-    if(!MOBILE){row('  [[y]]$[[/]] '+pad(c,46)+(n?'[[d]]# '+n+'[[/]]':''));return;}
-    var parts=[],cur='';c.split(' ').forEach(function(w){var nx=cur?cur+' '+w:w;if(vis(nx)>IN-3&&cur){parts.push(cur);cur=w;}else cur=nx;});if(cur)parts.push(cur);
-    parts.forEach(function(pt,i){var d=row((i?'   ':' [[y]]$[[/]] ')+'[[y]]'+pt+'[[/]]');
-      if(d&&d.getElementsByTagName){var b=d.getElementsByTagName('b');for(var k=0;k<b.length;k++){if(b[k].textContent===pt){b[k].className='y cmdcopy';b[k].setAttribute('data-cmd',c);b[k].title='tap to copy';break;}}}});
-    if(n)row('   [[d]]# '+n+'[[/]]');}
-  crow('keyrx bench --chain evm','the EVM rate, saved');
-  crow('keyrx estimate --chain evm --ends-with dead','odds; hex, any case');
-  crow('keyrx grind --chain evm --ends-with dead','0x…dead, MetaMask/Rabby');
-  crow('keyrx grind --chain evm --ends-with DeAd','add --checksum: DeAd');
-  crow('keyrx show evm/dead --keys','the 0x hex private key');
-  crow('keyrx networks','add a network: Robinhood');
+  commandRows('keyrx bench --chain evm','rare 16-hex workload, saved');
+  commandRows('keyrx estimate --chain evm --ends-with dead','odds; hex, any case');
+  commandRows('keyrx grind --chain evm --ends-with dead','0x...dead, MetaMask/Rabby');
+  commandRows('keyrx grind --chain evm --ends-with DeAd','add --checksum: DeAd');
+  commandRows('keyrx show evm/dead --keys','the 0x hex private key');
+  commandRows('keyrx networks','add a network: Robinhood');
   row('');
   // ADD A NETWORK: the same values keyrx networks prints, each one click/tap-to-copy. Checked
   // against the live RPC (eth_chainId = 0x1237 = 4663) on 2026-08-21. Nothing here is guessed.
@@ -386,24 +433,26 @@ C.evm=function(){blank();
   // scheme on its own row so it fits the grid, and the copy still carries the whole URL
   function nv(k,v){var disp=v;if(MOBILE&&v.indexOf('https://')===0)disp=v.slice(8);
     var d;if(MOBILE&&disp.length>28){row('  [[d]]'+k+'[[/]]');d=row('  [[y]]'+disp+'[[/]]');}else d=row('  [[d]]'+pad(k,MOBILE?9:16)+'[[/]][[y]]'+disp+'[[/]]');
-    if(d&&d.getElementsByTagName){var b=d.getElementsByTagName('b');for(var i=0;i<b.length;i++){if(b[i].textContent===disp){b[i].className='y cmdcopy';b[i].setAttribute('data-cmd',v);b[i].title=MOBILE?'tap to copy':'click to copy';break;}}}}
+    copyIn(d,disp,v,'network value');}
   nv(MOBILE?'name':'network name','Robinhood Chain');
   nv(MOBILE?'RPC':'RPC URL','https://rpc.mainnet.chain.robinhood.com');
   nv(MOBILE?'chain ID':'chain ID','4663');
   nv(MOBILE?'currency':'currency symbol','ETH');
-  nv(MOBILE?'explorer':'block explorer','https://explorer.mainnet.chain.robinhood.com');
+  nv(MOBILE?'explorer':'block explorer','https://robinhoodchain.blockscout.com');
   prose('f',MOBILE?'tap a value to copy it (URLs copy with https://) · chain id checked against the live RPC 2026-08-21':'click a value to copy it · the explorer is a Blockscout · chain id checked against the live RPC 2026-08-21');
   foot('the 25th word, --count, --out, --words work the same on both chains');blank();};
 C.verified=function(){blank();
-  head('VERIFIED',MOBILE?'':'not asserted - proven, on 2026-08-16, and pinned as tests');
+  head('VERIFIED',MOBILE?'':'proof pinned as tests');
+  prose('d','Solana proof 2026-08-16 · EVM proof 2026-08-20');
   okl('SLIP-0010 matches solana-keygen at both path styles');
   okl('a ground hit\'s seed re-derives the address in solana-keygen');
   okl('base58 key -> solana-keygen pubkey -> identical address');
   okl('JSON keypair line, copied verbatim -> identical address');
   okl('50,000 pubkeys x 10 suffix lengths: b58 suffix == full encoding');
   okl('EVM: the abandon mnemonic, EIP-55\'s examples, private key 1, and this tool\'s test seed at four indices against an independent implementation - pinned');
-  okl('42 tests, clippy clean, every frame line measured');
-  okl('each release: trusted publishing, Sigstore provenance, a reproducible package check, an SBOM; cargo audit + CodeQL on every change; OpenSSF Best Practices passing. The README carries the live badges.');
+  okl('the test suite covers derivation, matching, files and every CLI frame line');
+  okl('cargo audit runs when dependencies change and weekly; CodeQL runs on pushes and pull requests');
+  prose('f','Release evidence is tag-specific. Check the exact crates.io version, that tag\'s Actions runs and its GitHub Release before relying on provenance, reproducibility or an SBOM. The README links the live security records.');
   row('');
   kv('bench',MOBILE?'24.4x at 128 idx':'24.4x solana-keygen at 128 indices, 32.2x at 256');
   kv('per core',MOBILE?'33-55x baseline':'9,495-15,636/sec vs 284 baseline (33-55x)');
@@ -416,8 +465,8 @@ C.donate=function(){blank();
     if(MOBILE){row('  [[y]]'+DONATE_SOL.slice(0,5)+'...'+DONATE_SOL.slice(-5)+'[[/]]  [[f]]tap to copy[[/]]');}
     else row('  [[y]]'+DONATE_SOL+'[[/]]');
     (function(){var b=out.querySelectorAll('b.y');for(var i=b.length-1;i>=0;i--){var t=b[i].textContent.trim();
-      if(t===DONATE_SOL||t===DONATE_SOL.slice(0,5)+'...'+DONATE_SOL.slice(-5)){b[i].className='y addr';b[i].title='click to copy';break;}}})();
-    if(MOBILE)row('  [[w]]keyrx.sol[[/]]  [[f]]by name[[/]]'); else row('  [[w]]keyrx.sol[[/]]  [[f]]the same address, by name[[/]]');
+      if(t===DONATE_SOL||t===DONATE_SOL.slice(0,5)+'...'+DONATE_SOL.slice(-5)){copyify(b[i],DONATE_SOL,'Solana address');break;}}})();
+    row(MOBILE?'  [[f]]literal address is authoritative[[/]]':'  [[f]]the literal address above is authoritative[[/]]');
   } else {
     prose('d','address not set yet - it will be a keyRX vanity address, ground with this tool.');
   }
@@ -427,7 +476,7 @@ C.donate=function(){blank();
     if(MOBILE){row('  [[y]]'+DONATE_EVM.slice(0,6)+'...'+DONATE_EVM.slice(-4)+'[[/]]  [[f]]tap to copy[[/]]');}
     else row('  [[y]]'+DONATE_EVM+'[[/]]');
     (function(){var b=out.querySelectorAll('b.y');for(var i=b.length-1;i>=0;i--){var t=b[i].textContent.trim();
-      if(t===DONATE_EVM||t===DONATE_EVM.slice(0,6)+'...'+DONATE_EVM.slice(-4)){b[i].className='y addr evm';b[i].title='click to copy';break;}}})();
+      if(t===DONATE_EVM||t===DONATE_EVM.slice(0,6)+'...'+DONATE_EVM.slice(-4)){copyify(b[i],DONATE_EVM,'EVM address');break;}}})();
     if(MOBILE){row('  [[w]]keyrx.eth · keyrx.base.eth[[/]]');row('  [[w]]keyrx.hoodfi.eth[[/]]  [[f]]same address by name[[/]]');}
     else row('  [[w]]keyrx.eth   keyrx.base.eth   keyrx.hoodfi.eth[[/]]  [[f]]the same address, by name[[/]]');
   }
@@ -436,50 +485,50 @@ C.donate=function(){blank();
   row('');
   prose('w','There will be no keyRX token from the developer of keyRX.');
   prose('d','No presale. No airdrop. No community round. No Phase 3.');row('');
-  prose('d','You can launch one - someone always does. The ask: creator fees plus 3% of supply to the address above, and the token\'s socials pointed at @keyrx_tech and keyrx.tech - the only two places this project exists. What you may not do is LARP as this project while you do it: no "official", no borrowed name, no invented team.');row('');
-  row('  [[w]]X is the only place keyRX exists.[[/]]');
-  prose('d','No Discord, no Telegram, no Reddit, no group chat, no "community". If something calls itself keyRX anywhere other than @keyrx_tech or keyrx.tech, it is not us.');
+  prose('d','You can launch one - someone always does. The ask: creator fees plus 3% of supply to the address above, and the token\'s socials pointed at @keyrx_tech and keyrx.tech. What you may not do is LARP as this project while you do it: no "official", no borrowed name, no invented team.');row('');
+  prose('w','@keyrx_tech is the only official social account.');
+  prose('d','No Discord, no Telegram, no Reddit, no group chat, no "community". Verify the project through keyrx.tech; its official source is github.com/keyrx/keyrx and its package is crates.io/crates/keyrx.');
   foot('a listing is not an endorsement · DYOR');blank();};
 out.addEventListener('click',function(e){
-  var c=e.target.closest&&e.target.closest('b.inst');
-  if(c){navigator.clipboard.writeText(INSTALL).then(function(){blank();line('  [[g]]Copied[[/]] [[d]]- paste it in a terminal[[/]]');blank();bottom();});return;}
-  var cc=e.target.closest&&e.target.closest('b.cmdcopy');
-  if(cc){navigator.clipboard.writeText(cc.getAttribute('data-cmd')).then(function(){blank();line('  [[g]]Copied[[/]] [[d]]- the whole command[[/]]');blank();bottom();});return;}
-  var t=e.target.closest&&e.target.closest('b.addr');if(!t)return;
-  var evm=t.classList.contains('evm');var addr=evm?DONATE_EVM:DONATE_SOL;if(!addr)return;
-  navigator.clipboard.writeText(addr).then(function(){blank();line('  [[g]]Copied[[/]] [[d]]- '+(evm?'EVM':'Solana')+' address[[/]]');blank();bottom();});});
+  var t=e.target.closest&&e.target.closest('button.copy');if(!t)return;
+  var value=t.getAttribute('data-copy'),what=t.getAttribute('data-copy-note')||'value';
+  function result(ok){var msg=ok?'Copied - '+what:'Copy failed - select the text and copy it';
+    blank();line('  [['+(ok?'g':'r')+']]'+msg+'[[/]]');blank();announce(msg);bottom();}
+  if(!navigator.clipboard||!navigator.clipboard.writeText){result(false);return;}
+  navigator.clipboard.writeText(value).then(function(){result(true);},function(){result(false);});});
 C.grind=function(arg){var p=(arg||'').trim();var ic=false;
   if(/\s--ignore-case$/.test(p)||/\s-i$/.test(p)){ic=true;p=p.replace(/\s(--ignore-case|-i)$/,'');}
-  if(!p){blank();
-    head('TRY IT','a real grind, in this tab');
-    prose('d','Type a pattern and watch it find an address that ends with it. Real random keys, real base58, plain JavaScript on one thread - a toy next to the Rust binary, and honest about it.');row('');
-    if(MOBILE){kva('','grind ab   [[d]]seconds[[/]]');kva('','grind KEYRX [[d]]1 in 11.3M[[/]]');kva('','grind ab -i [[d]]any case[[/]]');}
+  if(!p){stopGrind();blank();
+    head('TRY IT','a suffix probability demo');
+    prose('d','Type a pattern and watch random 32-byte values pass through real base58 encoding until one ends with it. No keypair, seed or derivation path is created in this browser.');row('');
+    if(MOBILE){kva('','grind ab   [[d]]seconds[[/]]');kva('','grind EYRX [[d]]1 in 11.3M[[/]]');kva('','grind ab -i [[d]]any case[[/]]');}
     else{kva('','grind ab          [[d]]two letters: seconds[[/]]');
-    kva('','grind KEYRX        [[d]]four: 1 in 11.3M - go make coffee[[/]]');
+    kva('','grind EYRX         [[d]]four: 1 in 11.3M - go make coffee[[/]]');
     kva('','grind key -i      [[d]]case-insensitive[[/]]');}
     row('');
-    prose('d','Nothing leaves your browser. The address shown is real but the toy keeps no key - and you should never fund an address from a web page anyway.');
+    prose('d','Nothing leaves your browser. A hit is only a demo value, not a wallet you control, and must never be funded.');
     foot('base58 has no 0 O I l');blank();return;}
-  for(var i=0;i<p.length;i++)if('123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'.indexOf(p[i])<0){
+  for(var i=0;i<p.length;i++)if(B58.indexOf(p[i])<0){
     blank();line('  [[r]]'+p[i]+' is not base58[[/]] [[d]](0 O I l are excluded)[[/]]');blank();return;}
-  if(p.length>4){blank();line('  [[r]]four characters max in the browser toy[[/]] [[d]]- it runs on your CPU and stops after 90 s; keyrx takes 16 and is 20-60x faster[[/]]');blank();return;}
-  startGrind(p,ic);};
-C.stop=function(){stopGrind();};
+  if(p.length>4){blank();line('  [[r]]four characters max in the browser demo[[/]] [[d]]- it stops after 90 s; the CLI takes suffixes up to 16[[/]]');blank();return;}
+  return startGrind(p,ic);};
+C.stop=function(){if(!stopGrind())announce('No suffix demo was running');return true;};
 C.help=function(){blank();head('COMMANDS');
-  [['grind X',MOBILE?'find an address *X':'grind for an address ending in X'],['stop','stop the grind'],['what','what this is'],
+  [['grind X',MOBILE?'demo a suffix *X':'run the browser suffix demo'],['stop','stop the demo'],['what','what this is'],
    ['install','three lines'],['match','what a match writes'],['wallets','which route'],
-   ['verified','the proof'],['donate','optional, changes nothing'],['evm','--chain evm, 0.4.0'],['github','the repository'],['x','@keyrx_tech'],['cls','clear']]
+   ['verified','the proof'],['donate','optional, changes nothing'],['evm','--chain evm (since 0.4.0)'],['github','the repository'],['x','@keyrx_tech'],['cls','clear']]
    .forEach(function(c){row('  [[y]]'+pad(c[0],12)+'[[/]][[d]]'+c[1]+'[[/]]');});
   foot('the bar below does the same');blank();};
-C.cls=function(){out.innerHTML='';masthead('v'+VERSION);blank();installBox();blank();};   // clear keeps the masthead and the install box - the screen, not the identity
-C.github=function(){window.open('https://github.com/keyrx/keyrx','_blank');};
-C.x=function(){window.open('https://x.com/keyrx_tech','_blank');};
+C.cls=function(){stopGrind();out.innerHTML='';masthead('v'+VERSION);blank();installBox();blank();};   // clear keeps the masthead and the install box - the screen, not the identity
+C.github=function(){window.open('https://github.com/keyrx/keyrx','_blank','noopener,noreferrer');};
+C.x=function(){window.open('https://x.com/keyrx_tech','_blank','noopener,noreferrer');};
 C['?']=C.help;C.clear=C.cls;
 
 function announce(t){sr.textContent=t;}
 function run(raw){var parts=raw.trim().split(/\s+/),c=(parts[0]||'').toLowerCase(),arg=parts.slice(1).join(' ');
   line('[[y]]keyRX>[[/]] '+raw);if(!c)return;
-  if(C[c]){C[c](arg);announce(c);}
+  if(c!=='grind'&&c!=='stop'&&c!=='github'&&c!=='x')stopGrind();
+  if(C[c]){if(C[c](arg)!==true)announce(c+' command complete');}
   else{blank();line('  [[r]]Bad command[[/]] - [[w]]'+raw.trim()+'[[/]]');line('  [[f]]Type[[/]] [[y]]help[[/]][[f]].[[/]]');blank();}
   bottom();}
 var navBase=0;
@@ -489,21 +538,16 @@ function resize(){inp.style.width=(inp.value.length+1)+'ch';}
 // the toy takes four characters after `grind`: the line stops there, and says so once
 var capNoted=false;
 function capGrind(){var m=/^(\s*grind\s+)(\S+)(.*)$/i.exec(inp.value);if(m&&m[2].length>4){inp.value=m[1]+m[2].slice(0,4);
-  if(!capNoted){capNoted=true;blank();line('  [[d]]four characters max in the browser toy - it runs on your CPU; keyrx takes 16[[/]]');bottom();}}}
+  if(!capNoted){capNoted=true;blank();line('  [[d]]four characters max in the browser demo; the CLI takes suffixes up to 16[[/]]');bottom();}}}
 inp.addEventListener('input',function(){capGrind();resize();});resize();
 inp.addEventListener('keydown',function(e){if(e.key==='Enter'){var v=inp.value;inp.value='';resize();run(v);}});
-document.querySelectorAll('#keys i').forEach(function(t){t.addEventListener('click',function(){
+document.querySelectorAll('#keys button[data-c]').forEach(function(t){t.addEventListener('click',function(){
   inp.value='';runNav(t.dataset.c);bottom();if(!MOBILE)inp.focus();});});
-/* F1-F10 as the bar shows them, the way the CLI's siblings do it. (Pages redeploy 2026-08-19; F8 became EVM on 2026-08-21 and
-   GitHub/X moved to F9/F10.) F5 is reload in every browser and F1 is help - a preventDefault so the key does what the bar says;
-   F11 and F12 stay the browser's. */
-/* On a phone (<=700px) the bar hides A match, Verified, Donate and X (class x): seven buttons
-   clipped Install and Wallets at 360px once EVM joined; six fit. Everything hidden is still a typed
-   command (START lists them) and is on the desktop bar. Ruled 2026-08-22: the bar was very cramped once
-   EVM joined and something had to go. */
-var FK={F1:'grind',F2:'what',F3:'install',F4:'match',F5:'wallets',F6:'verified',F7:'donate',F8:'evm',F9:'github',F10:'x'};
-addEventListener('keydown',function(e){if(FK[e.key]&&!e.altKey&&!e.ctrlKey&&!e.metaKey){e.preventDefault();inp.value='';runNav(FK[e.key]);bottom();}});
-scr.addEventListener('click',function(e){if(!e.target.closest('a,[data-c]')&&(!MOBILE||e.target.closest('#prompt')))inp.focus();});
+/* On a phone (<=700px), the bar hides A match, Verified, Donate and X (class x)
+   so Install and Wallets remain readable at 360px. Hidden items remain typed
+   commands (START lists them) and remain on the desktop bar. Native browser
+   function keys are deliberately not captured. */
+scr.addEventListener('click',function(e){if(!e.target.closest('a,button,[data-c]')&&(!MOBILE||e.target.closest('#prompt')))inp.focus();});
 
 /* ── fit: solve the type size for the grid, then VERIFY the render ─────── */
 function fit(){
@@ -522,27 +566,27 @@ function fit(){
   probe.remove();document.documentElement.style.setProperty('--fs',size.toFixed(2)+'px');
 }
 var booted=false;
-function rerender(){out.innerHTML='';start();}
-var INSTALL='cargo install keyrx && clear && keyrx';
+function rerender(){stopGrind();out.innerHTML='';start();}
+var INSTALL='cargo install --locked keyrx';
 function installBox(){
-  head('INSTALL',MOBILE?'':'one line, then the start screen');
+  head('INSTALL',MOBILE?'':'one command, then run keyrx');
   var padn=Math.max(0,Math.floor((IN-INSTALL.length)/2));
   var d=row(' '.repeat(padn)+'[[y]]'+INSTALL+'[[/]]');
-  if(d&&d.getElementsByTagName){var b=d.getElementsByTagName('b');for(var i=0;i<b.length;i++){if(b[i].textContent===INSTALL){b[i].className='y inst';b[i].title='click to copy';break;}}}
+  copyIn(d,INSTALL,INSTALL,'install command');
   row('');
-  if(MOBILE){wrapWords('Solana vanity addresses, 20-60x faster than solana-keygen grind - and EVM',IN-4).forEach(function(l){row('  [[w]]'+l+'[[/]]');});
-    wrapWords('- and every match hands you the seed, the path, and the key in every wallet-import form. One Rust binary. No daemon, no network.',IN-4).forEach(function(l){row('  [[d]]'+l+'[[/]]');});}
-  else{row('  [[w]]Solana vanity addresses, 20-60x faster than solana-keygen grind - and EVM[[/]]');
-       row('  [[d]]- and every match hands you the seed, the path, and the key in every[[/]]');
-       row('  [[d]]wallet-import form. One Rust binary. No daemon, no network.[[/]]');}
-  foot(MOBILE?'tap to copy · Rust 1.85+ · MIT':'click the line to copy it · Rust 1.85+ · MIT');
+  if(MOBILE){wrapWords('Solana vanity addresses, measured at 19.5-32.2x the cited aggregate baseline - and EVM',IN-4).forEach(function(l){row('  [[w]]'+l+'[[/]]');});
+    wrapWords('- and every match writes the seed, path, and supported key forms. One Rust binary. Offline grinding. No daemon.',IN-4).forEach(function(l){row('  [[d]]'+l+'[[/]]');});}
+  else{row('  [[w]]Solana vanity addresses, 19.5-32.2x measured aggregate - and EVM[[/]]');
+       row('  [[d]]- and every match writes the seed, path, and supported key forms.[[/]]');
+       row('  [[d]]One Rust binary. Offline grinding. No daemon.[[/]]');}
+  foot(MOBILE?'tap to copy · then run keyrx · MIT':'copy it · then run keyrx · Rust 1.85+ · MIT');
 }
 function start(){
   masthead('v'+VERSION);
   blank();installBox();
   blank();
   head('START',MOBILE?'':'the whole tool, in one line each');
-  kva('grind X',MOBILE?'try it here, live':'try it here, live - a real grind in this tab');
+  kva('grind X',MOBILE?'suffix demo':'browser suffix probability demo');
   kva('install',MOBILE?'to your machine':'every command, in the order you reach for it');
   kva('what',MOBILE?'the idea':'the idea, and THE 128');
   kva('match',MOBILE?'the file it writes':'the five lines a match writes');
@@ -555,12 +599,13 @@ function start(){
   if(MOBILE)line('  [[f]]Tap[[/]] [[y]]Grind[[/]] [[f]]below to try it live.[[/]]');
   else line('  [[f]]Type[[/]] [[y]]grind ab[[/]] [[f]]to see it find one in seconds.[[/]]');
   blank();navBase=out.children.length;
-  prom.style.display='flex';if(!MOBILE)inp.focus();bottom();booted=true;
+  prom.style.display='flex';if(!MOBILE)inp.focus();scr.scrollTop=0;booted=true;
 }
 fit();addEventListener('resize',fit);
 if(document.fonts&&document.fonts.ready)document.fonts.ready.then(fit);
 start();
-window.__kx={run:run,out:out,vis:vis,W:function(){return W;},mode:function(m){setMode(m);out.innerHTML='';}};
+window.__kx={run:run,runNav:runNav,out:out,vis:vis,toyOdds:toyOdds,W:function(){return W;},
+  grinding:function(){return grinding||!!worker;},mode:function(m){setMode(m);out.innerHTML='';}};
 })();
 </script>
 </body>

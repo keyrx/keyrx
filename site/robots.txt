@@ -1,5 +1,5 @@
 # keyrx.tech
-# MIT-licensed tool; the whole point is that people find it. Nothing restricted.
+# Origin policy permits ordinary crawling. The serving edge may add bot or content-signal directives.
 
 User-agent: *
 Allow: /

@@ -10,9 +10,10 @@ trademarks, and nothing here licenses one.
 
 - The name **keyRX**, in any capitalisation or spacing
 - The keyRX logo - the seal mark - and any mark used to identify this project
-- The domain **keyrx.tech** and the account **@keyRX**
-- The files under `assets/` - logo, wordmark, banner, favicons. They carry
-  their own notice (`assets/LICENSE`) and are **not** part of the MIT grant.
+- The domain **keyrx.tech** and the account **@keyrx_tech**
+- The files under `assets/` - logo, wordmark, banner, avatar - plus the branded
+  `site/favicon*` and `site/og.png` files. They carry their own notice
+  (`assets/LICENSE`) and are **not** part of the MIT grant.
   The code is free; the brand is not.
 
 keyRX™ is an unregistered mark claimed through use. First public use:

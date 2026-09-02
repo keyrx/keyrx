@@ -1,6 +1,0 @@
-# keyrx versions to yank (superseded; never a deletion). One per line. Handled by publish.yml at the next
-# release (crates.io trusts only that workflow file for its token). 2026-08-20: approved yanking everything below the
-# current release now that --update exists.
-0.3.0
-0.3.1
-0.3.2

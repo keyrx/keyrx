@@ -2,8 +2,8 @@
 
 The documentation for keyRX lives in three places, all kept in step with the code:
 
-- **Install:** one line, `cargo install keyrx && clear && keyrx`; Rust 1.85 or newer; or from a
-  clone with `cargo install --path .`. See the README section [Install](../README.md) and
+- **Install:** `cargo install --locked keyrx`, then `keyrx`; Rust 1.85 or newer; or from a
+  clone with `cargo install --locked --path .`. See the README section [Install](../README.md) and
   <https://keyrx.tech> (F3, INSTALL).
 - **Start:** `keyrx` with no arguments prints the start screen, which explains every command and
   every flag in place: WHAT THIS IS, COMMANDS, PATTERN FLAGS, EVM, GRIND FLAGS, THE 128, WHAT A

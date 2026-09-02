@@ -2,6 +2,45 @@
 
 All notable changes to keyRX, newest first. Versions are the ones on crates.io.
 
+## 0.4.13 - 2026-09-02
+
+- Match output and grind coordination are fail-closed: private files are opened without following
+  links, must be caller-owned and single-link, concurrent grinds cannot share a target, exact match
+  counts are reserved before a record is written, bounded files cannot grow beyond the read limit,
+  and invalid zero-work requests are refused.
+- Secret-bearing values have shorter lifetimes and are zeroized more consistently. `verify` now
+  returns a failing process status when either chain's self-test fails. Existing EVM records refuse
+  scalar zero before address derivation.
+- Benchmark caches are bound to the CLI version, operating system, architecture and derivation
+  profile and exact matcher workload; a persistent shared/exclusive guard closes the read-versus-new-
+  benchmark race, failed ceremonies poison the lane, and estimates label a different workload as an
+  approximate measured baseline. The rare EVM benchmark target is 16 hex digits so winner handling
+  cannot materially distort the throughput sample.
+- Pattern feasibility and odds use the same accepted edge pairs. Conflicting or impossible
+  alternatives cannot inflate probability; near-complete EIP-55 constraints are exhaustively
+  enumerated under a fixed budget. Full and near-complete Solana text is refused because valid point
+  text alone cannot prove a clamped signing-key preimage. Every Solana odds row is labeled as an
+  approximate model, overlaps are counted once, and wait quantiles never report zero trials.
+- `keyrx --update` preserves a running custom Cargo install root, refuses empty or relative roots,
+  opens the installed Unix executable without following links, requires a caller-owned, not-group/world-writable
+  single-link inode and relaunches that held descriptor. Unsupported platforms fail closed and print
+  the manual Cargo command.
+- keyrx.tech now labels its browser activity as a probability demonstration, not wallet generation,
+  and its version, modeled odds, current Phantom/Solflare base58 private-key guidance, JSON
+  `solana-keygen` guidance, install copy and verification language match the CLI. Its panels expose
+  heading semantics, asynchronous demo outcomes reach the live region at the actual outcome, native
+  browser function keys remain native, and the measured speed and bounded seed-path index are explicit.
+- `estimate` now fits its complete benchmark basis inside the terminal frame instead of clipping the
+  actionable command into a misleading fragment.
+- The release workflow is consolidated behind one preflighted, fail-closed publication path with
+  pinned actions, exact artifact checks, and only explicitly recognized restart states. No release
+  is performed by installing this version.
+
+## 0.4.12 - 2026-08-24
+
+- A prefix and suffix supplied together are one combined hunt. Every candidate must satisfy both
+  constraints, and `--count` counts complete combined matches rather than separate pattern jobs.
+
 ## 0.4.11 - 2026-08-22
 
 - `keyrx --help` introduces itself as the keyRX CLI too (its summary line was the one place that

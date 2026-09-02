@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# The receipt for keyrx.tech, read THROUGH THE DOMAIN (works for GitHub Pages today and for the gcda.sh
-# box after the move): / byte-identical to site/index.html, the site's VERSION equal to Cargo.toml's,
+# The receipt for keyrx.tech, read THROUGH THE DOMAIN regardless of the origin host: / must be
+# byte-identical to site/index.html, the site's VERSION equal to Cargo.toml's,
 # the text files answering 200, an unknown path answering 404.
 #   ops/site_receipt.sh            # verify the live site against this checkout
 set -euo pipefail

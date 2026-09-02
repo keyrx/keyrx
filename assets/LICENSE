@@ -1,8 +1,9 @@
 Brand assets - not MIT
 
-Everything in this directory (the keyRX seal mark, wordmark, banner, favicons, avatar,
-and any other file that identifies this project) is a trademark of the keyRX
-project and is NOT licensed under the MIT licence that covers the code.
+Everything in this directory (the keyRX seal mark, wordmark, banner, avatar, and any
+other file that identifies this project), plus `site/favicon*` and `site/og.png`, is a
+trademark of the keyRX project and is NOT licensed under the MIT licence that covers
+the code.
 
 All rights reserved. These files may be reproduced only to refer to keyRX
 itself - a link, a review, a screenshot, "a fork of keyRX". They may not be

@@ -1,5 +1,7 @@
 /target
 node_modules/
+__pycache__/
+*.py[cod]
 # match files never enter the repo - they hold seeds and keys
 matches/
 *.ic.txt

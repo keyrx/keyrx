@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-label="keyRX">
   <title>keyRX</title>
   <!--
-    The seal: sixty-four hex digits of a hash, sealed on chain during a devnet systems check.
+    The seal: sixty-four hex digits of a hash, one immutable pattern.
 
       sha256 fbd454bdefee923628fcb6f24667b772ea942f176f9c7988b5e2d2264b335ac8
 

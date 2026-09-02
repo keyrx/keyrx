@@ -5,18 +5,18 @@
 // Writes assets/x-header-1500x500.png and site/og.png (1200x630). Words (the wordmark, the tagline)
 // are set in Outfit; values and the
 // panel stay in JetBrains Mono. The fonts are not committed.
-const fs = require('fs'), path = require('path');
+const fs = require('fs'), path = require('path'), crypto = require('crypto');
 const { chromium } = require(process.env.PW || 'playwright');
 const args = process.argv.slice(2);
 const arg = (k) => { const i = args.indexOf(k); return i >= 0 ? args[i + 1] : null; };
 const fontPath = arg('--font'), displayPath = arg('--display'), textPath = arg('--text');
 // composition knobs (defaults are the shipped banner); --out renders only the banner to that path
 const MARK = Number(arg('--mark') || 380), WORD = Number(arg('--word') || 104), TAGPX = Number(arg('--tagpx') || 29);
-const TAG = (arg('--tag') || 'Solana vanity addresses\nkeys for every wallet').replace(/\\n/g, '\n');
+const TAG = (arg('--tag') || 'Solana + EVM vanity addresses\noffline keys and paths').replace(/\\n/g, '\n');
 const MONO_LINE = arg('--mono') || null; // an optional third line in the CLI face, e.g. "cargo install keyrx"
 const OUT = arg('--out') || null;
 // the two CLI lines under the tagline; defaults are the shipped banner's, --cmd1/--cmd2 replace them
-const CMD1 = arg('--cmd1') || 'cargo install keyrx', CMD2 = arg('--cmd2') || 'keyrx grind --ends-with KEYRX --indices 128';
+const CMD1 = arg('--cmd1') || 'cargo install --locked keyrx', CMD2 = arg('--cmd2') || 'keyrx grind --ends-with KEYRX --indices 128';
 // the top band carries the mark's own hash (--no-tape to drop it); two CLI lines sit under the tagline
 // (--no-cmds); --addr swaps them for the KEYRX address line and how it was ground
 const TAPE = !args.includes('--no-tape'), ADDR = args.includes('--addr'), CMDS = !args.includes('--no-cmds');
@@ -31,8 +31,18 @@ const Y_WORD = Math.round(250 - H_TEXT / 2), Y_TAG = Math.round(Y_WORD + H_WORD 
 if (!fontPath || !displayPath || !textPath) { console.error('need --font <JetBrains Mono ttf> --display <Outfit 600 woff2> --text <Outfit 400 woff2>'); process.exit(2); }
 const root = path.join(__dirname, '..');
 const svg = fs.readFileSync(path.join(__dirname, 'logo.svg'), 'utf8');
-const font = fs.readFileSync(fontPath).toString('base64');
-const display = fs.readFileSync(displayPath).toString('base64'), text = fs.readFileSync(textPath).toString('base64');
+const PINNED_FONTS = {
+  font: '48715a42ec242c21e9f02692891e147d022299a52e48d5e413e1a942193ffeda',
+  display: 'fc7287273e66929776e2ba54f144fe699080bec29f61bf649d70d871468aeade',
+  text: 'fc7287273e66929776e2ba54f144fe699080bec29f61bf649d70d871468aeade',
+};
+const pinnedFont = (label, p) => {
+  const bytes = fs.readFileSync(p), digest = crypto.createHash('sha256').update(bytes).digest('hex');
+  if (digest !== PINNED_FONTS[label]) throw new Error(`${label} font sha256 ${digest}, expected ${PINNED_FONTS[label]}`);
+  return bytes.toString('base64');
+};
+const font = pinnedFont('font', fontPath);
+const display = pinnedFont('display', displayPath), text = pinnedFont('text', textPath);
 // a static woff2 per weight (the shipped banner) or one variable ttf for both: the face is told which,
 // and carries the whole weight range so 600 for the wordmark and 400 for the tagline both resolve
 const isTtf = (p) => /\.ttf$/i.test(p);
@@ -53,13 +63,13 @@ function foot(t) { const l = [['╚══', B], [` ${t} `, null]]; return render
 const panel = [
   head('KEYRX', '5 exact letters'),
   row(),
-  row(['  solana-keygen     13h      median', null]),
+  row(['  solana-keygen     13.4h    mean', null]),
   row(['  key', null], ['RX', AM], ['             ', null], ['13m', WT], ['      ', null], ['a match', AM]),
   row(),
-  row(['  same box, same odds', null]),
-  row(['  1 in 656,356,768', null]),
+  row(['  same box, same model', null]),
+  row(['  ~1 in 656,356,768', null]),
   row(),
-  foot('one seed, unlimited addresses'),
+  foot('one seed, many addresses'),
 ].join('\n');
 const html = `<!doctype html><html><head><meta charset="utf-8"><style>
 @font-face{font-family:KXMono;src:url(data:font/ttf;base64,${font}) format('truetype')}
@@ -92,14 +102,15 @@ html,body{margin:0;width:1500px;height:500px;overflow:hidden;background:#091228;
 <div class="mark">${svg}</div>
 <div class="word">key<b>RX</b></div>
 <div class="tag">${TAG}</div>${MONO_LINE ? `<div class="mono">${MONO_LINE}</div>` : ''}
-${TAPE ? `<div class="tape">the mark is a record · sha256 <b>fbd454bdefee923628fcb6f24667b772ea942f176f9c7988b5e2d2264b335ac8</b> · sealed on chain during a devnet systems check</div>` : ''}
+${TAPE ? `<div class="tape">the mark is a record · sha256 <b>fbd454bdefee923628fcb6f24667b772ea942f176f9c7988b5e2d2264b335ac8</b> · 64 digits, one immutable pattern</div>` : ''}
 ${ADDR ? `<div class="addr">5VCK9C…VUd29wtK<b>EYRX</b>  one seed · 128 addresses · 14 min</div>` : ''}
 ${CMDS ? `<div class="cmds"><b>$</b> ${CMD1}
 <b>$</b> ${CMD2}</div>` : ''}
 <div class="panel"><pre>${panel}</pre></div>
 </body></html>`;
 (async () => {
-  const b = await chromium.launch();
+  const launch = process.env.CHROME ? { executablePath: process.env.CHROME } : {};
+  const b = await chromium.launch(launch);
   const p = await b.newPage({ viewport: { width: 1500, height: 500 }, deviceScaleFactor: 1 });
   await p.setContent(html); await p.evaluate(() => document.fonts.ready);
   const banner = OUT || path.join(__dirname, 'x-header-1500x500.png');
