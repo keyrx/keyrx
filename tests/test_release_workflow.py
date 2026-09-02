@@ -1329,7 +1329,9 @@ if answer is not True:
                 result = check(all_assets[:count]); self.assertEqual(result.stdout.strip(), "draft-partial-manual")
             self.assertEqual(check([]).stdout.strip(), "draft-empty")
             self.assertEqual(check(all_assets).stdout.strip(), "draft-exact")
-            hostile = [all_assets[1]]
+            self.assertEqual(check(list(reversed(all_assets))).stdout.strip(), "draft-exact")
+            self.assertEqual(check([all_assets[1]]).stdout.strip(), "draft-partial-manual")
+            hostile = [asset(99, ".foreign")]
             self.assertNotEqual(check(hostile).returncode, 0)
             lost_response = json.loads(json.dumps(all_assets[:1])); lost_response[0]["state"] = "starter"
             self.assertNotEqual(check(lost_response).returncode, 0)

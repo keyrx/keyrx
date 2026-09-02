@@ -1326,12 +1326,18 @@ jobs:
               raise SystemExit("draft subset: release metadata differs")
           expected = [f"keyrx-{version}{suffix}" for suffix in (".crate", ".crate.sha256", ".cdx.json", ".crate.sigstore.json", ".crate.intoto.jsonl", ".SHA256SUMS")]
           assets = release.get("assets")
-          if not isinstance(assets, list) or len(assets) > 6 or [item.get("name") for item in assets] != expected[:len(assets)]:
-              raise SystemExit("draft subset: not the exact upload prefix")
+          names = [item.get("name") for item in assets] if isinstance(assets, list) else []
+          if (
+              not isinstance(assets, list)
+              or len(assets) > len(expected)
+              or len(set(names)) != len(names)
+              or not set(names).issubset(expected)
+          ):
+              raise SystemExit("draft subset: not an exact expected-name subset")
           for item in assets:
               if not isinstance(item.get("id"), int) or item.get("url") != f"{api}/repos/{repository}/releases/assets/{item['id']}" or item.get("state") != "uploaded" or not re.fullmatch(r"sha256:[0-9a-f]{64}", item.get("digest", "")):
                   raise SystemExit("draft subset: asset identity differs")
-          print("draft-empty" if not assets else "draft-exact" if len(assets) == 6 else "draft-partial-manual")
+          print("draft-empty" if not assets else "draft-exact" if set(names) == set(expected) else "draft-partial-manual")
           PY
           )"
               # INLINE_DRAFT_SUBSET_VALIDATOR_END
