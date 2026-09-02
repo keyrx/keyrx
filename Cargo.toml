@@ -1,6 +1,6 @@
 [package]
 name = "keyrx"
-version = "0.4.14"
+version = "0.4.15"
 edition = "2021"
 rust-version = "1.85"
 description = "The keyRX CLI: Solana and EVM vanity address grinder. One seed, many addresses, exact keys and paths. Offline grinding. Open. Verified."

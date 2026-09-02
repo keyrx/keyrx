@@ -2,6 +2,17 @@
 
 All notable changes to keyRX, newest first. Versions are the ones on crates.io.
 
+## 0.4.15 - 2026-09-02
+
+- Make an interrupted automatic release resume through the normal tag-only workflow. Inert drafts
+  are found across every authenticated release page, and discovery, upload, publication and final
+  verification remain bound to one numeric GitHub Release identity.
+- Pin every Cargo publish and yank operation to crates.io, then retire one normal predecessor plus
+  one interrupted predecessor only after the new crate and immutable release are independently
+  revalidated.
+- Add behavior-driven controls for pagination, duplicate draft producers, empty-draft races,
+  upload-response identity and digest checks, publication-response loss and predecessor drift.
+
 ## 0.4.14 - 2026-09-02
 
 - Restore the normal one-tag release path: a protected version tag, short-lived crates.io OIDC
