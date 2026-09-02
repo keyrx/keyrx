@@ -43,7 +43,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          fetch-depth: 3
+          fetch-depth: 0
           fetch-tags: true
 
       - name: Install the declared minimum Rust toolchain
@@ -104,12 +104,16 @@ jobs:
           elif event == "workflow_dispatch":
               if (ref, ref_type, ref_name) != ("refs/heads/main", "branch", "main"):
                   raise SystemExit("release recovery: dispatch is not exact main")
-              lineage = git("rev-list", "--reverse", f"{source}..{ceremony}").splitlines()
-              if lineage != [recovery_base, ceremony]:
-                  raise SystemExit("release recovery: exact two-commit recovery lineage differs")
-              base_parents = git("rev-list", "--parents", "-n", "1", recovery_base).split()
-              ceremony_parents = git("rev-list", "--parents", "-n", "1", ceremony).split()
-              if base_parents != [recovery_base, source] or ceremony_parents != [ceremony, recovery_base]:
+              lineage = git("rev-list", "--reverse", "--ancestry-path", f"{source}..{ceremony}").splitlines()
+              if not 2 <= len(lineage) <= 8 or lineage[0] != recovery_base or lineage[-1] != ceremony:
+                  raise SystemExit("release recovery: bounded recovery lineage differs")
+              previous = source
+              for commit in lineage:
+                  parents = git("rev-list", "--parents", "-n", "1", commit).split()
+                  if parents != [commit, previous]:
+                      raise SystemExit("release recovery: recovery parent chain differs")
+                  previous = commit
+              if previous != ceremony:
                   raise SystemExit("release recovery: recovery parent chain differs")
               raw = git(
                   "diff-tree", "--no-commit-id", "--name-status", "--no-renames",
@@ -462,14 +466,32 @@ jobs:
           source, recovery_base, ceremony = sys.argv[5:]
           if not all(re.fullmatch(r"[0-9a-f]{40}", value) for value in (source, recovery_base, ceremony)):
               raise SystemExit("release recovery effect: non-canonical object id")
-          parents = commit.get("parents")
-          if commit.get("sha") != ceremony or not isinstance(parents, list) or len(parents) != 1 or parents[0].get("sha") != recovery_base:
-              raise SystemExit("release recovery effect: ceremony parent is not the fixed recovery base")
           commits = comparison.get("commits")
-          if comparison.get("status") != "ahead" or comparison.get("ahead_by") != 2 or comparison.get("behind_by") != 0 or comparison.get("total_commits") != 2 or not isinstance(commits, list) or [item.get("sha") for item in commits] != [recovery_base, ceremony]:
-              raise SystemExit("release recovery effect: comparison does not prove exact two-commit lineage")
-          if commits[0].get("parents", [{}])[0].get("sha") != source or commits[1].get("parents", [{}])[0].get("sha") != recovery_base:
-              raise SystemExit("release recovery effect: comparison parent chain differs")
+          count = len(commits) if isinstance(commits, list) else -1
+          if (
+              comparison.get("status") != "ahead"
+              or comparison.get("ahead_by") != count
+              or comparison.get("behind_by") != 0
+              or comparison.get("total_commits") != count
+              or not 2 <= count <= 8
+              or commits[0].get("sha") != recovery_base
+              or commits[-1].get("sha") != ceremony
+          ):
+              raise SystemExit("release recovery effect: comparison does not prove bounded lineage")
+          previous = source
+          for item in commits:
+              parents = item.get("parents")
+              if not isinstance(parents, list) or len(parents) != 1 or parents[0].get("sha") != previous:
+                  raise SystemExit("release recovery effect: comparison parent chain differs")
+              previous = item.get("sha")
+          parents = commit.get("parents")
+          if (
+              commit.get("sha") != ceremony
+              or not isinstance(parents, list)
+              or len(parents) != 1
+              or parents[0].get("sha") != commits[-2].get("sha")
+          ):
+              raise SystemExit("release recovery effect: ceremony identity or parent differs")
           files = comparison.get("files")
           actual = sorted(
               (item.get("status"), item.get("filename"), item.get("previous_filename"))

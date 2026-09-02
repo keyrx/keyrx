@@ -200,7 +200,7 @@ class RecoveryDispatchTests(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0, result.stderr)
                 self.assertIn("changed-path set differs", result.stderr)
 
-    def test_third_recovery_commit_is_rejected(self):
+    def test_third_recovery_commit_is_admitted_when_lineage_and_paths_stay_bounded(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             source, recovery_base, ceremony = self.make_lineage(root)
@@ -213,8 +213,7 @@ class RecoveryDispatchTests(unittest.TestCase):
                 ["git", "-C", root, "rev-parse", "HEAD"], text=True
             ).strip()
             result = self.identity(root, source, recovery_base, later)
-            self.assertNotEqual(result.returncode, 0, result.stderr)
-            self.assertIn("exact two-commit recovery lineage differs", result.stderr)
+            self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_live_remote_validator_binds_both_exact_refs(self):
         source, ceremony = "1" * 40, "2" * 40
@@ -455,7 +454,7 @@ class ReleaseWorkflowTests(unittest.TestCase):
             "RECOVERY_BASE_SHA: 008090445faeec52f84044ac73ed14fce93d58c4",
             self.workflow,
         )
-        self.assertIn("fetch-depth: 3", self.prepare)
+        self.assertIn("fetch-depth: 0", self.prepare)
         self.assertIn('test "$RECOVERY_MODE" = true', self.prepare)
         self.assertIn("-- --test-threads=1", self.prepare)
         assert_immutable_dependencies(self, self.workflow)
