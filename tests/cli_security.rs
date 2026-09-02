@@ -614,7 +614,6 @@ fn concurrent_bench_on_the_same_lane_refuses_before_timing() {
     }
     assert!(ceremony.exists(), "first benchmark never acquired its lane");
 
-    let started = std::time::Instant::now();
     let second = keyrx(
         &dir.0,
         &[
@@ -631,7 +630,17 @@ fn concurrent_bench_on_the_same_lane_refuses_before_timing() {
         !second.status.success(),
         "concurrent benchmark was accepted"
     );
-    assert!(started.elapsed() < std::time::Duration::from_secs(2));
+    assert!(
+        second.stdout.is_empty(),
+        "a refused benchmark reached the post-custody output path: {}",
+        String::from_utf8_lossy(&second.stdout)
+    );
+    assert!(
+        String::from_utf8_lossy(&second.stderr)
+            .contains("benchmark cache custody failed before timing"),
+        "{}",
+        String::from_utf8_lossy(&second.stderr)
+    );
     assert!(
         String::from_utf8_lossy(&second.stderr).contains("cache lane is in use"),
         "{}",
