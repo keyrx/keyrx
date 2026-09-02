@@ -201,6 +201,26 @@ function measure(og, label, width, bad) {
   return { rows, loose };
 }
 
+function assertDonateSolanaBlock(og, label, expected, bad) {
+  const panels = og.out.children.filter(child => /\bpan\b/.test(child.className));
+  const donate = panels.filter(panel => panel.children.some(row =>
+    /^(?:DONATE|DONATE: )/.test(row.getAttribute('aria-label') || '')));
+  if (donate.length !== 1) {
+    bad.push(`${label} donate panel count=${donate.length}, expected 1`);
+    return;
+  }
+  const rows = donate[0].children.map(row => {
+    const text = row.textContent;
+    return (text.startsWith('║') && text.endsWith('║') ? text.slice(1, -1) : text).trim();
+  });
+  const solana = rows.indexOf('Solana');
+  const actual = solana < 0 ? [] : rows.slice(solana, solana + expected.length);
+  if (JSON.stringify(actual) !== JSON.stringify(expected))
+    bad.push(`${label} Solana donation block=${JSON.stringify(actual)}, expected ${JSON.stringify(expected)}`);
+  if (rows.filter(row => row.includes('keyrx.sol')).length !== 1)
+    bad.push(`${label} donate panel must contain exactly one keyrx.sol row`);
+}
+
 // The POST chain steps through zero-delay timeouts; measure after it drains.
 setTimeout(() => {
   const og = global.__kx;
@@ -280,11 +300,23 @@ setTimeout(() => {
 
   for (const c of CMDS) og.run(c);
   if (og.W() !== 78) bad.push(`desktop mode W=${og.W()}, expected 78`);
+  assertDonateSolanaBlock(og, 'desktop', [
+    'Solana',
+    '2pSgpgA6TqdynuAdVpFEZbyVRrKi5oTyvxGL9gjKEYRX',
+    'the literal address above is authoritative',
+    'keyrx.sol  the same address, by name',
+  ], bad);
   const d = measure(og, 'desktop', 78, bad);
 
   og.mode(true);
   if (og.W() !== 42) bad.push(`mobile mode W=${og.W()}, expected 42`);
   for (const c of CMDS) og.run(c);
+  assertDonateSolanaBlock(og, 'mobile', [
+    'Solana',
+    '2pSgp...KEYRX  tap to copy',
+    'literal address is authoritative',
+    'keyrx.sol  by name',
+  ], bad);
   const mo = measure(og, 'mobile', 42, bad);
   og.mode(false);
 
