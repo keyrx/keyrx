@@ -20,6 +20,7 @@ env:
   CARGO_TERM_COLOR: always
   CRATE_NAME: keyrx
   PYTHONDONTWRITEBYTECODE: "1"
+  RECOVERY_BASE_SHA: 008090445faeec52f84044ac73ed14fce93d58c4
   RUST_TOOLCHAIN: 1.85.0
 
 jobs:
@@ -42,7 +43,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          fetch-depth: 2
+          fetch-depth: 3
           fetch-tags: true
 
       - name: Install the declared minimum Rust toolchain
@@ -75,13 +76,14 @@ jobs:
           esac
           # INLINE_RECOVERY_IDENTITY_VALIDATOR_BEGIN
           python3 - . "$GITHUB_EVENT_NAME" "$GITHUB_REF" "$GITHUB_REF_TYPE" \
-            "$GITHUB_REF_NAME" "$GITHUB_SHA" "$ceremony_sha" "$source_sha" <<'PY'
+            "$GITHUB_REF_NAME" "$GITHUB_SHA" "$ceremony_sha" "$source_sha" \
+            "$RECOVERY_BASE_SHA" <<'PY'
           import pathlib, re, subprocess, sys
 
           root = pathlib.Path(sys.argv[1])
-          event, ref, ref_type, ref_name, event_sha, ceremony, source = sys.argv[2:]
+          event, ref, ref_type, ref_name, event_sha, ceremony, source, recovery_base = sys.argv[2:]
           oid = re.compile(r"[0-9a-f]{40}\Z")
-          if not all(oid.fullmatch(value) for value in (event_sha, ceremony, source)):
+          if not all(oid.fullmatch(value) for value in (event_sha, ceremony, source, recovery_base)):
               raise SystemExit("release identity: non-canonical object id")
           def git(*args, binary=False):
               return subprocess.check_output(
@@ -102,9 +104,13 @@ jobs:
           elif event == "workflow_dispatch":
               if (ref, ref_type, ref_name) != ("refs/heads/main", "branch", "main"):
                   raise SystemExit("release recovery: dispatch is not exact main")
-              parents = git("rev-list", "--parents", "-n", "1", ceremony).split()
-              if parents != [ceremony, source]:
-                  raise SystemExit("release recovery: ceremony is not the direct source child")
+              lineage = git("rev-list", "--reverse", f"{source}..{ceremony}").splitlines()
+              if lineage != [recovery_base, ceremony]:
+                  raise SystemExit("release recovery: exact two-commit recovery lineage differs")
+              base_parents = git("rev-list", "--parents", "-n", "1", recovery_base).split()
+              ceremony_parents = git("rev-list", "--parents", "-n", "1", ceremony).split()
+              if base_parents != [recovery_base, source] or ceremony_parents != [ceremony, recovery_base]:
+                  raise SystemExit("release recovery: recovery parent chain differs")
               raw = git(
                   "diff-tree", "--no-commit-id", "--name-status", "--no-renames",
                   "-r", "-z", source, ceremony, binary=True,
@@ -447,21 +453,23 @@ jobs:
               "$RUNNER_TEMP/recovery-comparison.json" \
               "$RUNNER_TEMP/recovery-main-effect.json" \
               "$RUNNER_TEMP/recovery-tag-effect.json" \
-              "$SOURCE_SHA" "$CEREMONY_SHA" <<'PY'
+              "$SOURCE_SHA" "$RECOVERY_BASE_SHA" "$CEREMONY_SHA" <<'PY'
           import json, pathlib, re, sys
 
           commit, comparison, main, tag = [
               json.loads(pathlib.Path(path).read_text("utf-8")) for path in sys.argv[1:5]
           ]
-          source, ceremony = sys.argv[5:]
-          if not re.fullmatch(r"[0-9a-f]{40}", source) or not re.fullmatch(r"[0-9a-f]{40}", ceremony):
+          source, recovery_base, ceremony = sys.argv[5:]
+          if not all(re.fullmatch(r"[0-9a-f]{40}", value) for value in (source, recovery_base, ceremony)):
               raise SystemExit("release recovery effect: non-canonical object id")
           parents = commit.get("parents")
-          if commit.get("sha") != ceremony or not isinstance(parents, list) or len(parents) != 1 or parents[0].get("sha") != source:
-              raise SystemExit("release recovery effect: ceremony is not the direct source child")
+          if commit.get("sha") != ceremony or not isinstance(parents, list) or len(parents) != 1 or parents[0].get("sha") != recovery_base:
+              raise SystemExit("release recovery effect: ceremony parent is not the fixed recovery base")
           commits = comparison.get("commits")
-          if comparison.get("status") != "ahead" or comparison.get("ahead_by") != 1 or comparison.get("behind_by") != 0 or comparison.get("total_commits") != 1 or not isinstance(commits, list) or [item.get("sha") for item in commits] != [ceremony]:
-              raise SystemExit("release recovery effect: comparison does not prove one commit")
+          if comparison.get("status") != "ahead" or comparison.get("ahead_by") != 2 or comparison.get("behind_by") != 0 or comparison.get("total_commits") != 2 or not isinstance(commits, list) or [item.get("sha") for item in commits] != [recovery_base, ceremony]:
+              raise SystemExit("release recovery effect: comparison does not prove exact two-commit lineage")
+          if commits[0].get("parents", [{}])[0].get("sha") != source or commits[1].get("parents", [{}])[0].get("sha") != recovery_base:
+              raise SystemExit("release recovery effect: comparison parent chain differs")
           files = comparison.get("files")
           actual = sorted(
               (item.get("status"), item.get("filename"), item.get("previous_filename"))
@@ -1455,12 +1463,19 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # INLINE_DRAFT_ASSET_UPLOAD_BEGIN
           get() { curl -fsSL -H 'Accept: application/vnd.github+json' -H "Authorization: Bearer $GH_TOKEN" -H 'X-GitHub-Api-Version: 2026-03-10' "$1"; }
           test "$(get "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/git/ref/heads/main" | jq -er .object.sha)" = "$CEREMONY_SHA"
           get "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" > /dev/null
           test "$(get "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/commits/$TAG" | jq -er .sha)" = "$SOURCE_SHA"
           release_id="${NEW_RELEASE_ID:-$OLD_RELEASE_ID}"
           test "$release_id" -gt 0
+          release_json="$RUNNER_TEMP/upload-release.json"
+          get "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/releases/$release_id" > "$release_json"
+          upload_template="$(jq -er .upload_url "$release_json")"
+          expected_upload_template="https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$release_id/assets{?name,label}"
+          test "$upload_template" = "$expected_upload_template"
+          upload_url="${upload_template:0:${#upload_template}-13}"
           cd "$RUNNER_TEMP/prepared"
           for name in "$CRATE_NAME-$VERSION.crate" "$CRATE_NAME-$VERSION.crate.sha256" \
             "$CRATE_NAME-$VERSION.cdx.json" "$CRATE_NAME-$VERSION.crate.sigstore.json" \
@@ -1469,12 +1484,13 @@ jobs:
             curl -fsSL -X POST -H 'Accept: application/vnd.github+json' \
               -H "Authorization: Bearer $GH_TOKEN" -H 'X-GitHub-Api-Version: 2026-03-10' \
               -H 'Content-Type: application/octet-stream' --data-binary "@$name" -o "$response" \
-              "$GITHUB_UPLOAD_URL/repos/$GITHUB_REPOSITORY/releases/$release_id/assets?name=$name"
+              "$upload_url?name=$name"
             id="$(jq -er .id "$response")"
             expected_url="$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/releases/assets/$id"
             jq -e --arg name "$name" --arg url "$expected_url" \
               '.name == $name and .state == "uploaded" and .url == $url' "$response" > /dev/null
           done
+          # INLINE_DRAFT_ASSET_UPLOAD_END
 
       - name: Verify exact draft bytes and provenance before crates.io
         id: draft

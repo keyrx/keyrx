@@ -90,13 +90,21 @@ class RecoveryDispatchTests(unittest.TestCase):
         if extra:
             (root / "extra").write_text("not allowed\n", encoding="utf-8")
         subprocess.run(["git", "-C", root, "add", "."], check=True)
+        subprocess.run(["git", "-C", root, "commit", "-qm", "recovery base"], check=True)
+        recovery_base = subprocess.check_output(
+            ["git", "-C", root, "rev-parse", "HEAD"], text=True
+        ).strip()
+        workflow.write_text("recovery repair workflow\n", encoding="utf-8")
+        if not omit_test_change:
+            test.write_text("recovery repair test\n", encoding="utf-8")
+        subprocess.run(["git", "-C", root, "add", "."], check=True)
         subprocess.run(["git", "-C", root, "commit", "-qm", "ceremony"], check=True)
         ceremony = subprocess.check_output(
             ["git", "-C", root, "rev-parse", "HEAD"], text=True
         ).strip()
-        return source, ceremony
+        return source, recovery_base, ceremony
 
-    def identity(self, root, base_source, base_ceremony, **overrides):
+    def identity(self, root, base_source, base_recovery, base_ceremony, **overrides):
         values = {
             "event": "workflow_dispatch",
             "ref": "refs/heads/main",
@@ -105,6 +113,7 @@ class RecoveryDispatchTests(unittest.TestCase):
             "event_sha": base_ceremony,
             "ceremony": base_ceremony,
             "source": base_source,
+            "recovery_base": base_recovery,
         }
         values.update(overrides)
         return run_inline(
@@ -117,13 +126,16 @@ class RecoveryDispatchTests(unittest.TestCase):
             values["event_sha"],
             values["ceremony"],
             values["source"],
+            values["recovery_base"],
         )
 
-    def test_exact_direct_child_with_exact_two_file_diff_is_admitted(self):
+    def test_exact_two_commit_recovery_with_exact_two_file_diff_is_admitted(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            source, ceremony = self.make_lineage(root)
-            self.assertEqual(self.identity(root, source, ceremony).returncode, 0)
+            source, recovery_base, ceremony = self.make_lineage(root)
+            self.assertEqual(
+                self.identity(root, source, recovery_base, ceremony).returncode, 0
+            )
 
     def test_tag_push_mode_remains_admitted_without_recovery_lineage(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -142,6 +154,7 @@ class RecoveryDispatchTests(unittest.TestCase):
                 root,
                 source,
                 source,
+                source,
                 event="push",
                 ref="refs/tags/v0.4.13",
                 ref_type="tag",
@@ -150,14 +163,17 @@ class RecoveryDispatchTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_dispatch_ref_event_sha_parent_diff_and_cleanliness_are_load_bearing(self):
-        cases = ("event", "ref", "ref_type", "ref_name", "event_sha", "source", "dirty")
+        cases = (
+            "event", "ref", "ref_type", "ref_name", "event_sha", "source",
+            "recovery_base", "dirty",
+        )
         for case in cases:
             with self.subTest(case=case), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
-                source, ceremony = self.make_lineage(root)
+                source, recovery_base, ceremony = self.make_lineage(root)
                 if case == "dirty":
                     (root / "untracked").write_text("dirty\n", encoding="utf-8")
-                    result = self.identity(root, source, ceremony)
+                    result = self.identity(root, source, recovery_base, ceremony)
                 else:
                     mutations = {
                         "event": {"event": "schedule"},
@@ -166,25 +182,28 @@ class RecoveryDispatchTests(unittest.TestCase):
                         "ref_name": {"ref_name": "release"},
                         "event_sha": {"event_sha": source},
                         "source": {"source": "f" * 40},
+                        "recovery_base": {"recovery_base": source},
                     }
-                    result = self.identity(root, source, ceremony, **mutations[case])
+                    result = self.identity(
+                        root, source, recovery_base, ceremony, **mutations[case]
+                    )
                 self.assertNotEqual(result.returncode, 0, result.stderr)
 
     def test_extra_or_missing_allowed_path_is_rejected_by_actual_validator(self):
         for extra, omit in ((True, False), (False, True)):
             with self.subTest(extra=extra, omit=omit), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
-                source, ceremony = self.make_lineage(
+                source, recovery_base, ceremony = self.make_lineage(
                     root, extra=extra, omit_test_change=omit
                 )
-                result = self.identity(root, source, ceremony)
+                result = self.identity(root, source, recovery_base, ceremony)
                 self.assertNotEqual(result.returncode, 0, result.stderr)
                 self.assertIn("changed-path set differs", result.stderr)
 
-    def test_non_direct_descendant_is_rejected(self):
+    def test_third_recovery_commit_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            source, ceremony = self.make_lineage(root)
+            source, recovery_base, ceremony = self.make_lineage(root)
             (root / ".github" / "workflows" / "publish.yml").write_text(
                 "later ceremony\n", encoding="utf-8"
             )
@@ -193,9 +212,9 @@ class RecoveryDispatchTests(unittest.TestCase):
             later = subprocess.check_output(
                 ["git", "-C", root, "rev-parse", "HEAD"], text=True
             ).strip()
-            result = self.identity(root, source, later)
+            result = self.identity(root, source, recovery_base, later)
             self.assertNotEqual(result.returncode, 0, result.stderr)
-            self.assertIn("direct source child", result.stderr)
+            self.assertIn("exact two-commit recovery lineage differs", result.stderr)
 
     def test_live_remote_validator_binds_both_exact_refs(self):
         source, ceremony = "1" * 40, "2" * 40
@@ -229,7 +248,7 @@ class RecoveryDispatchTests(unittest.TestCase):
                 )
 
     def test_effect_validator_rederives_lineage_diff_main_and_tag(self):
-        source, ceremony = "1" * 40, "2" * 40
+        source, recovery_base, ceremony = "1" * 40, "2" * 40, "3" * 40
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             paths = {
@@ -239,11 +258,14 @@ class RecoveryDispatchTests(unittest.TestCase):
             records = {
                 "commit": {
                     "sha": ceremony,
-                    "parents": [{"sha": source, "url": "https://api.invalid/p", "html_url": "https://invalid/p"}],
+                    "parents": [{"sha": recovery_base, "url": "https://api.invalid/p", "html_url": "https://invalid/p"}],
                 },
                 "comparison": {
-                    "status": "ahead", "ahead_by": 1, "behind_by": 0, "total_commits": 1,
-                    "commits": [{"sha": ceremony}],
+                    "status": "ahead", "ahead_by": 2, "behind_by": 0, "total_commits": 2,
+                    "commits": [
+                        {"sha": recovery_base, "parents": [{"sha": source}]},
+                        {"sha": ceremony, "parents": [{"sha": recovery_base}]},
+                    ],
                     "files": [
                         {"status": "modified", "filename": ".github/workflows/publish.yml"},
                         {"status": "modified", "filename": "tests/test_release_workflow.py"},
@@ -258,12 +280,13 @@ class RecoveryDispatchTests(unittest.TestCase):
                 return run_inline(
                     "INLINE_RECOVERY_EFFECT_VALIDATOR",
                     paths["commit"], paths["comparison"], paths["main"], paths["tag"],
-                    source, ceremony,
+                    source, recovery_base, ceremony,
                 )
             self.assertEqual(run(records).returncode, 0)
             mutations = (
                 ("commit", "parents", []),
-                ("comparison", "ahead_by", 2),
+                ("comparison", "ahead_by", 3),
+                ("comparison", "commits", [{"sha": ceremony, "parents": [{"sha": source}]}]),
                 ("comparison", "files", records["comparison"]["files"] + [{"status": "modified", "filename": "src/main.rs"}]),
                 ("main", "ref", "refs/heads/recovery"),
                 ("main", "object", {"type": "commit", "sha": source}),
@@ -428,6 +451,11 @@ class ReleaseWorkflowTests(unittest.TestCase):
             "source_sha=04df92e2f7a4ab56ad596c7fbe494e202d6c37b3",
             self.prepare,
         )
+        self.assertIn(
+            "RECOVERY_BASE_SHA: 008090445faeec52f84044ac73ed14fce93d58c4",
+            self.workflow,
+        )
+        self.assertIn("fetch-depth: 3", self.prepare)
         self.assertIn('test "$RECOVERY_MODE" = true', self.prepare)
         self.assertIn("-- --test-threads=1", self.prepare)
         assert_immutable_dependencies(self, self.workflow)
@@ -530,6 +558,175 @@ class ReleaseWorkflowTests(unittest.TestCase):
         )
         self.assertNotIn('keys == ["enabled"]', self.effect)
         self.assertIn("GH_ADMIN_READ_TOKEN", self.effect)
+
+    def test_asset_upload_uses_and_pins_the_release_api_upload_template(self):
+        self.assertNotIn("GITHUB_UPLOAD_URL", self.workflow)
+        self.assertIn(
+            'get "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/releases/$release_id" > "$release_json"',
+            self.effect,
+        )
+        self.assertIn('upload_template="$(jq -er .upload_url "$release_json")"', self.effect)
+        self.assertIn(
+            'expected_upload_template="https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$release_id/assets{?name,label}"',
+            self.effect,
+        )
+        self.assertIn('test "$upload_template" = "$expected_upload_template"', self.effect)
+        self.assertIn('"$upload_url?name=$name"', self.effect)
+
+    def test_actual_asset_upload_block_reuses_empty_draft_and_posts_exact_six(self):
+        names = [
+            "keyrx-0.4.13.crate",
+            "keyrx-0.4.13.crate.sha256",
+            "keyrx-0.4.13.cdx.json",
+            "keyrx-0.4.13.crate.sigstore.json",
+            "keyrx-0.4.13.crate.intoto.jsonl",
+            "keyrx-0.4.13.SHA256SUMS",
+        ]
+        curl_shim = r'''#!/usr/bin/env python3
+import json, os, pathlib, sys, urllib.parse
+
+args = sys.argv[1:]
+url = args[-1]
+method = args[args.index("-X") + 1] if "-X" in args else "GET"
+output = pathlib.Path(args[args.index("-o") + 1]) if "-o" in args else None
+log = pathlib.Path(os.environ["CURL_LOG"])
+with log.open("a", encoding="utf-8") as stream:
+    stream.write(json.dumps({"method": method, "url": url}, sort_keys=True) + "\n")
+
+api = os.environ["GITHUB_API_URL"]
+repo = os.environ["GITHUB_REPOSITORY"]
+release_id = os.environ["OLD_RELEASE_ID"]
+mode = os.environ["UPLOAD_FIXTURE"]
+
+def emit(value):
+    data = json.dumps(value, separators=(",", ":")) + "\n"
+    if output is None:
+        sys.stdout.write(data)
+    else:
+        output.write_text(data, encoding="utf-8")
+
+if method == "GET" and url == f"{api}/repos/{repo}/git/ref/heads/main":
+    emit({"object": {"sha": os.environ["CEREMONY_SHA"]}})
+elif method == "GET" and url == f"{api}/repos/{repo}/git/ref/tags/{os.environ['TAG']}":
+    emit({"object": {"sha": os.environ["SOURCE_SHA"]}})
+elif method == "GET" and url == f"{api}/repos/{repo}/commits/{os.environ['TAG']}":
+    emit({"sha": os.environ["SOURCE_SHA"]})
+elif method == "GET" and url == f"{api}/repos/{repo}/releases/{release_id}":
+    template = f"https://uploads.github.com/repos/{repo}/releases/{release_id}/assets{{?name,label}}"
+    if mode == "missing":
+        emit({"id": int(release_id)})
+    elif mode == "wrong-host":
+        emit({"id": int(release_id), "upload_url": template.replace("uploads.github.com", "invalid.example")})
+    elif mode == "wrong-template":
+        emit({"id": int(release_id), "upload_url": template.replace("{?name,label}", "{?name}")})
+    else:
+        emit({"id": int(release_id), "upload_url": template})
+elif method == "POST":
+    parsed = urllib.parse.urlsplit(url)
+    expected_path = f"/repos/{repo}/releases/{release_id}/assets"
+    query = urllib.parse.parse_qs(parsed.query, strict_parsing=True)
+    if (parsed.scheme, parsed.netloc, parsed.path) != ("https", "uploads.github.com", expected_path) or set(query) != {"name"} or len(query["name"]) != 1:
+        raise SystemExit(91)
+    prior = [json.loads(line) for line in log.read_text("utf-8").splitlines()]
+    asset_id = 1000 + sum(item["method"] == "POST" for item in prior)
+    name = query["name"][0]
+    emit({"id": asset_id, "name": name, "state": "uploaded", "url": f"{api}/repos/{repo}/releases/assets/{asset_id}"})
+else:
+    raise SystemExit(92)
+'''
+        jq_shim = r'''#!/usr/bin/env python3
+import json, pathlib, sys
+
+args = sys.argv[1:]
+raw = any("r" in item for item in args if item.startswith("-"))
+variables = {}
+while "--arg" in args:
+    index = args.index("--arg")
+    variables[args[index + 1]] = args[index + 2]
+    del args[index:index + 3]
+args = [item for item in args if not item.startswith("-")]
+expression = args[0]
+value = json.loads(pathlib.Path(args[1]).read_text("utf-8")) if len(args) > 1 else json.load(sys.stdin)
+if expression == ".object.sha":
+    answer = value.get("object", {}).get("sha")
+elif expression == ".sha":
+    answer = value.get("sha")
+elif expression == ".upload_url":
+    answer = value.get("upload_url")
+elif expression == ".id":
+    answer = value.get("id")
+elif ".name == $name" in expression and ".state == \"uploaded\"" in expression:
+    answer = value.get("name") == variables.get("name") and value.get("state") == "uploaded" and value.get("url") == variables.get("url")
+else:
+    raise SystemExit(93)
+if answer is None or answer is False:
+    raise SystemExit(1)
+if answer is not True:
+    print(answer if raw else json.dumps(answer, separators=(",", ":")))
+'''
+
+        def execute(mode):
+            with tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                prepared = root / "prepared"
+                binary = root / "bin"
+                prepared.mkdir()
+                binary.mkdir()
+                for name in names:
+                    (prepared / name).write_bytes(b"fixture")
+                shim = binary / "curl"
+                shim.write_text(curl_shim, encoding="utf-8")
+                shim.chmod(0o700)
+                shim = binary / "jq"
+                shim.write_text(jq_shim, encoding="utf-8")
+                shim.chmod(0o700)
+                log = root / "curl.jsonl"
+                env = {
+                    **os.environ,
+                    "PATH": f"{binary}:{os.environ['PATH']}",
+                    "CURL_LOG": str(log),
+                    "UPLOAD_FIXTURE": mode,
+                    "GITHUB_API_URL": "https://api.github.com",
+                    "GITHUB_REPOSITORY": "keyrx/keyrx",
+                    "GH_TOKEN": "fixture-token",
+                    "CEREMONY_SHA": "3" * 40,
+                    "SOURCE_SHA": "1" * 40,
+                    "TAG": "v0.4.13",
+                    "NEW_RELEASE_ID": "",
+                    "OLD_RELEASE_ID": "381520377",
+                    "RUNNER_TEMP": str(root),
+                    "CRATE_NAME": "keyrx",
+                    "VERSION": "0.4.13",
+                }
+                result = subprocess.run(
+                    ["bash", "-c", inline_shell("INLINE_DRAFT_ASSET_UPLOAD")],
+                    cwd=root, env=env, text=True, capture_output=True, check=False,
+                )
+                records = [
+                    json.loads(line)
+                    for line in log.read_text("utf-8").splitlines()
+                ] if log.exists() else []
+                return result, records
+
+        result, records = execute("exact")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        posts = [item["url"] for item in records if item["method"] == "POST"]
+        self.assertEqual(
+            posts,
+            [
+                f"https://uploads.github.com/repos/keyrx/keyrx/releases/381520377/assets?name={name}"
+                for name in names
+            ],
+        )
+        self.assertIn(
+            {"method": "GET", "url": "https://api.github.com/repos/keyrx/keyrx/releases/381520377"},
+            records,
+        )
+        for mode in ("missing", "wrong-host", "wrong-template"):
+            with self.subTest(mode=mode):
+                result, records = execute(mode)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(any(item["method"] == "POST" for item in records))
 
     def test_immutable_response_policy_accepts_documented_and_additive_shapes(self):
         predicate = '.enabled == true and (.enforced_by_owner | type) == "boolean"'
