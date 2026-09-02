@@ -1,12 +1,13 @@
-# One tag-driven release ceremony. Repository executables run only in the
-# unprivileged prepare job. The tag also supplies this workflow's inline shell
-# and job graph, so protected-environment approval must review the exact
-# publish.yml blob at SOURCE_SHA before the effect job proceeds.
+# One tag-driven release ceremony, plus one hard-coded workflow-dispatch
+# recovery for the already-tagged 0.4.13 source. Repository executables run
+# only in the unprivileged prepare job. SOURCE_SHA owns package/tag/release
+# bytes; CEREMONY_SHA owns workflow/OIDC/trusted-publisher/attestation identity.
 name: publish
 
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
 
 concurrency:
   group: publish-${{ github.repository }}-${{ github.ref }}
@@ -30,15 +31,19 @@ jobs:
       version: ${{ steps.identity.outputs.version }}
       tag: ${{ steps.identity.outputs.tag }}
       source_sha: ${{ steps.identity.outputs.source_sha }}
+      ceremony_sha: ${{ steps.identity.outputs.ceremony_sha }}
+      recovery_mode: ${{ steps.identity.outputs.recovery_mode }}
       title: ${{ steps.identity.outputs.title }}
       prepared_set_sha256: ${{ steps.package.outputs.prepared_set_sha256 }}
       artifact_id: ${{ steps.upload.outputs.artifact-id }}
       artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
     steps:
-      - name: Check out the exact tag without reusable credentials
+      - name: Check out the exact event commit without reusable credentials
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 2
+          fetch-tags: true
 
       - name: Install the declared minimum Rust toolchain
         uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # pinned
@@ -51,28 +56,158 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$GITHUB_REF_TYPE" = tag
-          version="${GITHUB_REF_NAME#v}"
-          test "$GITHUB_REF_NAME" = "v$version"
-          source_sha="$(git rev-parse "${GITHUB_SHA}^{commit}")"
-          test "$(git rev-parse HEAD)" = "$source_sha"
-          test "$(git rev-parse "${GITHUB_REF}^{commit}")" = "$source_sha"
-          test -z "$(git status --porcelain=v1 --untracked-files=all)"
+          ceremony_sha="$(git rev-parse "${GITHUB_SHA}^{commit}")"
+          test "$(git rev-parse HEAD)" = "$ceremony_sha"
+          case "$GITHUB_EVENT_NAME" in
+            push)
+              test "$GITHUB_REF_TYPE" = tag
+              version="${GITHUB_REF_NAME#v}"
+              test "$GITHUB_REF_NAME" = "v$version"
+              source_sha="$ceremony_sha"
+              recovery_mode=false
+              ;;
+            workflow_dispatch)
+              version=0.4.13
+              source_sha=04df92e2f7a4ab56ad596c7fbe494e202d6c37b3
+              recovery_mode=true
+              ;;
+            *) exit 1 ;;
+          esac
+          # INLINE_RECOVERY_IDENTITY_VALIDATOR_BEGIN
+          python3 - . "$GITHUB_EVENT_NAME" "$GITHUB_REF" "$GITHUB_REF_TYPE" \
+            "$GITHUB_REF_NAME" "$GITHUB_SHA" "$ceremony_sha" "$source_sha" <<'PY'
+          import pathlib, re, subprocess, sys
+
+          root = pathlib.Path(sys.argv[1])
+          event, ref, ref_type, ref_name, event_sha, ceremony, source = sys.argv[2:]
+          oid = re.compile(r"[0-9a-f]{40}\Z")
+          if not all(oid.fullmatch(value) for value in (event_sha, ceremony, source)):
+              raise SystemExit("release identity: non-canonical object id")
+          def git(*args, binary=False):
+              return subprocess.check_output(
+                  ["git", "-C", str(root), *args],
+                  text=not binary,
+              ).strip() if not binary else subprocess.check_output(
+                  ["git", "-C", str(root), *args]
+              )
+          if git("rev-parse", "HEAD^{commit}") != ceremony or event_sha != ceremony:
+              raise SystemExit("release identity: event and checkout ceremony differ")
+          if git("status", "--porcelain=v1", "--untracked-files=all"):
+              raise SystemExit("release identity: checkout is not exact and clean")
+          if event == "push":
+              if ref_type != "tag" or ref != f"refs/tags/{ref_name}" or not ref_name.startswith("v") or source != ceremony:
+                  raise SystemExit("release identity: tag event differs")
+              if git("rev-parse", f"{ref}^{{commit}}") != source:
+                  raise SystemExit("release identity: tag does not peel to source")
+          elif event == "workflow_dispatch":
+              if (ref, ref_type, ref_name) != ("refs/heads/main", "branch", "main"):
+                  raise SystemExit("release recovery: dispatch is not exact main")
+              parents = git("rev-list", "--parents", "-n", "1", ceremony).split()
+              if parents != [ceremony, source]:
+                  raise SystemExit("release recovery: ceremony is not the direct source child")
+              raw = git(
+                  "diff-tree", "--no-commit-id", "--name-status", "--no-renames",
+                  "-r", "-z", source, ceremony, binary=True,
+              )
+              fields = raw.rstrip(b"\0").split(b"\0") if raw else []
+              if len(fields) % 2:
+                  raise SystemExit("release recovery: malformed changed-path frame")
+              changed = []
+              for index in range(0, len(fields), 2):
+                  try:
+                      status = fields[index].decode("ascii")
+                      path = fields[index + 1].decode("utf-8", "strict")
+                  except UnicodeDecodeError as error:
+                      raise SystemExit("release recovery: non-text changed-path frame") from error
+                  changed.append((status, path))
+              expected = [
+                  ("M", ".github/workflows/publish.yml"),
+                  ("M", "tests/test_release_workflow.py"),
+              ]
+              if sorted(changed) != expected:
+                  raise SystemExit("release recovery: changed-path set differs")
+          else:
+              raise SystemExit("release identity: event is not admitted")
+          PY
+          # INLINE_RECOVERY_IDENTITY_VALIDATOR_END
           policy="ops/release/$version.json"
           python3 ops/release_contract.py "$policy"
-          test "$(jq -r .tag "$policy")" = "$GITHUB_REF_NAME"
+          tag="v$version"
+          test "$(jq -r .tag "$policy")" = "$tag"
           test "$(jq -r .version "$policy")" = "$version"
           python3 ops/release_preflight.py "$version"
           python3 ops/release_preflight.py "$version" --notes > "$RUNNER_TEMP/release-notes.md"
           {
             echo "version=$version"
-            echo "tag=$GITHUB_REF_NAME"
+            echo "tag=$tag"
             echo "source_sha=$source_sha"
+            echo "ceremony_sha=$ceremony_sha"
+            echo "recovery_mode=$recovery_mode"
             echo "title=keyrx $version"
           } >> "$GITHUB_OUTPUT"
 
+      - name: Prove the one-release recovery guard before leaving the ceremony tree
+        if: steps.identity.outputs.recovery_mode == 'true'
+        run: python3 -m unittest tests.test_release_workflow.RecoveryDispatchTests
+
+      - name: Bind live main and the existing tag for recovery
+        if: steps.identity.outputs.recovery_mode == 'true'
+        env:
+          CEREMONY_SHA: ${{ steps.identity.outputs.ceremony_sha }}
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ steps.identity.outputs.source_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          get() {
+            curl -fsSL -H 'Accept: application/vnd.github+json' \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H 'X-GitHub-Api-Version: 2026-03-10' "$1"
+          }
+          get "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/git/ref/heads/main" \
+            > "$RUNNER_TEMP/recovery-main.json"
+          get "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/git/ref/tags/v0.4.13" \
+            > "$RUNNER_TEMP/recovery-tag.json"
+          # INLINE_RECOVERY_REMOTE_VALIDATOR_BEGIN
+          python3 - "$RUNNER_TEMP/recovery-main.json" "$RUNNER_TEMP/recovery-tag.json" \
+            "$CEREMONY_SHA" "$SOURCE_SHA" <<'PY'
+          import json, pathlib, re, sys
+
+          main = json.loads(pathlib.Path(sys.argv[1]).read_text("utf-8"))
+          tag = json.loads(pathlib.Path(sys.argv[2]).read_text("utf-8"))
+          ceremony, source = sys.argv[3:]
+          if not re.fullmatch(r"[0-9a-f]{40}", ceremony) or not re.fullmatch(r"[0-9a-f]{40}", source):
+              raise SystemExit("release recovery remote: non-canonical expected object")
+          if main != {**main, "ref": "refs/heads/main"} or main.get("object") != {"sha": ceremony, "type": "commit", "url": main.get("object", {}).get("url")}:
+              raise SystemExit("release recovery remote: live main differs from ceremony")
+          if tag != {**tag, "ref": "refs/tags/v0.4.13"} or tag.get("object") != {"sha": source, "type": "commit", "url": tag.get("object", {}).get("url")}:
+              raise SystemExit("release recovery remote: tag differs from source")
+          PY
+          # INLINE_RECOVERY_REMOTE_VALIDATOR_END
+
+      - name: Switch recovery preparation to the exact tagged source
+        if: steps.identity.outputs.recovery_mode == 'true'
+        env:
+          SOURCE_SHA: ${{ steps.identity.outputs.source_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git checkout --detach "$SOURCE_SHA"
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          test "$(git rev-parse "refs/tags/v0.4.13^{commit}")" = "$SOURCE_SHA"
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
+
       - name: Test every Rust target from the lockfile
-        run: cargo test --locked --all-targets
+        env:
+          RECOVERY_MODE: ${{ steps.identity.outputs.recovery_mode }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if test "$RECOVERY_MODE" = true; then
+            cargo test --locked --all-targets -- --test-threads=1
+          else
+            cargo test --locked --all-targets
+          fi
 
       - name: Reject every clippy warning from the lockfile
         run: cargo clippy --locked --all-targets -- -D warnings
@@ -184,6 +319,8 @@ jobs:
       VERSION: ${{ needs.prepare.outputs.version }}
       TAG: ${{ needs.prepare.outputs.tag }}
       SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+      CEREMONY_SHA: ${{ needs.prepare.outputs.ceremony_sha }}
+      RECOVERY_MODE: ${{ needs.prepare.outputs.recovery_mode }}
       TITLE: ${{ needs.prepare.outputs.title }}
       PREPARED_SET_SHA256: ${{ needs.prepare.outputs.prepared_set_sha256 }}
       EXPECTED_ARTIFACT_DIGEST: ${{ needs.prepare.outputs.artifact_digest }}
@@ -266,10 +403,86 @@ jobs:
             -H "Authorization: Bearer $GH_TOKEN" -H 'X-GitHub-Api-Version: 2026-03-10' \
             -o "$RUNNER_TEMP/artifact-record.json" \
             "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
-          jq -e --argjson id "$ARTIFACT_ID" --arg digest "$expected_artifact_digest" \
-            --argjson run "$GITHUB_RUN_ID" \
-            '.id == $id and .expired == false and .digest == $digest and
-             .workflow_run.id == $run' "$RUNNER_TEMP/artifact-record.json" > /dev/null
+          # INLINE_CURRENT_ARTIFACT_VALIDATOR_BEGIN
+          python3 - "$RUNNER_TEMP/artifact-record.json" "$ARTIFACT_ID" \
+            "$expected_artifact_digest" "$GITHUB_RUN_ID" "$CEREMONY_SHA" \
+            "keyrx-release-$SOURCE_SHA" <<'PY'
+          import json, pathlib, re, sys
+
+          record = json.loads(pathlib.Path(sys.argv[1]).read_text("utf-8"))
+          artifact_id, digest, run_id, ceremony, name = sys.argv[2:]
+          if not re.fullmatch(r"[1-9][0-9]*", artifact_id) or not re.fullmatch(r"[1-9][0-9]*", run_id):
+              raise SystemExit("current artifact: non-canonical numeric identity")
+          if not re.fullmatch(r"sha256:[0-9a-f]{64}", digest) or not re.fullmatch(r"[0-9a-f]{40}", ceremony):
+              raise SystemExit("current artifact: non-canonical digest or ceremony")
+          run = record.get("workflow_run")
+          if (
+              record.get("id") != int(artifact_id)
+              or record.get("name") != name
+              or record.get("expired") is not False
+              or record.get("digest") != digest
+              or not isinstance(run, dict)
+              or run.get("id") != int(run_id)
+              or run.get("head_sha") != ceremony
+          ):
+              raise SystemExit("current artifact: provenance or current-run identity differs")
+          PY
+          # INLINE_CURRENT_ARTIFACT_VALIDATOR_END
+          if test "$RECOVERY_MODE" = true; then
+            get() {
+              curl -fsSL -H 'Accept: application/vnd.github+json' \
+                -H "Authorization: Bearer $GH_TOKEN" \
+                -H 'X-GitHub-Api-Version: 2026-03-10' "$1"
+            }
+            get "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/git/commits/$CEREMONY_SHA" \
+              > "$RUNNER_TEMP/recovery-ceremony.json"
+            get "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/compare/$SOURCE_SHA...$CEREMONY_SHA" \
+              > "$RUNNER_TEMP/recovery-comparison.json"
+            get "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/git/ref/heads/main" \
+              > "$RUNNER_TEMP/recovery-main-effect.json"
+            get "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/git/ref/tags/v0.4.13" \
+              > "$RUNNER_TEMP/recovery-tag-effect.json"
+            # INLINE_RECOVERY_EFFECT_VALIDATOR_BEGIN
+            python3 - "$RUNNER_TEMP/recovery-ceremony.json" \
+              "$RUNNER_TEMP/recovery-comparison.json" \
+              "$RUNNER_TEMP/recovery-main-effect.json" \
+              "$RUNNER_TEMP/recovery-tag-effect.json" \
+              "$SOURCE_SHA" "$CEREMONY_SHA" <<'PY'
+          import json, pathlib, re, sys
+
+          commit, comparison, main, tag = [
+              json.loads(pathlib.Path(path).read_text("utf-8")) for path in sys.argv[1:5]
+          ]
+          source, ceremony = sys.argv[5:]
+          if not re.fullmatch(r"[0-9a-f]{40}", source) or not re.fullmatch(r"[0-9a-f]{40}", ceremony):
+              raise SystemExit("release recovery effect: non-canonical object id")
+          parents = commit.get("parents")
+          if commit.get("sha") != ceremony or not isinstance(parents, list) or len(parents) != 1 or parents[0].get("sha") != source:
+              raise SystemExit("release recovery effect: ceremony is not the direct source child")
+          commits = comparison.get("commits")
+          if comparison.get("status") != "ahead" or comparison.get("ahead_by") != 1 or comparison.get("behind_by") != 0 or comparison.get("total_commits") != 1 or not isinstance(commits, list) or [item.get("sha") for item in commits] != [ceremony]:
+              raise SystemExit("release recovery effect: comparison does not prove one commit")
+          files = comparison.get("files")
+          actual = sorted(
+              (item.get("status"), item.get("filename"), item.get("previous_filename"))
+              for item in files
+          ) if isinstance(files, list) else []
+          expected = [
+              ("modified", ".github/workflows/publish.yml", None),
+              ("modified", "tests/test_release_workflow.py", None),
+          ]
+          if actual != expected:
+              raise SystemExit("release recovery effect: changed-path set differs")
+          if main.get("ref") != "refs/heads/main" or main.get("object", {}).get("type") != "commit" or main.get("object", {}).get("sha") != ceremony:
+              raise SystemExit("release recovery effect: live main differs from ceremony")
+          if tag.get("ref") != "refs/tags/v0.4.13" or tag.get("object", {}).get("type") != "commit" or tag.get("object", {}).get("sha") != source:
+              raise SystemExit("release recovery effect: tag differs from source")
+          PY
+            # INLINE_RECOVERY_EFFECT_VALIDATOR_END
+          else
+            test "$RECOVERY_MODE" = false
+            test "$CEREMONY_SHA" = "$SOURCE_SHA"
+          fi
           jq -e --arg version "$VERSION" --arg tag "$TAG" \
             'keys == ["assets","crate","expectedLiveBefore","predecessorEvidence",
               "schema","sourceBranch","tag","version","yankTargets"] and
@@ -877,7 +1090,10 @@ jobs:
           bind_source_authority() {
             local registry_state="$1" main_sha comparison
             main_sha="$(peel_ref heads/main)"
-            if test "$registry_state" = absent; then
+            if test "$RECOVERY_MODE" = true; then
+              test "$main_sha" = "$CEREMONY_SHA"
+              test "$registry_state" = absent || test "$registry_state" = exact
+            elif test "$registry_state" = absent; then
               test "$main_sha" = "$SOURCE_SHA"
             else
               test "$registry_state" = exact
@@ -898,7 +1114,7 @@ jobs:
             -H 'X-GitHub-Api-Version: 2026-03-10' \
             "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/immutable-releases")"
           test "$immutable_status" = 200
-          jq -e 'keys == ["enabled"] and .enabled == true' \
+          jq -e '.enabled == true and (.enforced_by_owner | type) == "boolean"' \
             "$RUNNER_TEMP/immutable-capability.json" > /dev/null
           curl -fsSL -A 'keyrx release workflow (dev@keyrx.tech)' \
             "https://crates.io/api/v1/crates/$CRATE_NAME" > "$RUNNER_TEMP/registry-all.json"
@@ -1045,7 +1261,7 @@ jobs:
                 > "$RUNNER_TEMP/current-version.json"
               jq -e --arg version "$VERSION" \
                 --arg checksum "${{ steps.prepared.outputs.crate_sha }}" \
-                --arg repo "$GITHUB_REPOSITORY" --arg sha "$SOURCE_SHA" \
+                --arg repo "$GITHUB_REPOSITORY" --arg sha "$CEREMONY_SHA" \
                 '.version | .num == $version and .yanked == false and .checksum == $checksum and
                  .trustpub_data.provider == "github" and
                  .trustpub_data.repository == $repo and .trustpub_data.sha == $sha' \
@@ -1104,14 +1320,14 @@ jobs:
           prerequisite_state="$(python3 - "$RUNNER_TEMP/registry-all.json" \
             "$RUNNER_TEMP/predecessor.json" "$current_detail" \
             "$RUNNER_TEMP/prepared/release-policy.json" "$VERSION" \
-            "${{ steps.prepared.outputs.crate_sha }}" "$GITHUB_REPOSITORY" "$SOURCE_SHA" \
+            "${{ steps.prepared.outputs.crate_sha }}" "$GITHUB_REPOSITORY" "$CEREMONY_SHA" \
             "$release_state" <<'PY'
           import json, pathlib, re, sys
           registry = json.loads(pathlib.Path(sys.argv[1]).read_text("utf-8"))
           predecessor = json.loads(pathlib.Path(sys.argv[2]).read_text("utf-8"))["version"]
           detail_path, policy_path = sys.argv[3:5]
           policy = json.loads(pathlib.Path(policy_path).read_text("utf-8"))
-          version, checksum, repository, source, release_state = sys.argv[5:10]
+          version, checksum, repository, ceremony, release_state = sys.argv[5:10]
           canonical = re.compile(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\Z")
           key = lambda value: tuple(map(int, value.split(".")))
           stable = [item for item in registry.get("versions", []) if canonical.fullmatch(item.get("num", ""))]
@@ -1125,7 +1341,7 @@ jobs:
               if row.get("yanked") is not False or row.get("checksum") != checksum:
                   raise SystemExit("prerequisite state: current full row differs")
               trust = detail.get("trustpub_data", {})
-              if detail.get("num") != version or detail.get("yanked") is not False or detail.get("checksum") != checksum or trust.get("provider") != "github" or trust.get("repository") != repository or trust.get("sha") != source:
+              if detail.get("num") != version or detail.get("yanked") is not False or detail.get("checksum") != checksum or trust.get("provider") != "github" or trust.get("repository") != repository or trust.get("sha") != ceremony:
                   raise SystemExit("prerequisite state: current detail differs")
           elif detail_path != "-":
               raise SystemExit("prerequisite state: absent current has detail")
@@ -1189,7 +1405,7 @@ jobs:
           signer_workflow="$signer_host/$GITHUB_REPOSITORY/.github/workflows/publish.yml"
           GH_NO_UPDATE_NOTIFIER=1 gh attestation verify "$CRATE_NAME-$VERSION.crate" \
             --repo "$GITHUB_REPOSITORY" --bundle "$CRATE_NAME-$VERSION.crate.sigstore.json" \
-            --signer-workflow "$signer_workflow" --source-digest "$SOURCE_SHA" \
+            --signer-workflow "$signer_workflow" --source-digest "$CEREMONY_SHA" \
             > "$RUNNER_TEMP/current-attestation.json"
           LC_ALL=C sha256sum "$CRATE_NAME-$VERSION.crate" \
             "$CRATE_NAME-$VERSION.crate.sha256" "$CRATE_NAME-$VERSION.cdx.json" \
@@ -1203,7 +1419,7 @@ jobs:
         run: |
           set -euo pipefail
           get() { curl -fsSL -H 'Accept: application/vnd.github+json' -H "Authorization: Bearer $GH_TOKEN" -H 'X-GitHub-Api-Version: 2026-03-10' "$1"; }
-          test "$(get "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/git/ref/heads/main" | jq -er .object.sha)" = "$SOURCE_SHA"
+          test "$(get "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/git/ref/heads/main" | jq -er .object.sha)" = "$CEREMONY_SHA"
           get "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" > /dev/null
           test "$(get "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/commits/$TAG" | jq -er .sha)" = "$SOURCE_SHA"
 
@@ -1214,7 +1430,7 @@ jobs:
         run: |
           set -euo pipefail
           get() { curl -fsSL -H 'Accept: application/vnd.github+json' -H "Authorization: Bearer $GH_TOKEN" -H 'X-GitHub-Api-Version: 2026-03-10' "$1"; }
-          test "$(get "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/git/ref/heads/main" | jq -er .object.sha)" = "$SOURCE_SHA"
+          test "$(get "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/git/ref/heads/main" | jq -er .object.sha)" = "$CEREMONY_SHA"
           get "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" > /dev/null
           test "$(get "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/commits/$TAG" | jq -er .sha)" = "$SOURCE_SHA"
           jq -n --arg tag "$TAG" --arg sha "$SOURCE_SHA" --arg title "$TITLE" \
@@ -1240,7 +1456,7 @@ jobs:
         run: |
           set -euo pipefail
           get() { curl -fsSL -H 'Accept: application/vnd.github+json' -H "Authorization: Bearer $GH_TOKEN" -H 'X-GitHub-Api-Version: 2026-03-10' "$1"; }
-          test "$(get "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/git/ref/heads/main" | jq -er .object.sha)" = "$SOURCE_SHA"
+          test "$(get "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/git/ref/heads/main" | jq -er .object.sha)" = "$CEREMONY_SHA"
           get "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" > /dev/null
           test "$(get "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/commits/$TAG" | jq -er .sha)" = "$SOURCE_SHA"
           release_id="${NEW_RELEASE_ID:-$OLD_RELEASE_ID}"
@@ -1323,7 +1539,7 @@ jobs:
           signer_workflow="$signer_host/$GITHUB_REPOSITORY/.github/workflows/publish.yml"
           GH_NO_UPDATE_NOTIFIER=1 gh attestation verify "$dir/$CRATE_NAME-$VERSION.crate" \
             --repo "$GITHUB_REPOSITORY" --bundle "$dir/$CRATE_NAME-$VERSION.crate.sigstore.json" \
-            --signer-workflow "$signer_workflow" --source-digest "$SOURCE_SHA" \
+            --signer-workflow "$signer_workflow" --source-digest "$CEREMONY_SHA" \
             > "$RUNNER_TEMP/verified-draft-attestation.json"
           if test "$RELEASE_STATE" = draft-exact || test "$RELEASE_STATE" = published-exact; then
             # A fresh handoff contains seven prepare files, never prior-run
@@ -1354,7 +1570,7 @@ jobs:
         run: |
           set -euo pipefail
           get() { curl -fsSL -H 'Accept: application/vnd.github+json' -H "Authorization: Bearer $GH_TOKEN" -H 'X-GitHub-Api-Version: 2026-03-10' "$1"; }
-          test "$(get "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/git/ref/heads/main" | jq -er .object.sha)" = "$SOURCE_SHA"
+          test "$(get "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/git/ref/heads/main" | jq -er .object.sha)" = "$CEREMONY_SHA"
           get "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" > /dev/null
           test "$(get "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/commits/$TAG" | jq -er .sha)" = "$SOURCE_SHA"
           test -n "$GH_ADMIN_READ_TOKEN"
@@ -1364,7 +1580,7 @@ jobs:
             -H 'X-GitHub-Api-Version: 2026-03-10' \
             "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/immutable-releases")"
           test "$immutable_status" = 200
-          jq -e 'keys == ["enabled"] and .enabled == true' \
+          jq -e '.enabled == true and (.enforced_by_owner | type) == "boolean"' \
             "$RUNNER_TEMP/immutable-before-token.json" > /dev/null
           curl -fsSL -A 'keyrx release workflow (dev@keyrx.tech)' \
             "https://crates.io/api/v1/crates/$CRATE_NAME" > "$RUNNER_TEMP/registry-before-effect.json"
@@ -1394,7 +1610,7 @@ jobs:
         run: |
           set -euo pipefail
           get() { curl -fsSL -H 'Accept: application/vnd.github+json' -H "Authorization: Bearer $GH_TOKEN" -H 'X-GitHub-Api-Version: 2026-03-10' "$1"; }
-          test "$(get "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/git/ref/heads/main" | jq -er .object.sha)" = "$SOURCE_SHA"
+          test "$(get "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/git/ref/heads/main" | jq -er .object.sha)" = "$CEREMONY_SHA"
           test "$(get "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/commits/$TAG" | jq -er .sha)" = "$SOURCE_SHA"
           test -n "$GH_ADMIN_READ_TOKEN"
           immutable_status="$(curl -sS -L -o "$RUNNER_TEMP/immutable-at-put.json" -w '%{http_code}' \
@@ -1403,7 +1619,7 @@ jobs:
             -H 'X-GitHub-Api-Version: 2026-03-10' \
             "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/immutable-releases")"
           test "$immutable_status" = 200
-          jq -e 'keys == ["enabled"] and .enabled == true' \
+          jq -e '.enabled == true and (.enforced_by_owner | type) == "boolean"' \
             "$RUNNER_TEMP/immutable-at-put.json" > /dev/null
           curl -fsSL -A 'keyrx release workflow (dev@keyrx.tech)' \
             "https://crates.io/api/v1/crates/$CRATE_NAME" > "$RUNNER_TEMP/registry-at-put.json"
@@ -1438,7 +1654,7 @@ jobs:
           done
           test "$found" = true
           jq -e --arg version "$VERSION" --arg checksum "${{ steps.prepared.outputs.crate_sha }}" \
-            --arg repo "$GITHUB_REPOSITORY" --arg sha "$SOURCE_SHA" \
+            --arg repo "$GITHUB_REPOSITORY" --arg sha "$CEREMONY_SHA" \
             '.version | .num == $version and .yanked == false and .checksum == $checksum and
              .trustpub_data.provider == "github" and .trustpub_data.repository == $repo and
              .trustpub_data.sha == $sha' "$RUNNER_TEMP/current-registry.json" > /dev/null
@@ -1457,6 +1673,7 @@ jobs:
           set -euo pipefail
           get() { curl -fsSL -H 'Accept: application/vnd.github+json' -H "Authorization: Bearer $GH_TOKEN" -H 'X-GitHub-Api-Version: 2026-03-10' "$1"; }
           main_sha="$(get "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/git/ref/heads/main" | jq -er .object.sha)"
+          test "$RECOVERY_MODE" != true || test "$main_sha" = "$CEREMONY_SHA"
           get "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/compare/$SOURCE_SHA...main" \
             > "$RUNNER_TEMP/main-comparison.json"
           # INLINE_MAIN_ANCESTRY_VALIDATOR_BEGIN
@@ -1484,7 +1701,7 @@ jobs:
             -H 'X-GitHub-Api-Version: 2026-03-10' \
             "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/immutable-releases")"
           test "$immutable_status" = 200
-          jq -e 'keys == ["enabled"] and .enabled == true' \
+          jq -e '.enabled == true and (.enforced_by_owner | type) == "boolean"' \
             "$RUNNER_TEMP/immutable-before-release.json" > /dev/null
 
       - name: Publish the already-proven draft as immutable
@@ -1496,6 +1713,7 @@ jobs:
           set -euo pipefail
           get() { curl -fsSL -H 'Accept: application/vnd.github+json' -H "Authorization: Bearer $GH_TOKEN" -H 'X-GitHub-Api-Version: 2026-03-10' "$1"; }
           main_sha="$(get "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/git/ref/heads/main" | jq -er .object.sha)"
+          test "$RECOVERY_MODE" != true || test "$main_sha" = "$CEREMONY_SHA"
           comparison="$(get "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/compare/$SOURCE_SHA...main")"
           jq -e --arg source "$SOURCE_SHA" --arg main "$main_sha" \
             '.merge_base_commit.sha == $source and .base_commit.sha == $source and
@@ -1504,11 +1722,14 @@ jobs:
           get "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" > /dev/null
           test "$(get "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/commits/$TAG" | jq -er .sha)" = "$SOURCE_SHA"
           test -n "$GH_ADMIN_READ_TOKEN"
-          immutable="$(curl -fsSL -H 'Accept: application/vnd.github+json' \
+          immutable_status="$(curl -sS -L -o "$RUNNER_TEMP/immutable-at-release.json" -w '%{http_code}' \
+            -H 'Accept: application/vnd.github+json' \
             -H "Authorization: Bearer $GH_ADMIN_READ_TOKEN" \
             -H 'X-GitHub-Api-Version: 2026-03-10' \
             "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/immutable-releases")"
-          jq -e '.enabled == true' <<<"$immutable" > /dev/null
+          test "$immutable_status" = 200
+          jq -e '.enabled == true and (.enforced_by_owner | type) == "boolean"' \
+            "$RUNNER_TEMP/immutable-at-release.json" > /dev/null
           curl -fsSL -A 'keyrx release workflow (dev@keyrx.tech)' \
             "https://crates.io/api/v1/crates/$CRATE_NAME" > "$RUNNER_TEMP/registry-at-release.json"
           curl -fsSL -A 'keyrx release workflow (dev@keyrx.tech)' \
@@ -1517,17 +1738,17 @@ jobs:
           python3 - "$RUNNER_TEMP/registry-at-release.json" \
             "$RUNNER_TEMP/current-at-release.json" "$RUNNER_TEMP/prepared/release-policy.json" \
             "$VERSION" "${{ steps.prepared.outputs.crate_sha }}" \
-            "$GITHUB_REPOSITORY" "$SOURCE_SHA" <<'PY'
+            "$GITHUB_REPOSITORY" "$CEREMONY_SHA" <<'PY'
           import json, pathlib, re, sys
 
           registry = json.loads(pathlib.Path(sys.argv[1]).read_text("utf-8"))
           current = json.loads(pathlib.Path(sys.argv[2]).read_text("utf-8")).get("version", {})
           policy = json.loads(pathlib.Path(sys.argv[3]).read_text("utf-8"))
-          version, checksum, repository, source = sys.argv[4:8]
+          version, checksum, repository, ceremony = sys.argv[4:8]
           if current != {**current, "num": version, "yanked": False, "checksum": checksum}:
               raise SystemExit("registry boundary: current identity or live state differs")
           trust = current.get("trustpub_data", {})
-          if trust.get("provider") != "github" or trust.get("repository") != repository or trust.get("sha") != source:
+          if trust.get("provider") != "github" or trust.get("repository") != repository or trust.get("sha") != ceremony:
               raise SystemExit("registry boundary: trusted publisher identity differs")
           canonical = re.compile(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)")
           key = lambda value: tuple(map(int, value.split(".")))
@@ -1546,7 +1767,7 @@ jobs:
           PY
           # INLINE_CURRENT_REGISTRY_VALIDATOR_END
           jq -e --arg version "$VERSION" --arg checksum "${{ steps.prepared.outputs.crate_sha }}" \
-            --arg repo "$GITHUB_REPOSITORY" --arg sha "$SOURCE_SHA" \
+            --arg repo "$GITHUB_REPOSITORY" --arg sha "$CEREMONY_SHA" \
             '.version | .num == $version and .yanked == false and .checksum == $checksum and
              .trustpub_data.provider == "github" and .trustpub_data.repository == $repo and
              .trustpub_data.sha == $sha' "$RUNNER_TEMP/current-at-release.json" > /dev/null
@@ -1689,7 +1910,7 @@ jobs:
           GH_NO_UPDATE_NOTIFIER=1 gh attestation verify "$close_dir/$CRATE_NAME-$VERSION.crate" \
             --repo "$GITHUB_REPOSITORY" \
             --bundle "$close_dir/$CRATE_NAME-$VERSION.crate.sigstore.json" \
-            --signer-workflow "$signer_workflow" --source-digest "$SOURCE_SHA" \
+            --signer-workflow "$signer_workflow" --source-digest "$CEREMONY_SHA" \
             > "$RUNNER_TEMP/close-attestation.json"
           jq -n --arg tag "$TAG" --arg sha "$SOURCE_SHA" --arg title "$TITLE" \
             --rawfile body "$RUNNER_TEMP/prepared/release-notes.md" \
@@ -1771,7 +1992,7 @@ jobs:
           signer_workflow="$signer_host/$GITHUB_REPOSITORY/.github/workflows/publish.yml"
           GH_NO_UPDATE_NOTIFIER=1 gh attestation verify "$final_dir/$CRATE_NAME-$VERSION.crate" \
             --repo "$GITHUB_REPOSITORY" --bundle "$final_dir/$CRATE_NAME-$VERSION.crate.sigstore.json" \
-            --signer-workflow "$signer_workflow" --source-digest "$SOURCE_SHA" \
+            --signer-workflow "$signer_workflow" --source-digest "$CEREMONY_SHA" \
             > "$RUNNER_TEMP/final-attestation.json"
           GH_NO_UPDATE_NOTIFIER=1 gh release verify "$TAG" --repo "$GITHUB_REPOSITORY" \
             > "$RUNNER_TEMP/final-immutable.json"
@@ -1798,6 +2019,7 @@ jobs:
           set -euo pipefail
           get() { curl -fsSL -H 'Accept: application/vnd.github+json' -H "Authorization: Bearer $GH_TOKEN" -H 'X-GitHub-Api-Version: 2026-03-10' "$1"; }
           main_sha="$(get "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/git/ref/heads/main" | jq -er .object.sha)"
+          test "$RECOVERY_MODE" != true || test "$main_sha" = "$CEREMONY_SHA"
           comparison="$(get "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/compare/$SOURCE_SHA...main")"
           jq -e --arg source "$SOURCE_SHA" --arg main "$main_sha" \
             '.merge_base_commit.sha == $source and .base_commit.sha == $source and
@@ -1815,7 +2037,7 @@ jobs:
           curl -fsSL -A 'keyrx release workflow (dev@keyrx.tech)' \
             "https://crates.io/api/v1/crates/$CRATE_NAME/$VERSION" > "$RUNNER_TEMP/current-before-yank.json"
           jq -e --arg version "$VERSION" --arg checksum "${{ steps.prepared.outputs.crate_sha }}" \
-            --arg repo "$GITHUB_REPOSITORY" --arg sha "$SOURCE_SHA" \
+            --arg repo "$GITHUB_REPOSITORY" --arg sha "$CEREMONY_SHA" \
             '.version | .num == $version and .yanked == false and .checksum == $checksum and
              .trustpub_data.provider == "github" and .trustpub_data.repository == $repo and
              .trustpub_data.sha == $sha' "$RUNNER_TEMP/current-before-yank.json" > /dev/null
@@ -1851,6 +2073,7 @@ jobs:
           for old in "${targets[@]}"; do
             get() { curl -fsSL -H 'Accept: application/vnd.github+json' -H "Authorization: Bearer $GH_TOKEN" -H 'X-GitHub-Api-Version: 2026-03-10' "$1"; }
             main_sha="$(get "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/git/ref/heads/main" | jq -er .object.sha)"
+            test "$RECOVERY_MODE" != true || test "$main_sha" = "$CEREMONY_SHA"
             comparison="$(get "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/compare/$SOURCE_SHA...main")"
             jq -e --arg source "$SOURCE_SHA" --arg main "$main_sha" \
               '.merge_base_commit.sha == $source and .base_commit.sha == $source and
@@ -1863,7 +2086,7 @@ jobs:
             curl -fsSL -A 'keyrx release workflow (dev@keyrx.tech)' \
               "https://crates.io/api/v1/crates/$CRATE_NAME/$VERSION" > "$RUNNER_TEMP/current-at-yank.json"
             jq -e --arg version "$VERSION" --arg checksum "${{ steps.prepared.outputs.crate_sha }}" \
-              --arg repo "$GITHUB_REPOSITORY" --arg sha "$SOURCE_SHA" \
+              --arg repo "$GITHUB_REPOSITORY" --arg sha "$CEREMONY_SHA" \
               '.version | .num == $version and .yanked == false and .checksum == $checksum and
                .trustpub_data.provider == "github" and .trustpub_data.repository == $repo and
                .trustpub_data.sha == $sha' "$RUNNER_TEMP/current-at-yank.json" > /dev/null
@@ -1900,7 +2123,7 @@ jobs:
                 "https://crates.io/api/v1/crates/$CRATE_NAME/$VERSION" \
                 > "$RUNNER_TEMP/current-final.json"
               jq -e --arg version "$VERSION" --arg checksum "${{ steps.prepared.outputs.crate_sha }}" \
-                --arg repo "$GITHUB_REPOSITORY" --arg sha "$SOURCE_SHA" \
+                --arg repo "$GITHUB_REPOSITORY" --arg sha "$CEREMONY_SHA" \
                 '.version | .num == $version and .yanked == false and .checksum == $checksum and
                  .trustpub_data.provider == "github" and .trustpub_data.repository == $repo and
                  .trustpub_data.sha == $sha' "$RUNNER_TEMP/current-final.json" > /dev/null

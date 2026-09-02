@@ -62,6 +62,259 @@ def inline_shell(marker):
     )
 
 
+class RecoveryDispatchTests(unittest.TestCase):
+    def make_lineage(self, root, *, extra=False, omit_test_change=False):
+        subprocess.run(["git", "init", "-q", root], check=True)
+        subprocess.run(
+            ["git", "-C", root, "config", "user.email", "recovery@test.invalid"],
+            check=True,
+        )
+        subprocess.run(
+            ["git", "-C", root, "config", "user.name", "recovery control"],
+            check=True,
+        )
+        workflow = root / ".github" / "workflows" / "publish.yml"
+        test = root / "tests" / "test_release_workflow.py"
+        workflow.parent.mkdir(parents=True)
+        test.parent.mkdir(parents=True)
+        workflow.write_text("source workflow\n", encoding="utf-8")
+        test.write_text("source test\n", encoding="utf-8")
+        subprocess.run(["git", "-C", root, "add", "."], check=True)
+        subprocess.run(["git", "-C", root, "commit", "-qm", "source"], check=True)
+        source = subprocess.check_output(
+            ["git", "-C", root, "rev-parse", "HEAD"], text=True
+        ).strip()
+        workflow.write_text("recovery workflow\n", encoding="utf-8")
+        if not omit_test_change:
+            test.write_text("recovery test\n", encoding="utf-8")
+        if extra:
+            (root / "extra").write_text("not allowed\n", encoding="utf-8")
+        subprocess.run(["git", "-C", root, "add", "."], check=True)
+        subprocess.run(["git", "-C", root, "commit", "-qm", "ceremony"], check=True)
+        ceremony = subprocess.check_output(
+            ["git", "-C", root, "rev-parse", "HEAD"], text=True
+        ).strip()
+        return source, ceremony
+
+    def identity(self, root, base_source, base_ceremony, **overrides):
+        values = {
+            "event": "workflow_dispatch",
+            "ref": "refs/heads/main",
+            "ref_type": "branch",
+            "ref_name": "main",
+            "event_sha": base_ceremony,
+            "ceremony": base_ceremony,
+            "source": base_source,
+        }
+        values.update(overrides)
+        return run_inline(
+            "INLINE_RECOVERY_IDENTITY_VALIDATOR",
+            root,
+            values["event"],
+            values["ref"],
+            values["ref_type"],
+            values["ref_name"],
+            values["event_sha"],
+            values["ceremony"],
+            values["source"],
+        )
+
+    def test_exact_direct_child_with_exact_two_file_diff_is_admitted(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source, ceremony = self.make_lineage(root)
+            self.assertEqual(self.identity(root, source, ceremony).returncode, 0)
+
+    def test_tag_push_mode_remains_admitted_without_recovery_lineage(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            subprocess.run(["git", "init", "-q", root], check=True)
+            subprocess.run(["git", "-C", root, "config", "user.email", "tag@test.invalid"], check=True)
+            subprocess.run(["git", "-C", root, "config", "user.name", "tag control"], check=True)
+            (root / "source").write_text("tag source\n", encoding="utf-8")
+            subprocess.run(["git", "-C", root, "add", "."], check=True)
+            subprocess.run(["git", "-C", root, "commit", "-qm", "source"], check=True)
+            source = subprocess.check_output(
+                ["git", "-C", root, "rev-parse", "HEAD"], text=True
+            ).strip()
+            subprocess.run(["git", "-C", root, "tag", "v0.4.13"], check=True)
+            result = self.identity(
+                root,
+                source,
+                source,
+                event="push",
+                ref="refs/tags/v0.4.13",
+                ref_type="tag",
+                ref_name="v0.4.13",
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_dispatch_ref_event_sha_parent_diff_and_cleanliness_are_load_bearing(self):
+        cases = ("event", "ref", "ref_type", "ref_name", "event_sha", "source", "dirty")
+        for case in cases:
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                source, ceremony = self.make_lineage(root)
+                if case == "dirty":
+                    (root / "untracked").write_text("dirty\n", encoding="utf-8")
+                    result = self.identity(root, source, ceremony)
+                else:
+                    mutations = {
+                        "event": {"event": "schedule"},
+                        "ref": {"ref": "refs/heads/recovery"},
+                        "ref_type": {"ref_type": "tag"},
+                        "ref_name": {"ref_name": "release"},
+                        "event_sha": {"event_sha": source},
+                        "source": {"source": "f" * 40},
+                    }
+                    result = self.identity(root, source, ceremony, **mutations[case])
+                self.assertNotEqual(result.returncode, 0, result.stderr)
+
+    def test_extra_or_missing_allowed_path_is_rejected_by_actual_validator(self):
+        for extra, omit in ((True, False), (False, True)):
+            with self.subTest(extra=extra, omit=omit), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                source, ceremony = self.make_lineage(
+                    root, extra=extra, omit_test_change=omit
+                )
+                result = self.identity(root, source, ceremony)
+                self.assertNotEqual(result.returncode, 0, result.stderr)
+                self.assertIn("changed-path set differs", result.stderr)
+
+    def test_non_direct_descendant_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source, ceremony = self.make_lineage(root)
+            (root / ".github" / "workflows" / "publish.yml").write_text(
+                "later ceremony\n", encoding="utf-8"
+            )
+            subprocess.run(["git", "-C", root, "add", "."], check=True)
+            subprocess.run(["git", "-C", root, "commit", "-qm", "later"], check=True)
+            later = subprocess.check_output(
+                ["git", "-C", root, "rev-parse", "HEAD"], text=True
+            ).strip()
+            result = self.identity(root, source, later)
+            self.assertNotEqual(result.returncode, 0, result.stderr)
+            self.assertIn("direct source child", result.stderr)
+
+    def test_live_remote_validator_binds_both_exact_refs(self):
+        source, ceremony = "1" * 40, "2" * 40
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            main = root / "main.json"
+            tag = root / "tag.json"
+            def write(path, ref, sha):
+                path.write_text(
+                    json.dumps({"ref": ref, "object": {"sha": sha, "type": "commit", "url": "https://api.invalid/object"}}),
+                    encoding="utf-8",
+                )
+            write(main, "refs/heads/main", ceremony)
+            write(tag, "refs/tags/v0.4.13", source)
+            self.assertEqual(
+                run_inline("INLINE_RECOVERY_REMOTE_VALIDATOR", main, tag, ceremony, source).returncode,
+                0,
+            )
+            for target, ref, sha in (
+                (main, "refs/heads/main", source),
+                (main, "refs/heads/recovery", ceremony),
+                (tag, "refs/tags/v0.4.13", ceremony),
+                (tag, "refs/tags/v0.4.12", source),
+            ):
+                write(main, "refs/heads/main", ceremony)
+                write(tag, "refs/tags/v0.4.13", source)
+                write(target, ref, sha)
+                self.assertNotEqual(
+                    run_inline("INLINE_RECOVERY_REMOTE_VALIDATOR", main, tag, ceremony, source).returncode,
+                    0,
+                )
+
+    def test_effect_validator_rederives_lineage_diff_main_and_tag(self):
+        source, ceremony = "1" * 40, "2" * 40
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            paths = {
+                name: root / f"{name}.json"
+                for name in ("commit", "comparison", "main", "tag")
+            }
+            records = {
+                "commit": {
+                    "sha": ceremony,
+                    "parents": [{"sha": source, "url": "https://api.invalid/p", "html_url": "https://invalid/p"}],
+                },
+                "comparison": {
+                    "status": "ahead", "ahead_by": 1, "behind_by": 0, "total_commits": 1,
+                    "commits": [{"sha": ceremony}],
+                    "files": [
+                        {"status": "modified", "filename": ".github/workflows/publish.yml"},
+                        {"status": "modified", "filename": "tests/test_release_workflow.py"},
+                    ],
+                },
+                "main": {"ref": "refs/heads/main", "object": {"type": "commit", "sha": ceremony}},
+                "tag": {"ref": "refs/tags/v0.4.13", "object": {"type": "commit", "sha": source}},
+            }
+            def run(current):
+                for name, value in current.items():
+                    paths[name].write_text(json.dumps(value), encoding="utf-8")
+                return run_inline(
+                    "INLINE_RECOVERY_EFFECT_VALIDATOR",
+                    paths["commit"], paths["comparison"], paths["main"], paths["tag"],
+                    source, ceremony,
+                )
+            self.assertEqual(run(records).returncode, 0)
+            mutations = (
+                ("commit", "parents", []),
+                ("comparison", "ahead_by", 2),
+                ("comparison", "files", records["comparison"]["files"] + [{"status": "modified", "filename": "src/main.rs"}]),
+                ("main", "ref", "refs/heads/recovery"),
+                ("main", "object", {"type": "commit", "sha": source}),
+                ("tag", "ref", "refs/tags/v0.4.12"),
+                ("tag", "object", {"type": "commit", "sha": ceremony}),
+            )
+            for name, key, value in mutations:
+                with self.subTest(name=name, key=key):
+                    hostile = json.loads(json.dumps(records))
+                    hostile[name][key] = value
+                    self.assertNotEqual(run(hostile).returncode, 0)
+
+    def test_artifact_validator_requires_this_run_and_ceremony(self):
+        artifact_id, run_id = "41", "77"
+        digest, ceremony = "sha256:" + "a" * 64, "b" * 40
+        name = "keyrx-release-" + "c" * 40
+        exact = {
+            "id": int(artifact_id),
+            "name": name,
+            "expired": False,
+            "digest": digest,
+            "workflow_run": {"id": int(run_id), "head_sha": ceremony},
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "artifact.json"
+            def check(record, *args):
+                path.write_text(json.dumps(record), encoding="utf-8")
+                return run_inline(
+                    "INLINE_CURRENT_ARTIFACT_VALIDATOR", path,
+                    *(args or (artifact_id, digest, run_id, ceremony, name)),
+                )
+            self.assertEqual(check(exact).returncode, 0)
+            for key, value in (
+                ("id", 42), ("name", name + "-other"), ("expired", True),
+                ("digest", "sha256:" + "d" * 64),
+                ("workflow_run", {"id": 78, "head_sha": ceremony}),
+                ("workflow_run", {"id": int(run_id), "head_sha": "e" * 40}),
+            ):
+                with self.subTest(key=key, value=value):
+                    hostile = json.loads(json.dumps(exact))
+                    hostile[key] = value
+                    self.assertNotEqual(check(hostile).returncode, 0)
+            for args in (
+                ("0", digest, run_id, ceremony, name),
+                (artifact_id, digest.removeprefix("sha256:"), run_id, ceremony, name),
+                (artifact_id, digest, "0", ceremony, name),
+                (artifact_id, digest, run_id, "f" * 39, name),
+            ):
+                self.assertNotEqual(check(exact, *args).returncode, 0)
+
+
 class ReleaseWorkflowTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -165,8 +418,18 @@ class ReleaseWorkflowTests(unittest.TestCase):
             )
             self.assertEqual(tag_workflow_names(workflows), ["evil.yaml", "safe.yml"])
 
-    def test_release_actions_are_sha_pinned_and_manual_dispatch_is_absent(self):
-        self.assertNotRegex(self.workflow, r"^\s*workflow_dispatch\s*:")
+    def test_release_actions_are_sha_pinned_and_dispatch_is_one_fixed_recovery(self):
+        self.assertRegex(self.workflow, r"(?m)^  workflow_dispatch:\s*$")
+        dispatch = self.workflow.split("  workflow_dispatch:\n", 1)[1].split(
+            "\nconcurrency:", 1
+        )[0]
+        self.assertEqual(dispatch, "")
+        self.assertIn(
+            "source_sha=04df92e2f7a4ab56ad596c7fbe494e202d6c37b3",
+            self.prepare,
+        )
+        self.assertIn('test "$RECOVERY_MODE" = true', self.prepare)
+        self.assertIn("-- --test-threads=1", self.prepare)
         assert_immutable_dependencies(self, self.workflow)
 
     def test_two_jobs_separate_unprivileged_candidate_work_from_effects(self):
@@ -257,12 +520,59 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertGreaterEqual(self.effect.count("commits/$TAG"), 3)
         self.assertIn("git/ref/$ref", self.effect)
         self.assertIn("tags/v$predecessor", self.effect)
-        self.assertGreaterEqual(self.effect.count("immutable-releases"), 3)
-        self.assertGreaterEqual(self.effect.count('test "$immutable_status" = 200'), 3)
-        self.assertGreaterEqual(
-            self.effect.count('keys == ["enabled"] and .enabled == true'), 3
+        self.assertEqual(self.effect.count("immutable-releases"), 5)
+        self.assertEqual(self.effect.count('test "$immutable_status" = 200'), 5)
+        self.assertEqual(
+            self.effect.count(
+                '.enabled == true and (.enforced_by_owner | type) == "boolean"'
+            ),
+            5,
         )
+        self.assertNotIn('keys == ["enabled"]', self.effect)
         self.assertIn("GH_ADMIN_READ_TOKEN", self.effect)
+
+    def test_immutable_response_policy_accepts_documented_and_additive_shapes(self):
+        predicate = '.enabled == true and (.enforced_by_owner | type) == "boolean"'
+        self.assertEqual(
+            re.findall(r"jq -e '([^']*\.enforced_by_owner[^']*)'", self.effect),
+            [predicate] * 5,
+        )
+
+        def admitted(value):
+            return (
+                isinstance(value, dict)
+                and value.get("enabled") is True
+                and type(value.get("enforced_by_owner")) is bool
+            )
+
+        documented = {"enabled": True, "enforced_by_owner": False}
+        self.assertTrue(admitted(documented))
+        self.assertTrue(admitted({**documented, "future_field": {"value": 1}}))
+        self.assertTrue(admitted({"enabled": True, "enforced_by_owner": True}))
+        for hostile in (
+            {"enabled": True},
+            {"enabled": False, "enforced_by_owner": False},
+            {"enabled": True, "enforced_by_owner": "false"},
+        ):
+            self.assertFalse(admitted(hostile))
+
+        old_policy = lambda value: set(value) == {"enabled"} and value["enabled"] is True
+        self.assertFalse(old_policy(documented))
+
+    def test_source_and_ceremony_own_distinct_release_identities(self):
+        self.assertIn("SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}", self.effect)
+        self.assertIn("CEREMONY_SHA: ${{ needs.prepare.outputs.ceremony_sha }}", self.effect)
+        self.assertIn('run.get("head_sha") != ceremony', self.effect)
+        self.assertNotIn('--source-digest "$SOURCE_SHA"', self.effect)
+        self.assertEqual(self.effect.count('--source-digest "$CEREMONY_SHA"'), 4)
+        self.assertGreaterEqual(
+            self.effect.count('--arg sha "$CEREMONY_SHA"'), 6
+        )
+        self.assertIn('--arg sha "$SOURCE_SHA" --arg title "$TITLE"', self.effect)
+        self.assertGreaterEqual(
+            self.effect.count('commits/$TAG" | jq -er .sha)" = "$SOURCE_SHA"'),
+            8,
+        )
 
     def test_reviewed_manifest_not_dynamic_registry_discovery_owns_yanks(self):
         policy = (ROOT / "ops" / "release" / "0.4.13.json").read_text(encoding="utf-8")
@@ -1047,8 +1357,8 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("PREPARED_SHA256SUMS", self.workflow)
         self.assertIn("prepared_set_sha256", self.workflow)
         self.assertIn("artifact-digest", self.workflow)
-        self.assertIn(".digest == $digest", self.effect)
-        self.assertIn(".workflow_run.id == $run", self.effect)
+        self.assertIn('record.get("digest") != digest', self.effect)
+        self.assertIn('run.get("id") != int(run_id)', self.effect)
         preflight = (ROOT / "ops" / "release_preflight.py").read_text(encoding="utf-8")
         self.assertIn('"ls-tree", "-z", source_sha', preflight)
         self.assertIn('"cat-file", "blob", object_id', preflight)
