@@ -8,6 +8,7 @@ homepage = "https://keyrx.tech"
 repository = "https://github.com/keyrx/keyrx"
 readme = "README.md"
 license = "MIT"
+publish = ["crates-io"]
 keywords = ["solana", "vanity", "wallet", "keygen", "address"]
 categories = ["command-line-utilities", "cryptography::cryptocurrencies"]
 # The crate is the CLI. The site and the raster/vector brand assets live in the

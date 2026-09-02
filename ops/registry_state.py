@@ -27,7 +27,7 @@ def version_key(value: str) -> tuple[int, int, int]:
     return tuple(int(part) for part in match.groups())
 
 
-def classify(payload: dict, version: str, checksum: str) -> dict[str, str]:
+def classify(payload: dict, version: str, checksum: str) -> dict[str, str | list[str]]:
     current_key = version_key(version)
     if not SHA256_RE.fullmatch(checksum):
         raise RegistryError("expected crate checksum is not canonical SHA-256")
@@ -60,14 +60,14 @@ def classify(payload: dict, version: str, checksum: str) -> dict[str, str]:
 
     if len(current) > 1:
         raise RegistryError(f"crates.io repeats the release version {version}")
-    if len(older_live) > 1:
+    predecessors = sorted(older_live, key=version_key, reverse=True)
+    if len(predecessors) > 2:
         raise RegistryError(
-            "expected at most one older unyanked release; found "
-            + ", ".join(sorted(older_live, key=version_key))
+            "expected at most two older unyanked releases; found "
+            + ", ".join(predecessors)
         )
-    predecessor = older_live[0] if older_live else ""
     if not current:
-        return {"state": "absent", "predecessor": predecessor}
+        return {"state": "absent", "predecessors": predecessors}
 
     row = current[0]
     if row.get("yanked") is not False:
@@ -77,7 +77,7 @@ def classify(payload: dict, version: str, checksum: str) -> dict[str, str]:
         raise RegistryError(
             f"keyrx {version} checksum differs: expected {checksum}, got {actual_checksum!r}"
         )
-    return {"state": "exact", "predecessor": predecessor}
+    return {"state": "exact", "predecessors": predecessors}
 
 
 def validate_trusted_version(
@@ -168,7 +168,12 @@ def main(argv: list[str] | None = None) -> int:
         if args.github_output:
             with args.github_output.open("a", encoding="utf-8") as output:
                 for key, value in result.items():
-                    output.write(f"{key}={value}\n")
+                    encoded = (
+                        json.dumps(value, separators=(",", ":"))
+                        if isinstance(value, list)
+                        else value
+                    )
+                    output.write(f"{key}={encoded}\n")
         else:
             print(json.dumps(result, sort_keys=True))
     except (OSError, UnicodeError, json.JSONDecodeError, RegistryError) as exc:

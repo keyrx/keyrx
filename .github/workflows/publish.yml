@@ -86,7 +86,7 @@ jobs:
         run: python3 -m unittest discover -s tests -p 'test_release_*.py'
 
       - name: Run Cargo's complete publish checks without an upload
-        run: CARGO_TARGET_DIR="$RUNNER_TEMP/publish-dry-run" cargo publish --dry-run --locked
+        run: CARGO_TARGET_DIR="$RUNNER_TEMP/publish-dry-run" cargo publish --dry-run --locked --registry crates-io
 
       - name: Build the deterministic release handoff twice
         env:
@@ -219,41 +219,60 @@ jobs:
           python3 ops/registry_state.py "$RUNNER_TEMP/registry-before.json" \
             "$VERSION" "$checksum" --github-output "$GITHUB_OUTPUT"
 
-      - name: Inspect any release left by an exact rerun
-        id: release
+      - name: Enumerate every release including inert drafts
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
-          url="$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/releases/tags/$TAG"
-          code="$(curl --silent --show-error --location \
-            -H 'Accept: application/vnd.github+json' \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H 'X-GitHub-Api-Version: 2026-03-10' \
-            -o "$RUNNER_TEMP/release-before.json" -w '%{http_code}' "$url")"
-          case "$code" in
-            404)
-              echo 'state=absent' >> "$GITHUB_OUTPUT"
-              ;;
-            200)
-              python3 ops/release_state.py "$RUNNER_TEMP/release-before.json" \
-                "$VERSION" "$SOURCE_SHA" "$RUNNER_TEMP/prepared/release-notes.md" \
-                "$RUNNER_TEMP/prepared" probe > "$RUNNER_TEMP/release-probe.json"
-              state="$(jq -r .state "$RUNNER_TEMP/release-probe.json")"
-              release_id="$(jq -r .release_id "$RUNNER_TEMP/release-probe.json")"
-              if test "$state" = draft-partial; then
-                echo 'release retry refused: the inert draft has a partial asset set' >&2
-                exit 2
-              fi
-              echo "state=$state" >> "$GITHUB_OUTPUT"
-              echo "release_id=$release_id" >> "$GITHUB_OUTPUT"
-              ;;
-            *)
-              echo "GitHub release lookup returned HTTP $code" >&2
-              exit 1
-              ;;
-          esac
+          gh api --paginate -H 'X-GitHub-Api-Version: 2026-03-10' \
+            "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            > "$RUNNER_TEMP/release-pages.jsons"
+
+      - name: Select the exact release tag from every page
+        id: release_lookup
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 ops/release_lookup.py "$RUNNER_TEMP/release-pages.jsons" \
+            "$TAG" --github-output "$GITHUB_OUTPUT"
+
+      - name: Fetch the selected release by immutable API identity
+        if: steps.release_lookup.outputs.state == 'found'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_id='${{ steps.release_lookup.outputs.release_id }}'
+          [[ "$release_id" =~ ^[1-9][0-9]*$ ]]
+          gh api -H 'X-GitHub-Api-Version: 2026-03-10' \
+            "repos/$GITHUB_REPOSITORY/releases/$release_id" \
+            > "$RUNNER_TEMP/release-before.json"
+
+      - name: Inspect any release left by an exact rerun
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          if test '${{ steps.release_lookup.outputs.state }}' = absent; then
+            echo 'state=absent' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          expected_id='${{ steps.release_lookup.outputs.release_id }}'
+          [[ "$expected_id" =~ ^[1-9][0-9]*$ ]]
+          python3 ops/release_state.py "$RUNNER_TEMP/release-before.json" \
+            "$VERSION" "$SOURCE_SHA" "$RUNNER_TEMP/prepared/release-notes.md" \
+            "$RUNNER_TEMP/prepared" probe > "$RUNNER_TEMP/release-probe.json"
+          state="$(jq -r .state "$RUNNER_TEMP/release-probe.json")"
+          release_id="$(jq -r .release_id "$RUNNER_TEMP/release-probe.json")"
+          test "$release_id" = "$expected_id"
+          if test "$state" = draft-partial; then
+            echo 'release retry refused: the inert draft has a partial asset set' >&2
+            exit 2
+          fi
+          echo "state=$state" >> "$GITHUB_OUTPUT"
+          echo "release_id=$release_id" >> "$GITHUB_OUTPUT"
 
       - name: Reuse complete provenance from an exact prior run
         if: steps.release.outputs.state == 'draft-exact' || steps.release.outputs.state == 'published'
@@ -262,6 +281,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          token="$GH_TOKEN"
           prior="$RUNNER_TEMP/prior-assets"
           out="$RUNNER_TEMP/prepared"
           mkdir "$prior"
@@ -270,11 +290,12 @@ jobs:
             test "$url" = "$expected"
             curl --fail --silent --show-error --location \
               -H 'Accept: application/octet-stream' \
-              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Authorization: Bearer $token" \
               -H 'X-GitHub-Api-Version: 2026-03-10' \
               -o "$prior/$name" "$expected"
           done < <(jq -r '.assets[] | [.id,.name,.url] | @tsv' \
             "$RUNNER_TEMP/release-before.json")
+          unset GH_TOKEN
           expected_state=draft
           test "${{ steps.release.outputs.state }}" != published || expected_state=published
           python3 ops/release_state.py "$RUNNER_TEMP/release-before.json" \
@@ -296,19 +317,20 @@ jobs:
             "$prior/$CRATE_NAME-$VERSION.crate.intoto.jsonl"
           signer_host="${GITHUB_SERVER_URL#*://}"
           signer_workflow="$signer_host/$GITHUB_REPOSITORY/.github/workflows/publish.yml"
-          GH_NO_UPDATE_NOTIFIER=1 gh attestation verify \
+          GH_TOKEN="$token" GH_NO_UPDATE_NOTIFIER=1 gh attestation verify \
             "$prior/$CRATE_NAME-$VERSION.crate" \
             --repo "$GITHUB_REPOSITORY" \
             --bundle "$prior/$CRATE_NAME-$VERSION.crate.sigstore.json" \
             --signer-workflow "$signer_workflow" \
             --source-digest "$SOURCE_SHA" \
             > "$RUNNER_TEMP/verified-prior-attestation.json"
+          unset token
           cp -- "$prior/$CRATE_NAME-$VERSION.crate.sigstore.json" \
             "$prior/$CRATE_NAME-$VERSION.crate.intoto.jsonl" \
             "$prior/$CRATE_NAME-$VERSION.SHA256SUMS" "$out/"
 
-      - name: Require the existing yank-only credential when a predecessor is live
-        if: steps.registry.outputs.predecessor != ''
+      - name: Require the existing yank-only credential when predecessors are live
+        if: steps.registry.outputs.predecessors != '[]'
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_YANK_TOKEN }}
         shell: bash
@@ -329,7 +351,7 @@ jobs:
         run: |
           set -euo pipefail
           CARGO_TARGET_DIR="$RUNNER_TEMP/publish-target" \
-            cargo publish --locked --no-verify
+            cargo publish --locked --no-verify --registry crates-io
           cmp "$RUNNER_TEMP/publish-target/package/$CRATE_NAME-$VERSION.crate" \
             "$RUNNER_TEMP/prepared/$CRATE_NAME-$VERSION.crate"
 
@@ -444,7 +466,53 @@ jobs:
           echo "release_id=$(jq -r .id "$RUNNER_TEMP/created-release.json")" \
             >> "$GITHUB_OUTPUT"
 
-      - name: Upload the complete asset set to an empty draft
+      - name: Select exactly one draft identity
+        if: steps.release.outputs.state != 'published'
+        id: draft_identity
+        shell: bash
+        env:
+          EXISTING_RELEASE_ID: ${{ steps.release.outputs.release_id }}
+          CREATED_RELEASE_ID: ${{ steps.create.outputs.release_id }}
+        run: |
+          set -euo pipefail
+          count=0
+          release_id=''
+          for candidate in "$EXISTING_RELEASE_ID" "$CREATED_RELEASE_ID"; do
+            if test -n "$candidate"; then
+              [[ "$candidate" =~ ^[1-9][0-9]*$ ]]
+              count=$((count + 1))
+              release_id="$candidate"
+            fi
+          done
+          test "$count" -eq 1
+          echo "release_id=$release_id" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch the selected empty draft by immutable API identity
+        if: steps.release.outputs.state == 'absent' || steps.release.outputs.state == 'draft-empty'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_id='${{ steps.draft_identity.outputs.release_id }}'
+          [[ "$release_id" =~ ^[1-9][0-9]*$ ]]
+          gh api -H 'X-GitHub-Api-Version: 2026-03-10' \
+            "repos/$GITHUB_REPOSITORY/releases/$release_id" \
+            > "$RUNNER_TEMP/empty-draft.json"
+
+      - name: Validate the selected draft is empty before upload
+        if: steps.release.outputs.state == 'absent' || steps.release.outputs.state == 'draft-empty'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 ops/release_state.py "$RUNNER_TEMP/empty-draft.json" \
+            "$VERSION" "$SOURCE_SHA" "$RUNNER_TEMP/prepared/release-notes.md" \
+            "$RUNNER_TEMP/prepared" probe > "$RUNNER_TEMP/empty-draft-state.json"
+          test "$(jq -r .release_id "$RUNNER_TEMP/empty-draft-state.json")" = \
+            '${{ steps.draft_identity.outputs.release_id }}'
+          test "$(jq -r .state "$RUNNER_TEMP/empty-draft-state.json")" = draft-empty
+
+      - name: Upload the complete asset set to the exact empty draft
         if: steps.release.outputs.state == 'absent' || steps.release.outputs.state == 'draft-empty'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -452,28 +520,65 @@ jobs:
         run: |
           set -euo pipefail
           out="$RUNNER_TEMP/prepared"
-          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" \
-            "$out/$CRATE_NAME-$VERSION.crate" \
-            "$out/$CRATE_NAME-$VERSION.crate.sha256" \
-            "$out/$CRATE_NAME-$VERSION.cdx.json" \
-            "$out/$CRATE_NAME-$VERSION.crate.sigstore.json" \
-            "$out/$CRATE_NAME-$VERSION.crate.intoto.jsonl" \
-            "$out/$CRATE_NAME-$VERSION.SHA256SUMS"
+          release_id='${{ steps.draft_identity.outputs.release_id }}'
+          [[ "$release_id" =~ ^[1-9][0-9]*$ ]]
+          upload_template="$(jq -er .upload_url "$RUNNER_TEMP/empty-draft.json")"
+          expected="https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$release_id/assets{?name,label}"
+          test "$upload_template" = "$expected"
+          upload_url="${upload_template%%\{*}"
+          names=(
+            "$CRATE_NAME-$VERSION.crate"
+            "$CRATE_NAME-$VERSION.crate.sha256"
+            "$CRATE_NAME-$VERSION.cdx.json"
+            "$CRATE_NAME-$VERSION.crate.sigstore.json"
+            "$CRATE_NAME-$VERSION.crate.intoto.jsonl"
+            "$CRATE_NAME-$VERSION.SHA256SUMS"
+          )
+          for name in "${names[@]}"; do
+            [[ "$name" =~ ^[A-Za-z0-9._-]+$ ]]
+            path="$out/$name"
+            test -f "$path"
+            size="$(stat -c %s "$path")"
+            digest="sha256:$(sha256sum "$path" | cut -d' ' -f1)"
+            response="$RUNNER_TEMP/upload-$name.json"
+            curl --fail-with-body --silent --show-error \
+              --request POST \
+              -H 'Accept: application/vnd.github+json' \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H 'Content-Type: application/octet-stream' \
+              -H 'X-GitHub-Api-Version: 2026-03-10' \
+              --data-binary "@$path" \
+              -o "$response" "$upload_url?name=$name"
+            jq -e --arg name "$name" --arg digest "$digest" --argjson size "$size" \
+              '.name == $name and .state == "uploaded" and .size == $size and
+               .digest == $digest and (.id | type == "number" and . > 0)' \
+              "$response" >/dev/null
+          done
 
-      - name: Validate the complete draft before publication
+      - name: Fetch the complete draft by immutable API identity
         if: steps.release.outputs.state != 'published'
-        id: draft
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
+          release_id='${{ steps.draft_identity.outputs.release_id }}'
+          [[ "$release_id" =~ ^[1-9][0-9]*$ ]]
           gh api -H 'X-GitHub-Api-Version: 2026-03-10' \
-            "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" \
+            "repos/$GITHUB_REPOSITORY/releases/$release_id" \
             > "$RUNNER_TEMP/complete-draft.json"
-          python3 ops/release_state.py "$RUNNER_TEMP/complete-draft.json" \
+
+      - name: Validate the complete draft before publication
+        if: steps.release.outputs.state != 'published'
+        id: draft
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_id="$(python3 ops/release_state.py "$RUNNER_TEMP/complete-draft.json" \
             "$VERSION" "$SOURCE_SHA" "$RUNNER_TEMP/prepared/release-notes.md" \
-            "$RUNNER_TEMP/prepared" draft --github-output "$GITHUB_OUTPUT"
+            "$RUNNER_TEMP/prepared" draft)"
+          test "$release_id" = '${{ steps.draft_identity.outputs.release_id }}'
+          echo "release_id=$release_id" >> "$GITHUB_OUTPUT"
 
       - name: Publish the exact draft
         if: steps.release.outputs.state != 'published'
@@ -499,6 +604,34 @@ jobs:
             "repos/$GITHUB_REPOSITORY/releases/$release_id" \
             --input "$RUNNER_TEMP/publish-release.json" \
             > "$RUNNER_TEMP/published-release.json"
+          unset GH_TOKEN
+          patched_id="$(python3 ops/release_state.py \
+            "$RUNNER_TEMP/published-release.json" "$VERSION" "$SOURCE_SHA" \
+            "$RUNNER_TEMP/prepared/release-notes.md" "$RUNNER_TEMP/prepared" \
+            published)"
+          test "$patched_id" = "$release_id"
+
+      - name: Bind the final release identity
+        id: final_identity
+        shell: bash
+        env:
+          DISCOVERED_RELEASE_ID: ${{ steps.release.outputs.release_id }}
+          VALIDATED_RELEASE_ID: ${{ steps.draft.outputs.release_id }}
+        run: |
+          set -euo pipefail
+          release_id=''
+          for candidate in "$DISCOVERED_RELEASE_ID" "$VALIDATED_RELEASE_ID"; do
+            if test -n "$candidate"; then
+              [[ "$candidate" =~ ^[1-9][0-9]*$ ]]
+              if test -n "$release_id"; then
+                test "$candidate" = "$release_id"
+              else
+                release_id="$candidate"
+              fi
+            fi
+          done
+          test -n "$release_id"
+          echo "release_id=$release_id" >> "$GITHUB_OUTPUT"
 
       - name: Verify the immutable release and every attached digest
         env:
@@ -506,21 +639,26 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          gh api -H 'X-GitHub-Api-Version: 2026-03-10' \
+          token="$GH_TOKEN"
+          GH_TOKEN="$token" gh api -H 'X-GitHub-Api-Version: 2026-03-10' \
             "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" \
             > "$RUNNER_TEMP/final-release.json"
-          python3 ops/release_state.py "$RUNNER_TEMP/final-release.json" \
+          unset GH_TOKEN
+          final_id="$(python3 ops/release_state.py "$RUNNER_TEMP/final-release.json" \
             "$VERSION" "$SOURCE_SHA" "$RUNNER_TEMP/prepared/release-notes.md" \
-            "$RUNNER_TEMP/prepared" published
-          test "$(gh api -H 'X-GitHub-Api-Version: 2026-03-10' \
+            "$RUNNER_TEMP/prepared" published)"
+          test "$final_id" = '${{ steps.final_identity.outputs.release_id }}'
+          test "$(GH_TOKEN="$token" gh api -H 'X-GitHub-Api-Version: 2026-03-10' \
             "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)" = "$TAG"
-          GH_NO_UPDATE_NOTIFIER=1 gh release verify "$TAG" --repo "$GITHUB_REPOSITORY"
+          GH_TOKEN="$token" GH_NO_UPDATE_NOTIFIER=1 gh release verify \
+            "$TAG" --repo "$GITHUB_REPOSITORY"
+          unset token
 
-      - name: Rebind the measured predecessor immediately before yank
-        if: steps.registry.outputs.predecessor != ''
+      - name: Rebind the measured predecessors immediately before yank
+        if: steps.registry.outputs.predecessors != '[]'
         id: rebind
         env:
-          PREDECESSOR: ${{ steps.registry.outputs.predecessor }}
+          PREDECESSORS: ${{ steps.registry.outputs.predecessors }}
         shell: bash
         run: |
           set -euo pipefail
@@ -533,8 +671,13 @@ jobs:
           python3 ops/registry_state.py "$RUNNER_TEMP/registry-pre-yank.json" \
             "$VERSION" "$checksum" > "$RUNNER_TEMP/registry-pre-yank-state.json"
           test "$(jq -r .state "$RUNNER_TEMP/registry-pre-yank-state.json")" = exact
-          test "$(jq -r .predecessor "$RUNNER_TEMP/registry-pre-yank-state.json")" = \
-            "$PREDECESSOR"
+          test "$(jq -c .predecessors "$RUNNER_TEMP/registry-pre-yank-state.json")" = \
+            "$PREDECESSORS"
+          jq -er '.predecessors[]' "$RUNNER_TEMP/registry-pre-yank-state.json" \
+            > "$RUNNER_TEMP/predecessors"
+          predecessor_count="$(wc -l < "$RUNNER_TEMP/predecessors")"
+          test "$predecessor_count" -ge 1
+          test "$predecessor_count" -le 2
           curl --fail --silent --show-error --location \
             -A 'keyrx release workflow (dev@keyrx.tech)' \
             -o "$RUNNER_TEMP/registry-version-pre-yank.json" \
@@ -545,18 +688,29 @@ jobs:
             --trusted-repository "$GITHUB_REPOSITORY" \
             --trusted-sha "$SOURCE_SHA" \
             > "$RUNNER_TEMP/trusted-publisher-pre-yank.json"
-          echo "predecessor=$PREDECESSOR" >> "$GITHUB_OUTPUT"
+          echo "predecessor_count=$predecessor_count" >> "$GITHUB_OUTPUT"
 
-      - name: Yank the exactly rebound predecessor
-        if: steps.rebind.outputs.predecessor != ''
+      - name: Yank the exactly rebound predecessors
+        if: steps.registry.outputs.predecessors != '[]'
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_YANK_TOKEN }}
-          PREDECESSOR: ${{ steps.rebind.outputs.predecessor }}
+          PREDECESSOR_COUNT: ${{ steps.rebind.outputs.predecessor_count }}
         shell: bash
         run: |
           set -euo pipefail
           test -n "$CARGO_REGISTRY_TOKEN"
-          cargo yank "$CRATE_NAME" --vers "$PREDECESSOR"
+          [[ "$PREDECESSOR_COUNT" =~ ^[12]$ ]]
+          mapfile -t predecessors < "$RUNNER_TEMP/predecessors"
+          test "${#predecessors[@]}" -eq "$PREDECESSOR_COUNT"
+          declare -A seen=()
+          for predecessor in "${predecessors[@]}"; do
+            [[ "$predecessor" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+            test -z "${seen[$predecessor]+present}"
+            seen[$predecessor]=1
+          done
+          for predecessor in "${predecessors[@]}"; do
+            cargo yank "$CRATE_NAME" --vers "$predecessor" --registry crates-io
+          done
 
       - name: Verify only the new release remains installable
         shell: bash
@@ -572,7 +726,7 @@ jobs:
               python3 ops/registry_state.py "$RUNNER_TEMP/registry-final.json" \
                 "$VERSION" "$checksum" > "$RUNNER_TEMP/registry-final-state.json" && \
               test "$(jq -r .state "$RUNNER_TEMP/registry-final-state.json")" = exact && \
-              test -z "$(jq -r .predecessor "$RUNNER_TEMP/registry-final-state.json")" && \
+              test "$(jq -c .predecessors "$RUNNER_TEMP/registry-final-state.json")" = '[]' && \
               curl --fail --silent --show-error --location \
                 -A 'keyrx release workflow (dev@keyrx.tech)' \
                 -o "$RUNNER_TEMP/registry-version-final.json" \

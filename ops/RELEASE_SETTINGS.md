@@ -20,9 +20,10 @@ There is no manual-dispatch release path and no temporary branch admission.
    token, which is passed directly to `cargo publish`.
 4. Keep the existing yank-only crates.io token as the environment secret
    `CARGO_YANK_TOKEN`. It cannot publish. Before publishing, the workflow
-   requires at most one older unyanked release; after the new GitHub Release is
-   immutable, it yanks exactly that measured predecessor and checks that only
-   the new version remains installable.
+   requires at most two older unyanked releases: the normal predecessor plus,
+   at most, one predecessor left by an interrupted prior run. After the new
+   GitHub Release is immutable, it rebinds and yanks exactly that measured set
+   and checks that only the new version remains installable.
 
 No repository-administration PAT is part of this design. In particular,
 `GH_ADMIN_READ_TOKEN` is neither read nor required. GitHub's built-in job token
@@ -44,8 +45,8 @@ dry run, and two byte-identical package builds. The effect job re-derives the
 archive before acquiring provider authority, uses official `cargo publish`,
 compares the registry download with the prepared archive, creates provenance
 and a deterministic SBOM, validates the complete draft, publishes it, verifies
-all remote asset digests and release immutability, and only then yanks the one
-measured predecessor.
+all remote asset digests and release immutability, and only then yanks the
+exactly rebound predecessor set.
 
 ## Deliberate boundary
 
@@ -56,9 +57,11 @@ preflighting the repository setting. Keep the one-time setting enabled. If it
 is changed, final verification fails loudly after publication; restoring that
 repository setting is an operator action.
 
-An exact rerun continues automatically from an empty draft, reuses and verifies
-the complete six-asset set in an exact draft, or finishes the remaining registry
-policy work after an immutable release. A partial draft is the one deliberate
+An exact rerun discovers drafts through the authenticated, fully paginated
+release collection, binds one exact match by its numeric release ID, and then
+continues automatically from an empty draft, reuses and verifies the complete
+six-asset set in an exact draft, or finishes the remaining registry policy work
+after an immutable release. A partial draft is the one deliberate
 manual boundary: inspect and delete only that inert draft, then rerun. An exact
 already-published registry version is recognized and is never uploaded twice.
 Existing release bytes are validated rather than overwritten, and a published
