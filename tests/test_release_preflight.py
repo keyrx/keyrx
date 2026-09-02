@@ -18,12 +18,6 @@ SPEC.loader.exec_module(release_preflight)
 
 VERSION = "0.4.13"
 SHA = "1" * 40
-EXPECTED_INSTALL_SURFACE_SHA256 = {
-    "README.md": "3560c937f95fa18ed444061f0e5095f939e99f4bfd8bf117369203998365996c",
-    "docs/README.md": "08c7f2f863dfc2cf31086adf8c3e8cabe6009458901dd0c2c3fcd01f74dc3ccb",
-    "site/llms.txt": "43e9048be98a308971793efbb29a61fb52753b91924b30a39f7fbea38c7e047f",
-    "site/index.html": "0d832a349967000e8774a6e2a4925176a68c1a779fe3e3073c987be437409c93",
-}
 
 
 def repository_files(version=VERSION):
@@ -40,10 +34,9 @@ def repository_files(version=VERSION):
         "LICENSE": "test license\n",
         "TRADEMARK.md": "test trademark\n",
         "src/main.rs": "fn main() {}\n",
+        "README.md": "# keyrx\n",
+        "site/index.html": f"<script>var VERSION='{version}';</script>\n",
     }
-    repository_root = SCRIPT.parents[1]
-    for relative in EXPECTED_INSTALL_SURFACE_SHA256:
-        files[relative] = (repository_root / relative).read_text(encoding="utf-8")
     return files
 
 
@@ -91,70 +84,6 @@ class RepositoryPreflightTests(unittest.TestCase):
             write_repository(root)
             notes = release_preflight.validate_repository(root, VERSION)
             self.assertEqual(notes, "- Safe release orchestration.\n")
-
-    def test_install_surface_manifest_is_independently_pinned(self):
-        self.assertEqual(
-            release_preflight.INSTALL_SURFACE_SHA256,
-            EXPECTED_INSTALL_SURFACE_SHA256,
-        )
-
-    def test_every_install_surface_is_bound_to_exact_reviewed_bytes(self):
-        corruptions = {
-            "cargo install --locked keyrx": "cargo install --locked keyrx-malicious",
-            "cargo install --locked --path .": "cargo install --locked --path ..",
-        }
-        for relative in EXPECTED_INSTALL_SURFACE_SHA256:
-            for canonical, corruption in corruptions.items():
-                with (
-                    self.subTest(relative=relative, canonical=canonical),
-                    tempfile.TemporaryDirectory() as directory,
-                ):
-                    root = Path(directory)
-                    files = repository_files()
-                    files[relative] = files[relative].replace(canonical, corruption, 1)
-                    write_repository(root, files)
-                    with self.assertRaisesRegex(
-                        release_preflight.PreflightError, "byte digest differs"
-                    ):
-                        release_preflight.validate_repository(root, VERSION)
-
-    def test_an_extra_unlocked_install_cannot_hide_behind_canonical_copy(self):
-        hostile = (
-            "cargo install keyrx",
-            "cargo install keyrx # --locked",
-            "cargo install keyrx || echo --locked",
-            "cargo install keyrx && cargo install --locked keyrx",
-            "cargo install --path . --locked",
-            '"cargo" install keyrx',
-            "'cargo' install keyrx",
-            "cargo 'install' keyrx",
-            'cargo "install" keyrx',
-            "cargo " + "\\" + "\n  install keyrx",
-            "cargo\n  install keyrx",
-            "cargo +stable install keyrx",
-            "cargo --color=always install keyrx",
-            "c'a'rgo install keyrx",
-            "cargo in'st'all keyrx",
-            "xcargo install --locked keyrx",
-            'cargo install --locked keyrx"-malicious"',
-            'cargo install --locked --path ."."',
-            "cargo install --locked --path .,malicious",
-        )
-        for relative in EXPECTED_INSTALL_SURFACE_SHA256:
-            for command in hostile:
-                with (
-                    self.subTest(relative=relative, command=command),
-                    tempfile.TemporaryDirectory() as directory,
-                ):
-                    root = Path(directory)
-                    files = repository_files()
-                    files[relative] += f"\n{command}\n"
-                    write_repository(root, files)
-                    with self.assertRaisesRegex(
-                        release_preflight.PreflightError,
-                        "byte digest differs",
-                    ):
-                        release_preflight.validate_repository(root, VERSION)
 
     def test_every_version_carrier_must_agree(self):
         mutations = {

@@ -416,7 +416,10 @@ fn estimate_never_trusts_symlink_or_fifo_rate_caches() {
     let target = dir.0.join("attacker.txt");
     std::fs::write(
         &target,
-        b"keyrx-rate-v2 0.4.13 linux x86_64 debug sol-phantom 12 1 1 999999.00000000000000000\n",
+        format!(
+            "keyrx-rate-v2 {} linux x86_64 debug sol-phantom 12 1 1 999999.00000000000000000\n",
+            env!("CARGO_PKG_VERSION")
+        ),
     )
     .unwrap();
     symlink(&target, &cache).unwrap();

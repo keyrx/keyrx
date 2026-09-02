@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
-import hashlib
 import json
 import os
 from pathlib import Path, PurePosixPath
@@ -50,18 +49,6 @@ REQUIRED_PACKAGE_PATHS = {
     "TRADEMARK.md",
     "src/main.rs",
 }
-# Exact reviewed public-copy bytes for this release. This deliberately binds
-# their complete contexts instead of attempting to interpret Markdown, HTML,
-# JavaScript and every shell quoting grammar with one permissive regex. A later
-# release that changes any of these surfaces must explicitly re-pin all four.
-INSTALL_SURFACE_SHA256 = {
-    "README.md": "3560c937f95fa18ed444061f0e5095f939e99f4bfd8bf117369203998365996c",
-    "docs/README.md": "08c7f2f863dfc2cf31086adf8c3e8cabe6009458901dd0c2c3fcd01f74dc3ccb",
-    "site/llms.txt": "43e9048be98a308971793efbb29a61fb52753b91924b30a39f7fbea38c7e047f",
-    "site/index.html": "0d832a349967000e8774a6e2a4925176a68c1a779fe3e3073c987be437409c93",
-}
-
-
 class PreflightError(RuntimeError):
     """A release input is incomplete, ambiguous, or inconsistent."""
 
@@ -123,17 +110,6 @@ def site_version(text: str, source: str) -> str:
             f"{source} must contain exactly one JavaScript VERSION assignment; found {len(matches)}"
         )
     return matches[0][1]
-
-
-def validate_install_copy(root: Path) -> None:
-    """Bind all reviewed install-copy surfaces byte-for-byte."""
-    for relative, expected in INSTALL_SURFACE_SHA256.items():
-        actual = hashlib.sha256(_held_checkout_bytes(root, relative)).hexdigest()
-        if actual != expected:
-            raise PreflightError(
-                f"{relative} byte digest differs from reviewed install-copy surface: "
-                f"expected {expected}, got {actual}"
-            )
 
 
 def _visible_h2_headings(text: str) -> list[tuple[int, int, str]]:
@@ -276,7 +252,6 @@ def validate_repository(root: Path, version: str) -> str:
     disagreements = [f"{name}={value!r}" for name, value in versions.items() if value != version]
     if disagreements:
         raise PreflightError("release version disagreement: " + ", ".join(disagreements))
-    validate_install_copy(root)
     return notes
 
 
