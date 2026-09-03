@@ -31,11 +31,11 @@ file carries the same product content as plain text.
     keyrx bench --indices 128    # this machine's measured 128-index workload; estimate uses it
     keyrx estimate --ends-with KEYRX --indices 128 --count 10    # odds; measured time to one and all ten
     keyrx grind --ends-with KEYRX --indices 128
-    keyrx grind --ends-with KEYRX --count 10       # ten matches, one file
+    keyrx grind --ends-with KEYRX --count 10       # ten matches, one Markdown file per hit
     keyrx grind --ends-with KEYRX --indices 8      # keep seed-path discovery bounded; verify the printed path
     keyrx grind --ends-with KEYRX --passphrase     # BIP39 passphrase: prompted, hidden, never stored; import that address by key
     keyrx grind --starts-with Key --ends-with RX   # both ends; --ignore-case for any case (32x likelier for five letters)
-    keyrx show                   # every match file; keyrx show KEYRX --keys reads one (seeds/keys withheld by default)
+    keyrx show                   # every Markdown record and legacy ledger; prints each exact show command
     keyrx --update               # install the latest, clear, then start it
 
 `bench`, `grind`, and `show` require Unix owner-only file semantics. On
@@ -46,22 +46,32 @@ estimate labels other matcher shapes as an approximate measured baseline.
 
 ## What a match writes
 
-Each Solana match writes five lines, in a mode-0600 file inside a mode-0700 directory of its own
-(~/.local/share/keyrx/matches/, named after the pattern; every printed path
-is a terminal hyperlink that opens the folder): address, path, seed, privkey
-(base58 keypair for current Phantom/Solflare private-key flows), keypair (JSON
-byte array for solana-keygen) - and, for a --passphrase grind,
-one line saying so: the seed alone will not reach that address, the keys will. A key import lands
-on the exact address in one paste as a standalone account. The receiving wallet's unrelated seed
-will not recover that imported account. Keep the match file or an equivalent backup of its recovery
-material. The keyRX seed plus exact path (and passphrase, if one was used) can restore it with
-compatible derivation tooling. Wallet seed recovery and path discovery vary by product and version;
-do not assume an add-account count or direct custom-path import. Where the wallet supports the
-printed private-key/keypair form, importing that exact key lands on the exact address. Verify the
-address before funding it.
+A default grind writes every successful hit as one self-contained, versioned Markdown recovery
+record in the mode-0700 managed matches directory; every record is mode 0600 on Unix. It does not
+also append the hit to an aggregate file. Its uppercase headings put the exact value on the next
+line: ADDRESS, PATH, SEED, PASSPHRASE, and PRIVATE KEY; a Solana record also has KEYPAIR (JSON).
+The Solana private key is base58. The EVM private key is 0x-prefixed hex, and an EVM record has no
+Solana JSON keypair. Solana and EVM records carry only their own chain-specific import and recovery
+guidance.
 
-An EVM match writes four lines: address, exact path, seed, and the 0x private
-key form imported by MetaMask and Rabby. It has no Solana JSON keypair line.
+Every record includes the safe creation recipe. It preserves chain, patterns, case mode, path,
+indices, word count, and whether --passphrase was used, but never the passphrase value. Count,
+output, terminal display, and worker settings are omitted deliberately. A key import lands on the
+exact address as a standalone account; an unrelated wallet seed does not recover it. Seed recovery
+depends on the exact printed path and the receiving wallet/version. Verify the address before
+funding, and keep every record or an equivalent backup private.
+
+The filename combines the requested lane with the address text that actually matched. For example,
+`--ends-with coined --ignore-case` can write `coined.ic.coiNED.md`. If that exact filename already
+exists, keyRX creates `coined.ic.coiNED.02.md`, then `.03.md`, with create-new semantics and no
+overwrite. Prefix-only and combined prefix/suffix lanes preserve their realized address edges too.
+EVM records remain under `matches/evm/`.
+
+An explicit `--out FILE` selects the established appendable ledger instead. A new explicit ledger
+uses the versioned v1 header and record format; an earlier headerless ledger remains headerless and
+append-compatible. Managed Markdown records are never mixed into either ledger form. `keyrx show`
+lists and reads both Markdown and ledger formats, with seeds and keys withheld unless `--seeds` or
+`--keys` is requested.
 
 ## Verified
 
@@ -76,5 +86,5 @@ suffix lengths agree with the full base58 encoding. Bench 24.4x baseline at
 - Source: https://github.com/keyrx/keyrx
 - X: https://x.com/keyrx_tech
 
-MIT. Import and verify the address before funding. Match files hold seed
-phrases and keys - treat them like a key.
+MIT. Import and verify the address before funding. Match records and ledgers hold
+seed phrases and keys - treat them like a key.

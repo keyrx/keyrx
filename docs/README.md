@@ -12,12 +12,15 @@ The documentation for keyRX lives in three places, all kept in step with the cod
   matches go*; the RECIPES and A TYPICAL SESSION panels; the site's WALLETS (F5) and EVM (F8)
   sections, which carry the same commands with click-to-copy; `keyrx networks` for adding an EVM
   network to a wallet.
-- **Use securely:** `keyrx verify` first, on your own machine; the match file holds seed and keys
-  (mode 0600, in a directory of its own); nothing is printed unless you ask (`--show-seed`,
+- **Use securely:** `keyrx verify` first, on your own machine; every match record holds seed and
+  keys (mode 0600, inside an owner-only managed directory); nothing is printed unless you ask (`--show-seed`,
   `show --seeds`, `show --keys`); import and verify the address before funding it; what the tool
   never does and how a release is checked are in [SECURITY.md](../SECURITY.md); how to contribute
   in [CONTRIBUTING.md](../CONTRIBUTING.md).
-- **Reference:** the match file format (five lines, four on EVM), the derivation paths
+- **Reference:** the default format (one self-contained, versioned Markdown record per successful
+  hit, with uppercase field headings and each exact value below its heading), the actual-case names
+  (`coined.ic.coiNED.md`, then `.02.md`, `.03.md` without overwrite), the explicit `--out FILE`
+  append-ledger format retained for earlier `.txt` files, `keyrx show` support for both, the paths
   (`m/44'/501'/N'/0'`, `m/44'/501'/N'`, `m/44'/60'/0'/0/N`), the pattern alphabets (base58 without
   0 O I l; hex 0-9 a-f), and every flag, in the README and the start screen. The changelog is
   [CHANGELOG.md](../CHANGELOG.md).

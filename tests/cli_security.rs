@@ -127,6 +127,37 @@ fn grind_args(out: &str) -> Vec<&str> {
     ]
 }
 
+fn managed_match_files(dir: &Path) -> Vec<std::path::PathBuf> {
+    let mut files = Vec::new();
+    let root = dir.join("keyrx/matches");
+    if !root.exists() {
+        return files;
+    }
+    let mut pending = vec![root];
+    while let Some(at) = pending.pop() {
+        for entry in std::fs::read_dir(at).unwrap() {
+            let entry = entry.unwrap();
+            if entry.file_type().unwrap().is_dir() {
+                pending.push(entry.path());
+            } else {
+                files.push(entry.path());
+            }
+        }
+    }
+    files.sort();
+    files
+}
+
+fn markdown_value<'a>(text: &'a str, heading: &str) -> &'a str {
+    let marker = format!("## {heading}\n\n");
+    text.split_once(&marker)
+        .unwrap_or_else(|| panic!("Markdown match lost heading {heading:?}"))
+        .1
+        .split_once("\n\n")
+        .unwrap_or_else(|| panic!("Markdown match lost value after {heading:?}"))
+        .0
+}
+
 #[test]
 fn zero_work_arguments_are_refused() {
     let dir = SecretDir::new("zero");
@@ -172,6 +203,30 @@ fn count_one_persists_exactly_one_complete_record_and_narrows_mode() {
         String::from_utf8_lossy(&output.stderr)
     );
     let secret = std::fs::read_to_string(&out).expect("read result for structural test");
+    assert!(secret.starts_with("╔═ keyRX · SOLANA PRIVATE MATCH FILE"));
+    assert_eq!(secret.matches("keyrx-match-v1").count(), 1);
+    for required in [
+        "Phantom/Solflare",
+        "base58 privkey",
+        "JSON for solana-keygen-compatible tools",
+        "m/44'/501'/N'/0'",
+        "printed path is authoritative",
+        "not guaranteed vanity",
+    ] {
+        assert!(secret.contains(required), "Solana guide lost {required:?}");
+    }
+    assert!(secret
+        .contains("keyrx grind --chain sol --ends-with a --path phantom --indices 4 --words 12"));
+    for omitted in ["--count", "--out", "--threads", "--show-seed"] {
+        let recipe = secret
+            .lines()
+            .find(|line| line.starts_with("keyrx grind "))
+            .unwrap();
+        assert!(
+            !recipe.split_ascii_whitespace().any(|word| word == omitted),
+            "creation recipe retained {omitted}: {recipe}"
+        );
+    }
     assert_eq!(
         secret
             .lines()
@@ -229,6 +284,8 @@ fn output_symlink_is_not_followed_and_recovery_file_is_private() {
     assert_eq!(std::fs::read(&target).unwrap(), b"sentinel");
     let recovered = dir.0.join("matches.recovered.txt");
     let text = std::fs::read_to_string(&recovered).unwrap();
+    assert!(text.starts_with("╔═ keyRX · SOLANA PRIVATE MATCH FILE"));
+    assert_eq!(text.matches("keyrx-match-v1").count(), 1);
     assert_eq!(
         text.lines()
             .filter(|line| line.starts_with("address "))
@@ -334,6 +391,11 @@ fn interrupt_returns_130_and_removes_only_its_marker() {
     let result = child.finish(std::time::Duration::from_secs(10));
     assert_eq!(result.status.code(), Some(130), "{:?}", result.status);
     assert!(!marker.exists(), "interrupted grind stranded its marker");
+    assert_eq!(
+        std::fs::read(&out).unwrap(),
+        b"",
+        "a grind with no persisted key wrote a header-only match file"
+    );
 }
 
 #[cfg(unix)]
@@ -356,6 +418,9 @@ fn malformed_output_is_preserved_and_recovery_is_showable() {
     assert_eq!(std::fs::read(&out).unwrap(), b"damaged\n");
     let recovered = dir.0.join("matches.recovered.txt");
     assert!(recovered.is_file());
+    let recovered_text = std::fs::read_to_string(&recovered).unwrap();
+    assert!(recovered_text.starts_with("╔═ keyRX · SOLANA PRIVATE MATCH FILE"));
+    assert_eq!(recovered_text.matches("keyrx-match-v1").count(), 1);
     let shown = keyrx(&dir.0, &["show", recovered.to_str().unwrap()]);
     assert!(
         shown.status.success(),
@@ -390,7 +455,328 @@ fn custom_evm_output_works_without_home_or_data_environment() {
         String::from_utf8_lossy(&output.stderr)
     );
     assert!(out.is_file());
+    let text = std::fs::read_to_string(&out).unwrap();
+    assert!(text.starts_with("╔═ keyRX · EVM PRIVATE MATCH FILE"));
+    assert_eq!(text.matches("keyrx-match-v1").count(), 1);
+    assert!(text.contains("keyrx grind --chain evm --ends-with a --indices 4 --words 12"));
+    for required in [
+        "MetaMask/Rabby",
+        "0x hex privkey",
+        "standalone across EVM networks",
+        "m/44'/60'/0'/0/N",
+        "not guaranteed vanity",
+    ] {
+        assert!(text.contains(required), "EVM guide lost {required:?}");
+    }
+    for forbidden in ["Phantom", "Solflare", "solana-keygen", "base58", "JSON"] {
+        assert!(
+            !text.contains(forbidden),
+            "EVM guide leaked Solana text {forbidden:?}"
+        );
+    }
     assert!(!dir.0.join("evm.txt.grinding").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn a_second_grind_appends_without_repeating_the_header() {
+    let dir = SecretDir::new("header-once");
+    let out = dir.0.join("matches.txt");
+    let args = grind_args(out.to_str().unwrap());
+    for _ in 0..2 {
+        let output = keyrx(&dir.0, &args);
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    let text = std::fs::read_to_string(&out).unwrap();
+    assert_eq!(text.matches("keyrx-match-v1").count(), 1);
+    assert_eq!(
+        text.lines()
+            .filter(|line| line.starts_with("address "))
+            .count(),
+        2
+    );
+    let shown = keyrx(&dir.0, &["show", out.to_str().unwrap()]);
+    assert!(
+        shown.status.success(),
+        "{}",
+        String::from_utf8_lossy(&shown.stderr)
+    );
+    assert!(String::from_utf8_lossy(&shown.stdout).contains("2."));
+}
+
+#[cfg(unix)]
+#[test]
+fn managed_solana_writes_one_markdown_per_hit_with_exact_case_and_collision_ordinals() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = SecretDir::new("managed-sol-markdown");
+    let args = [
+        "grind",
+        "--ends-with",
+        "a",
+        "--threads",
+        "16",
+        "--indices",
+        "4",
+        "--count",
+        "1",
+    ];
+    let first = keyrx(&dir.0, &args);
+    assert!(
+        first.status.success(),
+        "{}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+    let root = dir.0.join("keyrx/matches");
+    let first_path = root.join("a.a.md");
+    let first_bytes = std::fs::read(&first_path).expect("first managed Markdown match");
+
+    for _ in 0..2 {
+        let output = keyrx(&dir.0, &args);
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    assert_eq!(
+        std::fs::read(&first_path).unwrap(),
+        first_bytes,
+        "a later equal-cased hit overwrote the first key"
+    );
+
+    let files = managed_match_files(&dir.0);
+    let names: Vec<_> = files
+        .iter()
+        .map(|path| path.file_name().unwrap().to_str().unwrap())
+        .collect();
+    assert_eq!(names, ["a.a.02.md", "a.a.03.md", "a.a.md"]);
+    assert!(
+        !root.join("a.txt").exists(),
+        "a default grind also created an aggregate ledger"
+    );
+    for path in files {
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.starts_with("# keyRX · SOLANA PRIVATE MATCH\n\n"));
+        assert!(text.contains("Format: `keyrx-match-md-v1`"));
+        let address = markdown_value(&text, "ADDRESS");
+        assert!(address.ends_with('a'), "{address}");
+        assert!(markdown_value(&text, "PATH").starts_with("m/44'/501'/"));
+        assert_eq!(markdown_value(&text, "SEED").split_whitespace().count(), 12);
+        assert!(!markdown_value(&text, "PRIVATE KEY (BASE58)").is_empty());
+        assert!(markdown_value(&text, "KEYPAIR (JSON)").starts_with('['));
+        assert!(text.contains(
+            "keyrx grind --chain sol --ends-with a --path phantom --indices 4 --words 12"
+        ));
+        assert!(!text.lines().any(|line| line.starts_with("address ")));
+    }
+
+    let ic = keyrx(
+        &dir.0,
+        &[
+            "grind",
+            "--ends-with",
+            "b",
+            "--ignore-case",
+            "--threads",
+            "16",
+            "--indices",
+            "4",
+        ],
+    );
+    assert!(
+        ic.status.success(),
+        "{}",
+        String::from_utf8_lossy(&ic.stderr)
+    );
+    let ic_path = managed_match_files(&dir.0)
+        .into_iter()
+        .find(|path| {
+            path.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("b.ic.")
+        })
+        .expect("case-insensitive Markdown match");
+    let name = ic_path.file_name().unwrap().to_str().unwrap();
+    let realized = name
+        .strip_prefix("b.ic.")
+        .and_then(|name| name.strip_suffix(".md"))
+        .unwrap();
+    let text = std::fs::read_to_string(&ic_path).unwrap();
+    let address = markdown_value(&text, "ADDRESS");
+    assert_eq!(realized, &address[address.len() - 1..]);
+}
+
+#[cfg(unix)]
+#[test]
+fn managed_evm_writes_independent_markdown_with_exact_case_and_duplicate_numbering() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = SecretDir::new("managed-evm-markdown");
+    let output = keyrx(
+        &dir.0,
+        &[
+            "grind",
+            "--chain",
+            "evm",
+            "--ends-with",
+            "a",
+            "--checksum",
+            "--threads",
+            "16",
+            "--indices",
+            "4",
+            "--count",
+            "2",
+        ],
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let root = dir.0.join("keyrx/matches/evm");
+    assert!(!root.join("a.cs.txt").exists());
+    let files = managed_match_files(&dir.0);
+    let names: Vec<_> = files
+        .iter()
+        .map(|path| path.file_name().unwrap().to_str().unwrap())
+        .collect();
+    assert_eq!(names, ["a.cs.a.02.md", "a.cs.a.md"]);
+    for path in files {
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.starts_with("# keyRX · EVM PRIVATE MATCH\n\n"));
+        let address = markdown_value(&text, "ADDRESS");
+        assert!(address.ends_with('a'), "{address}");
+        assert!(markdown_value(&text, "PATH").starts_with("m/44'/60'/0'/0/"));
+        assert_eq!(markdown_value(&text, "SEED").split_whitespace().count(), 12);
+        let private = markdown_value(&text, "PRIVATE KEY (HEX)");
+        assert!(
+            private.starts_with("0x") && private.len() == 66,
+            "{private}"
+        );
+        assert!(!text.contains("## KEYPAIR"));
+        for solana_only in ["Phantom", "Solflare", "solana-keygen", "base58"] {
+            assert!(
+                !text.contains(solana_only),
+                "EVM record contains {solana_only}"
+            );
+        }
+        assert!(text
+            .contains("keyrx grind --chain evm --ends-with a --checksum --indices 4 --words 12"));
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn interrupted_managed_grind_without_a_hit_leaves_no_match_file() {
+    let dir = SecretDir::new("managed-interrupt");
+    let matches = dir.0.join("keyrx/matches");
+    let marker = matches.join("zzzzzzzzzzzzzzzz.txt.grinding");
+    let child = Command::new(env!("CARGO_BIN_EXE_keyrx"))
+        .args([
+            "grind",
+            "--ends-with",
+            "zzzzzzzzzzzzzzzz",
+            "--threads",
+            "1",
+            "--indices",
+            "1",
+        ])
+        .env("NO_COLOR", "1")
+        .env("KEYRX_NO_LINKS", "1")
+        .env("XDG_DATA_HOME", &dir.0)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("start interruptible managed grind");
+    let child = ChildGuard::new(child);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while !marker.exists() && std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    assert!(marker.exists(), "managed grind never acquired its marker");
+    assert_eq!(unsafe { libc::kill(child.id() as i32, libc::SIGINT) }, 0);
+    let result = child.finish(std::time::Duration::from_secs(10));
+    assert_eq!(result.status.code(), Some(130), "{:?}", result.status);
+    assert!(
+        managed_match_files(&dir.0).is_empty(),
+        "a no-hit managed grind left an output artifact"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn show_enumerates_managed_markdown_and_explicit_text_ledgers_together() {
+    let dir = SecretDir::new("show-mixed-formats");
+    let managed = keyrx(
+        &dir.0,
+        &[
+            "grind",
+            "--ends-with",
+            "a",
+            "--threads",
+            "16",
+            "--indices",
+            "4",
+        ],
+    );
+    assert!(
+        managed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&managed.stderr)
+    );
+    let root = dir.0.join("keyrx/matches");
+    let markdown = root.join("a.a.md");
+    let markdown_text = std::fs::read_to_string(&markdown).unwrap();
+    let address = markdown_value(&markdown_text, "ADDRESS").to_string();
+    let private = markdown_value(&markdown_text, "PRIVATE KEY (BASE58)").to_string();
+
+    let ledger = root.join("legacy.txt");
+    let explicit = keyrx(&dir.0, &grind_args(ledger.to_str().unwrap()));
+    assert!(
+        explicit.status.success(),
+        "{}",
+        String::from_utf8_lossy(&explicit.stderr)
+    );
+
+    let listed = keyrx(&dir.0, &["show"]);
+    assert!(
+        listed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&listed.stderr)
+    );
+    let listed = String::from_utf8_lossy(&listed.stdout);
+    assert!(listed.contains("a.a"), "{listed}");
+    assert!(listed.contains("legacy"), "{listed}");
+
+    let markdown_path = markdown.to_str().unwrap();
+    let shown = keyrx(&dir.0, &["show", markdown_path, "--keys"]);
+    assert!(
+        shown.status.success(),
+        "{}",
+        String::from_utf8_lossy(&shown.stderr)
+    );
+    let shown = String::from_utf8_lossy(&shown.stdout);
+    assert!(shown.contains(&address));
+    assert!(shown.contains(&private));
+
+    let shown_ledger = keyrx(&dir.0, &["show", ledger.to_str().unwrap()]);
+    assert!(shown_ledger.status.success());
+    assert!(String::from_utf8_lossy(&shown_ledger.stdout).contains("1."));
 }
 
 #[test]
@@ -711,7 +1097,10 @@ fn show_refuses_an_internally_contradictory_record() {
     let made = keyrx(&dir.0, &grind_args(out.to_str().unwrap()));
     assert!(made.status.success());
     let text = std::fs::read_to_string(&out).unwrap();
-    let address = text.lines().next().unwrap();
+    let address = text
+        .lines()
+        .find(|line| line.starts_with("address "))
+        .unwrap();
     let corrupted = text.replacen(address, "address 11111111111111111111111111111111", 1);
     std::fs::write(&out, corrupted).unwrap();
     let shown = keyrx(&dir.0, &["show", out.to_str().unwrap(), "--keys"]);
@@ -957,7 +1346,7 @@ fn required_terminal_copy_is_complete_and_dynamic_clipping_is_explicit() {
         "Use it only where the wallet exposes key import.",
         "The keyRX seed + printed path (+ passphrase, if used)",
         "re-derive this key; an unrelated wallet seed does not.",
-        "show lists files · show KEYRX / show evm/dead reads one",
+        "show lists files · copy its exact .md/.txt command to read one",
         "account. Keep the keyRX match file or equivalent backup.",
     ] {
         assert!(start.contains(sentence), "start screen lost: {sentence}");
@@ -1029,7 +1418,9 @@ fn required_terminal_copy_is_complete_and_dynamic_clipping_is_explicit() {
         "{}",
         String::from_utf8_lossy(&show.stderr)
     );
-    assert!(String::from_utf8_lossy(&show.stdout).contains(&format!("keyrx show -- 'evm/{stem}'")));
+    assert!(
+        String::from_utf8_lossy(&show.stdout).contains(&format!("keyrx show -- 'evm/{stem}.txt'"))
+    );
 
     let long_name = format!("{}.txt", "x".repeat(96));
     let long_out = dir.0.join(long_name);

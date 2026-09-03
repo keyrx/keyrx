@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/keyrx/keyrx/v0.4.15/assets/x-header-1500x500.png" width="100%" alt="keyRX CLI: Solana and EVM vanity address grinder">
+  <img src="https://raw.githubusercontent.com/keyrx/keyrx/v0.4.16/assets/x-header-1500x500.png" width="100%" alt="keyRX CLI: Solana and EVM vanity address grinder">
 </p>
 
 <p align="center">
@@ -44,13 +44,13 @@ PBKDF2. Suffix matching needs only the last N base58 characters.
     keyrx estimate --ends-with KEYRX --indices 128                       # odds plus measured time for that profile
     keyrx grind --ends-with KEYRX --words 12 --indices 8 --out mint.txt  # bounded seed-recovery lane
     keyrx show mint.txt --keys                                           # read that custom output file
-    keyrx grind --ends-with KEYRX --indices 128                          # private-key import; default output is KEYRX.txt
+    keyrx grind --ends-with KEYRX --indices 128                          # private-key import; one Markdown file per hit
     keyrx grind --starts-with cMaiL --ends-with gg --indices 128          # both ends: prefix AND suffix, one address
-    keyrx show KEYRX --keys                                              # the default managed file, keys revealed
+    keyrx show                                                           # list every managed record and its exact show command
     keyrx estimate --chain evm --ends-with dead                          # EVM: hex, any case by default
     keyrx grind --chain evm --ends-with dead                             # 0x...dead; the key imports into MetaMask/Rabby
     keyrx grind --chain evm --starts-with 0xc0ffee --checksum            # the letters in EIP-55 case as typed, too
-    keyrx show evm/dead --keys                                           # the 0x hex private key
+    keyrx show                                                           # EVM records are listed under evm/
 
 `bench`, `grind`, and `show` require Unix owner-only file semantics; on Windows,
 run them under WSL. While a single-match grind runs, one line rewrites in place
@@ -127,13 +127,14 @@ eyeballed. Colour drops out entirely when stdout is not a terminal.
 
 ## Secrets
 
-Seed phrases never reach stdout, logs or panic output by default. Matches
-go to a mode-0600 file (`--out`) on Unix. `--show-seed` is opt-in. If the match
-file cannot be opened safely, the grind inserts `.recovered` before its extension
-(`mint.txt` becomes `mint.recovered.txt`, also mode 0600 on Unix);
-if that fails too, the grind never starts. A later write failure stops the grind,
-returns nonzero and never prints the unpersisted seed as a fallback. Entropy,
-seed and derived key material are zeroized.
+Seed phrases never reach stdout, logs or panic output by default. A default grind
+creates one mode-0600 Markdown record per successful hit; `--show-seed` is opt-in.
+An explicit `--out FILE` retains the appendable private-ledger behavior. If that
+ledger cannot be opened safely, the grind inserts `.recovered` before its extension
+(`mint.txt` becomes `mint.recovered.txt`, also mode 0600 on Unix); if that fails too,
+the grind never starts. A later write failure stops the grind, returns nonzero and
+never prints the unpersisted seed as a fallback. Entropy, seed and derived key
+material are zeroized.
 
 Test only with 2-character targets. Every full mnemonic committed in a fixture,
 test vector or source file is deliberately public: either a published standard
@@ -151,12 +152,19 @@ test vector ("TREZOR").
 
 ## Which wallet, which flags
 
-A standard Solana match writes five lines: `address`, `path`, `seed` (12 or 24
-words - restores the whole tree), `privkey` (the base58 64-byte keypair used by
-current **Phantom** and **Solflare** private-key import flows), and `keypair`
-(the same 64 bytes as a JSON array `[1,2,...]` for `solana-keygen`). A
-`--passphrase` match adds one line recording that a passphrase was used, never
-the passphrase. Wallet labels and onboarding change by version: choose the
+A default grind writes each Solana hit into one self-contained, versioned Markdown
+record. It includes a chain-specific import/recovery guide and the creation recipe
+that selected the address and derivation lane. `--count`, `--out`, `--threads`, and
+`--show-seed` are deliberately omitted so quantity, destination, workers, and
+terminal display remain choices for the next run. Passphrase presence is recorded;
+the passphrase value is never stored. Existing `.txt` ledgers remain readable and
+explicit `--out FILE` keeps their append-compatible format.
+
+The Markdown fields are uppercase headings with the exact value on the next line:
+`ADDRESS`, `PATH`, `SEED` (12 or 24 words, restoring the whole tree), `PASSPHRASE`,
+`PRIVATE KEY (BASE58)` (the 64-byte keypair used by current **Phantom** and
+**Solflare** private-key import flows), and `KEYPAIR (JSON)` (the same 64 bytes as
+`[1,2,...]` for `solana-keygen`). Wallet labels and onboarding change by version: choose the
 installed wallet's **Import Private Key** route and paste the base58 value;
 Phantom currently exposes that route during onboarding as well as inside an
 existing wallet. The JSON array is the `solana-keygen` form, not the wallet
@@ -170,7 +178,11 @@ fed to `solana-keygen pubkey` print the identical address.
 Importing the **seed** instead puts the address inside a recoverable HD wallet,
 but recovery is wallet/version/path-discovery dependent. Use the exact printed
 path where the installed wallet supports it and verify the resulting address
-before funding; do not assume an unfunded high index will be discovered.
+before funding; do not assume an unfunded high index will be discovered. If a
+Phantom version walks the exact `m/44'/501'/N'/0'` family, index 89 is account
+#90, reached after 89 Add Account steps from account #1. That relationship is
+conditional on the installed wallet using that same family; the record's printed
+path remains authoritative.
 Use `--indices 8` to bound a seed-recovery match to account index 0 through 7;
 whether and how a wallet discovers that path remains version-dependent. `--words` defaults to 12.
 BIP39 defines
@@ -196,15 +208,16 @@ has no case of its own; `0x` may lead a prefix. `--checksum` asks for more:
 the letters must also come out in EIP-55 case exactly as typed, a coin flip
 per letter, and `estimate` prints both numbers.
 
-A match writes four lines under `matches/evm/<pattern>.txt`: `address`
-(EIP-55), `path`, `seed`, and `privkey` in the `0x` hex form imported by
-MetaMask and Rabby. **MetaMask / Rabby:** use the installed version's
+Each EVM hit receives its own EVM-specific Markdown record and guidance rather than
+Solana copy. Its fields are `ADDRESS` (EIP-55), `PATH`, `SEED`, `PASSPHRASE`, and
+`PRIVATE KEY (HEX)` in the `0x` form imported by MetaMask and Rabby. **MetaMask /
+Rabby:** use the installed version's
 Import account → Private key route and paste it: the exact address, standalone,
 on every EVM chain, including any network you add to the wallet. Seed recovery
 is wallet-dependent: use it only where the wallet can select the exact printed
 `m/44'/60'/0'/0/N` path, and verify before funding.
-`keyrx show` lists EVM files as
-`evm/<pattern>`; `keyrx show evm/dead --keys` reads one. `--passphrase`,
+`keyrx show` lists EVM records under `evm/` and prints the exact command for each.
+`--passphrase`,
 `--count`, `--out`, `--words` work the same on both chains; `--path` is
 Solana-only.
 
@@ -225,12 +238,18 @@ throwaway MetaMask).
 ## Where matches go
 
 By default, `~/.local/share/keyrx/matches/` (or `$XDG_DATA_HOME/keyrx/matches/`), a
-mode-0700 managed directory of its own on Unix. Each file is
-mode 0600 on Unix and named after the pattern: `--ends-with KEYRX` -> `KEYRX.txt`,
-`--ignore-case` -> `KEYRX.ic.txt`, several patterns join with `+`. EVM files
-sit under `matches/evm/` (`dead.txt`, `--checksum` -> `DeAd.cs.txt`). `--out`
-overrides. `keyrx show` lists the files; `keyrx show KEYRX` reads one
-(`--seeds` / `--keys` reveal the secrets).
+mode-0700 managed directory of its own on Unix. Each successful hit is one mode-0600
+Markdown file. The name combines the requested pattern with the exact address text
+that matched: `--ends-with coined --ignore-case` can write
+`coined.ic.coiNED.md`. If that exact name already exists, keyRX creates
+`coined.ic.coiNED.02.md`, then `.03.md`, using create-new semantics and never
+overwriting a prior key. Prefix-only and prefix-plus-suffix searches preserve the
+realized address edges the same way. EVM files sit under `matches/evm/`.
+
+`keyrx show` lists both new Markdown records and legacy `.txt` ledgers and prints an
+exact command for each (`--seeds` / `--keys` reveal the secrets). `--out FILE`
+explicitly selects the existing appendable ledger format. A no-match default grind
+leaves no recovery record; every created Markdown file contains exactly one hit.
 
 ## Known behaviour (unchanged from the reference, by instruction)
 
@@ -241,8 +260,9 @@ relaunches that exact inode. An explicit root must be absolute. Other platforms 
 the automatic relaunch and print the manual Cargo command.
 
 `--count N` reserves exactly N output slots before writing. Threads that find
-later candidates after all slots are reserved discard them; the file receives
-exactly N complete match records unless the run is interrupted or a write fails.
+later candidates after all slots are reserved discard them; a default run creates
+exactly N one-hit Markdown records unless interrupted or a write fails. An explicit
+`--out FILE` ledger receives those N complete records.
 Keep `--indices` low for seed recovery unless the receiving wallet/version has
 been proven to discover the exact printed path. Private-key import is not
 index-dependent.

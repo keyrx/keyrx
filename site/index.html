@@ -97,9 +97,10 @@ noscript div{white-space:normal;max-width:68ch;color:var(--gray);padding:1em 0}
   <p>Solana vanity addresses, measured at 19.5-32.2x the aggregate throughput of the cited
   solana-keygen grind baseline (33-55x per core), and EVM addresses the same way
   (Ethereum, Base, Arbitrum, Optimism, Polygon, BNB: one key, every chain). One seed phrase is a tree
-  of addresses: keyRX pays the expensive step once per seed and walks the branches. Every match writes
-  the address, its derivation path, the seed, and the supported import material (base58 and JSON
-  array for Solana, 0x hex for EVM). One Rust binary. No daemon or service; grinding is offline.</p>
+  of addresses: keyRX pays the expensive step once per seed and walks the branches. Every default hit
+  becomes its own private Markdown recovery record with an instruction guide, reproducible recipe,
+  address, derivation path, seed, and supported import material (base58 and JSON array for Solana,
+  0x hex for EVM). One Rust binary. No daemon or service; grinding is offline.</p>
   <pre>cargo install --locked keyrx
 keyrx
 keyrx verify
@@ -127,7 +128,7 @@ keyrx grind --ends-with KEYRX --indices 128</pre>
 (function(){
 /* The masthead version must equal Cargo.toml. A repository test enforces the
    pair, and this is the only place on the site where the version is written. */
-var VERSION='0.4.15';
+var VERSION='0.4.16';
 var out=document.getElementById('out'),scr=document.getElementById('scr'),
     inp=document.getElementById('in'),prom=document.getElementById('prompt'),
     sr=document.getElementById('sr');
@@ -342,15 +343,14 @@ C.install=function(){blank();
   commandRows('keyrx bench --indices 128','this box\'s 128-index rate, saved');
   commandRows('keyrx estimate --ends-with KEYRX --indices 128 --count 10','odds; measured time to one & ten');
   commandRows('keyrx grind --ends-with KEYRX --indices 128','the real thing');
-  commandRows('keyrx grind --ends-with KEYRX --count 10','ten of them, one file');
+  commandRows('keyrx grind --ends-with KEYRX --count 10','ten private Markdown records');
   commandRows('keyrx grind --ends-with KEYRX --indices 8','seed path index bounded to 0-7');
   commandRows('keyrx grind --ends-with KEYRX --passphrase','a 25th word, prompted');
   commandRows('keyrx grind --starts-with Key --ends-with RX','both ends at once');
   commandRows('keyrx grind --ends-with KEYRX --ignore-case','any case, 32x likelier');
   commandRows('keyrx estimate --chain evm --ends-with dead','EVM: hex, any case');
   commandRows('keyrx grind --chain evm --ends-with dead','0x...dead, MetaMask/Rabby');
-  commandRows('keyrx show','every match file');
-  commandRows('keyrx show KEYRX --keys','one file, keys revealed');
+  commandRows('keyrx show','list records');
   commandRows('keyrx --update','the latest, then this');
   row('');
   note('from source (POSIX shell):');
@@ -360,22 +360,22 @@ C.install=function(){blank();
   prose('d','bench, grind, and show require Unix owner-only file semantics. On Windows, run them under WSL.');
   foot('keyrx (the command) alone prints a start screen that explains every flag');blank();};
 C.match=function(){blank();
-  head('WHAT A MATCH WRITES',MOBILE?'':'Solana: five standard lines, mode 0600 on Unix');
+  head('WHAT A MATCH WRITES',MOBILE?'':'one private Markdown recovery record per hit');
   kv('address','the vanity address');
   kv('path',MOBILE?"m/44'/501'/N'/0'":"m/44'/501'/N'/0' - where it sits in the seed's tree");
   kv('seed',MOBILE?'12 or 24 words, whole tree':'the 12 or 24 words - restores the WHOLE tree');
   kv('privkey',MOBILE?'base58, wallet import':'base58 keypair - Phantom/Solflare private-key import');
   kv('keypair',MOBILE?'JSON, solana-keygen':'the same key as a JSON array - solana-keygen');
   row('');
-  row('  [[w]]'+(MOBILE?'EVM: four lines, matches/evm/':'EVM (--chain evm): four lines, under matches/evm/')+'[[/]]');
+  row('  [[w]]'+(MOBILE?'EVM: its own recovery record':'EVM (--chain evm): its own chain-specific recovery record')+'[[/]]');
   kv('address',MOBILE?'0x + 40 hex, EIP-55 case':'0x + forty hex digits, in EIP-55 case');
   kv('path',MOBILE?"m/44'/60'/0'/0/N":"m/44'/60'/0'/0/N - the software-wallet account path");
   kv('seed',MOBILE?'12 or 24 words, whole tree':'the 12 or 24 words - restores the WHOLE tree');
   kv('privkey',MOBILE?'0x hex, MetaMask/Rabby':'0x hex - MetaMask/Rabby "Import account -> Private key"');
   row('');
-  prose('d','A key import lands on the exact address in one paste, standalone. The receiving wallet\'s unrelated seed will not recover that imported account. Keep the match file, or an equivalent backup of its recovery material; the keyRX seed, exact path and passphrase (if used) can restore it. Files are named after the pattern: KEYRX.txt.');
+  prose('d','Every default hit gets one self-contained Markdown file. Uppercase headings put each exact value on the next line. The file includes chain-specific import guidance and a creation recipe; count, output, display and worker settings are omitted. Passphrase presence is recorded, never its value. A key import lands on the exact address in one paste, standalone. The receiving wallet\'s unrelated seed will not recover that imported account. Keep the file; the keyRX seed, exact path and passphrase (if used) can restore it.');
   prose('d','--passphrase grinds with a BIP39 passphrase (the 25th word): prompted, hidden, never stored. The file then says so - the seed alone will not reach that address; the keys will. Import those by key.');
-  foot(MOBILE?'':'default: managed matches directory · --out overrides');blank();};
+  foot(MOBILE?'':'default: one .md per hit · explicit --out keeps an appendable ledger');blank();};
 C.wallets=function(){blank();
   head('WALLETS','which route, which flags');
   function wal(w,t){if(MOBILE){row('  [[w]]'+w+'[[/]]');prose('d',t);}else row('  [[w]]'+w+'[[/]]  [[d]]'+t+'[[/]]');}
@@ -387,7 +387,7 @@ C.wallets=function(){blank();
     parts.forEach(function(pt,i){var d=row((i?'    ':'  ')+'[[c]]'+pt+'[[/]]');copyIn(d,pt,c,'command');});}
   wal('Private-key route','Phantom/Solflare - simplest, exact address');
   cmd('keyrx grind --ends-with KEYRX --indices 128');
-  prose('d','keyrx show KEYRX --keys: base58 for the current Phantom/Solflare private-key flow; JSON is for solana-keygen. UI labels vary by version. Phantom currently offers private-key import during onboarding and inside an existing wallet. The imported account is standalone; keep the file.');row('');
+  prose('d','keyrx show lists each exact record command; add --keys to that command for the base58 used by the current Phantom/Solflare private-key flow. JSON is for solana-keygen. UI labels vary by version. Phantom currently offers private-key import during onboarding and inside an existing wallet. The imported account is standalone; keep the file.');row('');
   wal('Seed route','path discovery depends on the installed wallet/version');
   cmd('keyrx grind --ends-with KEYRX --words 12 --indices 8');
   prose('d','restore with tooling that can select the exact printed path, then verify the address. Eight indices bound the possible match index to 0-7.');row('');
@@ -413,14 +413,14 @@ C.evm=function(){blank();
   L('patterns',['0-9 and a-f. Matched in ANY case by default: hex has','no case of its own. 0x is allowed in front of a prefix.']);
   L('--checksum',['the letters must ALSO come out in EIP-55 case exactly','as you typed them. Each letter halves the odds: rarer,','and it shows. estimate prints both numbers.']);row('');
   L('import',['MetaMask/Rabby: use the installed version\'s Import account','-> Private key route -> paste the 0x hex: this address,','every chain. Seed recovery requires support for the exact','printed path; verify the restored address before funding.']);row('');
-  L('files',['matches/evm/<pattern>.txt  ·  keyrx show evm/<pattern>']);
+  L('files',['matches/evm/<pattern>.<actual>.md','keyrx show lists exact names']);
   L('measured',['333,501 addresses/sec on 28 threads (11,911 per thread);','six hex in under a minute, eight in hours. bench yours.']);
   L('verify',['the abandon mnemonic, EIP-55\'s examples, private key 1,','and the test seed against an independent implementation.']);row('');
   commandRows('keyrx bench --chain evm','rare 16-hex workload, saved');
   commandRows('keyrx estimate --chain evm --ends-with dead','odds; hex, any case');
   commandRows('keyrx grind --chain evm --ends-with dead','0x...dead, MetaMask/Rabby');
   commandRows('keyrx grind --chain evm --ends-with DeAd','add --checksum: DeAd');
-  commandRows('keyrx show evm/dead --keys','the 0x hex private key');
+  commandRows('keyrx show','list EVM records');
   commandRows('keyrx networks','add a network: Robinhood');
   row('');
   // ADD A NETWORK: the same values keyrx networks prints, each one click/tap-to-copy. Checked
@@ -590,7 +590,7 @@ function start(){
   kva('grind X',MOBILE?'suffix demo':'browser suffix probability demo');
   kva('install',MOBILE?'to your machine':'every command, in the order you reach for it');
   kva('what',MOBILE?'the idea':'the idea, and THE 128');
-  kva('match',MOBILE?'the file it writes':'the five lines a match writes');
+  kva('match',MOBILE?'one .md per hit':'one private Markdown recovery record per hit');
   kva('wallets',MOBILE?'which route':'Phantom, Solflare, any - which flags');
   kva('verified',MOBILE?'the proof':'the proof, not the claim');
   kva('evm',MOBILE?'one key, every EVM chain':'Ethereum, Base, Polygon, BNB, Robinhood - one key for all');

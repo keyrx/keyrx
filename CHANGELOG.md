@@ -2,6 +2,22 @@
 
 All notable changes to keyRX, newest first. Versions are the ones on crates.io.
 
+## 0.4.16 - 2026-09-02
+
+- Save every default grind hit as its own mode-0600 Markdown recovery record. Uppercase field
+  headings put each address, path, seed, and key on the following line; Solana records include the
+  base58 and JSON forms, while EVM records carry only the `0x` private key.
+- Name each record after both the requested pattern and the exact casing that actually matched:
+  `--ends-with coined --ignore-case` can produce `coined.ic.coiNED.md`. A repeated exact result is
+  created without overwrite as `.02.md`, `.03.md`, and so on. Prefix and combined-edge searches
+  preserve their realized address text the same way.
+- Put a chain-specific import/recovery guide and a safe creation recipe in every new record. The
+  recipe preserves address-selection and derivation settings, but omits output, count, display,
+  workers, and every passphrase value.
+- Keep explicit `--out FILE` as the existing appendable private ledger, and keep all earlier
+  headerless and versioned `.txt` files readable. New Markdown is parsed strictly and never mixed
+  into a legacy ledger.
+
 ## 0.4.15 - 2026-09-02
 
 - Make an interrupted automatic release resume through the normal tag-only workflow. Inert drafts

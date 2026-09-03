@@ -27,7 +27,7 @@
 //   keyrx bench --indices 128
 //   keyrx estimate --ends-with KEYRX --indices 128
 //   keyrx grind --ends-with KEYRX --indices 128
-//   keyrx show KEYRX --keys
+//   keyrx show                            <- list every exact recovery record
 
 mod evm;
 mod ui;
@@ -173,7 +173,7 @@ enum Cmd {
     /// List matches - addresses and paths; seeds and keys withheld by default.
     /// With no FILE, lists every match file in the matches directory (EVM files as evm/NAME).
     Show {
-        /// A match file, or a bare pattern name (KEYRX -> matches/KEYRX.txt; evm/dead -> matches/evm/dead.txt).
+        /// A match file, or an exact listed name. Legacy .txt files remain readable.
         file: Option<String>,
         /// Also print the seed phrases. Off by default.
         #[arg(long)]
@@ -203,8 +203,8 @@ enum Cmd {
         /// the receiving wallet supports the one you choose.
         #[arg(long, default_value_t = 12)]
         words: usize,
-        /// Output file for matches (Unix: created/narrowed to mode 0600). Default: a file named
-        /// after the pattern in the matches directory - KEYRX -> .../matches/KEYRX.txt
+        /// Explicit aggregate output file (Unix: created/narrowed to mode 0600). Without --out,
+        /// every match gets its own Markdown file under the managed matches directory.
         #[arg(long)]
         out: Option<String>,
         /// Also print the seed phrase to stdout. Off by default so seeds stay
@@ -1082,6 +1082,99 @@ impl Matcher {
         }
     }
 
+    fn address_hit(&self, address: &str) -> bool {
+        match self.chain {
+            Chain::Sol => {
+                let address = address.as_bytes();
+                let suffix_ok = self.suffixes.is_empty()
+                    || self.suffixes.iter().any(|suffix| {
+                        address.len() >= suffix.len()
+                            && self.eq(&address[address.len() - suffix.len()..], suffix)
+                    });
+                let prefix_ok = self.prefixes.is_empty()
+                    || self.prefixes.iter().any(|prefix| {
+                        address.len() >= prefix.len() && self.eq(&address[..prefix.len()], prefix)
+                    });
+                suffix_ok && prefix_ok
+            }
+            Chain::Evm => {
+                let Some(hex) = address.strip_prefix("0x") else {
+                    return false;
+                };
+                if hex.len() != 40 || !hex.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+                    return false;
+                }
+                let mut lower = [0u8; 40];
+                lower.copy_from_slice(hex.to_ascii_lowercase().as_bytes());
+                let mut raw = [0u8; 20];
+                for (index, pair) in lower.chunks_exact(2).enumerate() {
+                    let Ok(pair) = std::str::from_utf8(pair) else {
+                        return false;
+                    };
+                    let Ok(byte) = u8::from_str_radix(pair, 16) else {
+                        return false;
+                    };
+                    raw[index] = byte;
+                }
+                self.evm_hit(&lower, &raw)
+            }
+        }
+    }
+
+    /// The exact address text that satisfied this matcher, for the managed
+    /// per-match filename.  The requested pattern names the lane; this value
+    /// preserves the case that actually landed.  Canonicalized alternatives
+    /// are disjoint, so the first matching edge is deterministic.
+    fn realized_filename_edge(&self, address: &str) -> std::io::Result<String> {
+        let body = match self.chain {
+            Chain::Sol => address,
+            Chain::Evm => address.strip_prefix("0x").ok_or_else(|| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "EVM match address has no 0x prefix",
+                )
+            })?,
+        };
+        let bytes = body.as_bytes();
+        let prefix = self.prefixes.iter().find_map(|pattern| {
+            (bytes.len() >= pattern.len() && self.eq(&bytes[..pattern.len()], pattern))
+                .then(|| &body[..pattern.len()])
+        });
+        let suffix = self.suffixes.iter().find_map(|pattern| {
+            (bytes.len() >= pattern.len()
+                && self.eq(&bytes[bytes.len() - pattern.len()..], pattern))
+            .then(|| &body[body.len() - pattern.len()..])
+        });
+        let edge = match (prefix, suffix) {
+            (Some(prefix), Some(suffix)) => format!("{prefix}...{suffix}"),
+            (Some(prefix), None) => prefix.to_string(),
+            (None, Some(suffix)) => suffix.to_string(),
+            (None, None) => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "match address does not satisfy its filename lane",
+                ))
+            }
+        };
+        if edge.is_empty()
+            || !edge
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'.')
+        {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "match filename edge is not safe ASCII",
+            ));
+        }
+        Ok(edge)
+    }
+
+    fn max_realized_filename_edge_len(&self) -> usize {
+        let prefix = self.prefixes.iter().map(Vec::len).max().unwrap_or(0);
+        let suffix = self.suffixes.iter().map(Vec::len).max().unwrap_or(0);
+        prefix + suffix + usize::from(prefix > 0 && suffix > 0) * 3
+    }
+
     /// EVM: does this address match? `lower` is its forty lowercase hex digits. The
     /// any-case test is the cheap one and runs first; only a candidate that passes it
     /// pays for the EIP-55 casing, and only when --checksum asked for it.
@@ -1517,11 +1610,11 @@ fn matches_dir_for(chain: Chain) -> std::path::PathBuf {
     }
 }
 
-/// The pattern names the file: --ends-with KEYRX -> KEYRX.txt; alternatives
-/// join with '+'; prefixes carry a trailing '_' so KEYRX_ (prefix) and KEYRX
-/// (suffix) do not collide; both kinds together join as PREFIX_...SUFFIX
-/// (cMaiL_...gg.txt); case-insensitive adds '.ic'. EVM files go under
-/// matches/evm/, named by the hex (a leading 0x dropped), '.cs' for --checksum.
+/// The pattern names a managed output lane. Each hit adds its realized address
+/// edge and `.md`; the retained `.txt` suffix exists only to keep the lane and
+/// marker identity compatible with earlier default-output coordination.
+/// Alternatives join with '+'; prefixes carry a trailing `_`; both kinds join
+/// as PREFIX_...SUFFIX. Case-insensitive adds `.ic`; EVM uses `.cs` for checksum.
 fn default_out(p: &PatternArgs) -> std::path::PathBuf {
     let strip = |s: &String| -> String {
         if p.chain == Chain::Evm {
@@ -1567,7 +1660,7 @@ fn default_out(p: &PatternArgs) -> std::path::PathBuf {
 }
 
 /// A path for the eye: files under the tool's own data dir print as
-/// `matches/KEYRX.txt`; anything else prints whole. The full path is always
+/// `matches/KEYRX.KEYRX.md`; anything else prints whole. The full path is always
 /// in the foot of the panel that names the file.
 fn short_path(p: &std::path::Path) -> String {
     if let Some(dir) = detected_data_dir().map(|d| d.join("matches")) {
@@ -2051,7 +2144,7 @@ impl RateCacheStage {
 
 /// The match file as `short_path` prints it, clickable: the click opens the
 /// FOLDER it sits in, never the file - a seed is read with `show --keys`, on
-/// purpose, not by a stray click into whatever the desktop opens .txt with.
+/// purpose, not by a stray click into whatever the desktop opens the file with.
 fn out_link(path: &std::path::Path) -> String {
     let dir = path
         .parent()
@@ -2413,6 +2506,277 @@ fn import_hint(chain: Chain, style: PathStyle, idx: u32) -> Vec<String> {
     }
 }
 
+const MATCH_FILE_HEADER_VERSION: &str = "keyrx-match-v1";
+const MATCH_FILE_RECIPE_LABEL: &str =
+    "creation recipe (count, output, display, and worker settings omitted):";
+const MAX_MATCH_FILE_HEADER_BYTES: usize = 64 * 1024;
+
+/// The saved recipe preserves everything that decides what addresses and
+/// derivation lane are searched. Quantity, destination, terminal display and
+/// worker count are intentionally left to the next run. Pattern values are
+/// restricted to ASCII base58 or hex, so each is one safe shell word.
+fn grind_creation_recipe(
+    pattern: &PatternArgs,
+    indices: u32,
+    words: usize,
+    with_passphrase: bool,
+) -> Result<String, String> {
+    let pattern_word = |value: &str| -> Result<String, String> {
+        if value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_alphanumeric()) {
+            return Err("a creation-recipe pattern is not one safe ASCII word".into());
+        }
+        Ok(value.to_string())
+    };
+    let mut parts = vec![
+        "keyrx".to_string(),
+        "grind".to_string(),
+        "--chain".to_string(),
+        match pattern.chain {
+            Chain::Sol => "sol",
+            Chain::Evm => "evm",
+        }
+        .to_string(),
+    ];
+    for value in &pattern.ends_with {
+        parts.push("--ends-with".into());
+        parts.push(pattern_word(value)?);
+    }
+    for value in &pattern.starts_with {
+        parts.push("--starts-with".into());
+        parts.push(pattern_word(value)?);
+    }
+    if pattern.ignore_case {
+        parts.push("--ignore-case".into());
+    }
+    if pattern.checksum {
+        parts.push("--checksum".into());
+    }
+    if pattern.chain == Chain::Sol {
+        parts.push("--path".into());
+        parts.push(
+            match pattern.path {
+                PathStyle::Phantom => "phantom",
+                PathStyle::Legacy => "legacy",
+            }
+            .into(),
+        );
+    }
+    parts.push("--indices".into());
+    parts.push(indices.to_string());
+    parts.push("--words".into());
+    parts.push(words.to_string());
+    if with_passphrase {
+        parts.push("--passphrase".into());
+    }
+    Ok(parts.join(" "))
+}
+
+// These rows are part of the keyrx-match-v1 on-disk format. Do not edit them
+// under the same version: old private files must remain readable byte for byte.
+fn match_header_rows(chain: Chain) -> &'static [&'static str] {
+    match chain {
+        Chain::Sol => &[
+            "KEY IMPORT · exact address, standalone",
+            "Phantom/Solflare: Import Private Key -> paste the base58 privkey.",
+            "The existing wallet seed does not contain or recover an imported key.",
+            "keypair is the same key as JSON for solana-keygen-compatible tools.",
+            "",
+            "SEED IMPORT · the whole deterministic wallet",
+            "Use seed only with the exact path printed on each match.",
+            "If Phantom walks m/44'/501'/N'/0', N=89 is account #90:",
+            "89 Add Account steps after #1. Do not assume your version does.",
+            "Wallet/version path discovery varies; the printed path is authoritative.",
+            "Other accounts on this seed are not guaranteed vanity addresses.",
+            "",
+            "Verify the imported address before funding. Keep this 0600 file private.",
+            "Ctrl/Cmd-click keyRX's printed output path in a supported terminal.",
+        ],
+        Chain::Evm => &[
+            "KEY IMPORT · exact address, standalone across EVM networks",
+            "MetaMask/Rabby: Import account -> Private key -> paste 0x hex privkey.",
+            "The existing wallet seed does not contain or recover an imported key.",
+            "",
+            "SEED IMPORT · the whole deterministic wallet",
+            "Use seed only where the wallet supports the exact path on each match:",
+            "m/44'/60'/0'/0/N. Wallet/version path discovery varies.",
+            "Other accounts on this seed are not guaranteed vanity addresses.",
+            "",
+            "Verify the imported address before funding. Keep this 0600 file private.",
+            "Ctrl/Cmd-click keyRX's printed output path in a supported terminal.",
+        ],
+    }
+}
+
+fn push_match_header_row(out: &mut String, text: &str) -> std::io::Result<()> {
+    let visible = text.chars().count();
+    let width = ui::W
+        .checked_sub(4)
+        .ok_or_else(|| std::io::Error::other("match header frame width underflow"))?;
+    if visible > width {
+        return Err(std::io::Error::other(
+            "match header copy exceeds the fixed frame width",
+        ));
+    }
+    writeln!(out, "║  {}{}║", text, " ".repeat(width - visible))
+        .expect("writing a match header row to a String cannot fail");
+    Ok(())
+}
+
+#[derive(Clone)]
+struct MatchFileHeader {
+    chain: Chain,
+    bytes: String,
+    recipe: String,
+}
+
+fn format_match_file_header(chain: Chain, recipe: &str) -> std::io::Result<MatchFileHeader> {
+    if recipe.is_empty()
+        || recipe.len() > MAX_MATCH_FILE_HEADER_BYTES
+        || recipe.chars().any(unsafe_terminal_char)
+        || !recipe.is_ascii()
+        || recipe
+            .split_ascii_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+            != recipe
+    {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "match header has an invalid creation recipe",
+        ));
+    }
+    let title = match chain {
+        Chain::Sol => "keyRX · SOLANA PRIVATE MATCH FILE",
+        Chain::Evm => "keyRX · EVM PRIVATE MATCH FILE",
+    };
+    let mut bytes = String::new();
+    let lead = format!("╔═ {} ", title);
+    let lead_width = lead.chars().count();
+    let fill = ui::W
+        .checked_sub(lead_width + 1)
+        .ok_or_else(|| std::io::Error::other("match header title exceeds its frame"))?;
+    writeln!(&mut bytes, "{}{}╗", lead, "═".repeat(fill))
+        .expect("writing a match header title to a String cannot fail");
+    push_match_header_row(&mut bytes, MATCH_FILE_HEADER_VERSION)?;
+    push_match_header_row(&mut bytes, "")?;
+    for row in match_header_rows(chain) {
+        push_match_header_row(&mut bytes, row)?;
+    }
+    writeln!(&mut bytes, "╚{}╝", "═".repeat(ui::W - 2))
+        .expect("writing a match header foot to a String cannot fail");
+    writeln!(&mut bytes, "{}", MATCH_FILE_RECIPE_LABEL)
+        .expect("writing a match header label to a String cannot fail");
+    writeln!(&mut bytes, "{}", recipe)
+        .expect("writing a match header recipe to a String cannot fail");
+    bytes.push('\n');
+    if bytes.len() > MAX_MATCH_FILE_HEADER_BYTES {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "match header exceeds its supported size",
+        ));
+    }
+    Ok(MatchFileHeader {
+        chain,
+        bytes,
+        recipe: recipe.to_string(),
+    })
+}
+
+fn build_match_file_header(
+    pattern: &PatternArgs,
+    indices: u32,
+    words: usize,
+    with_passphrase: bool,
+) -> std::io::Result<MatchFileHeader> {
+    let recipe = grind_creation_recipe(pattern, indices, words, with_passphrase)
+        .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
+    format_match_file_header(pattern.chain, &recipe)
+}
+
+const MARKDOWN_MATCH_VERSION: &str = "keyrx-match-md-v1";
+const MAX_MARKDOWN_MATCH_BYTES: usize = 64 * 1024;
+const MARKDOWN_PRIVATE_WARNING: &str = "> **PRIVATE KEY MATERIAL:** This mode-0600 file controls the address recorded in it. Keep it private, keep a safe backup, and verify the address before funding.";
+const MARKDOWN_SOL_GUIDANCE: &str = "- **Private-key import:** In Phantom or Solflare, choose Import Private Key and paste the base58 private key above. This imported account is standalone; an existing wallet seed does not contain it.\n- **JSON keypair:** The JSON array is the same key for solana-keygen-compatible tools.\n- **Seed recovery:** Use the seed only with the exact path above in a wallet/version that supports it. Path discovery varies. If a Phantom version walks `m/44'/501'/N'/0'`, index 89 is account #90, reached after 89 Add Account steps from account #1; do not assume every version does.\n- Other accounts from this seed are not guaranteed vanity addresses. Verify the exact address before funding.";
+const MARKDOWN_EVM_GUIDANCE: &str = "- **Private-key import:** In MetaMask or Rabby, choose Import account, then Private key, and paste the 0x private key above. The imported account is the same standalone address across EVM networks; an existing wallet seed does not contain it.\n- **Seed recovery:** Use the seed only with the exact `m/44'/60'/0'/0/N` path above in a wallet/version that supports it. Path discovery varies.\n- Other accounts from this seed are not guaranteed vanity addresses. Verify the exact address before funding.";
+
+fn markdown_match_title(chain: Chain) -> &'static str {
+    match chain {
+        Chain::Sol => "# keyRX · SOLANA PRIVATE MATCH",
+        Chain::Evm => "# keyRX · EVM PRIVATE MATCH",
+    }
+}
+
+fn markdown_match_guidance(chain: Chain) -> &'static str {
+    match chain {
+        Chain::Sol => MARKDOWN_SOL_GUIDANCE,
+        Chain::Evm => MARKDOWN_EVM_GUIDANCE,
+    }
+}
+
+fn markdown_private_key_heading(chain: Chain) -> &'static str {
+    match chain {
+        Chain::Sol => "PRIVATE KEY (BASE58)",
+        Chain::Evm => "PRIVATE KEY (HEX)",
+    }
+}
+
+/// One managed match is one complete Markdown document.  The allocation is
+/// zeroized on drop; the fixed capacity prevents secret-bearing reallocations.
+fn format_markdown_match_file(
+    hit: &Hit,
+    style: PathStyle,
+    header: &MatchFileHeader,
+) -> std::io::Result<Zeroizing<String>> {
+    if hit.chain != header.chain {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "Markdown match chain does not match its creation recipe",
+        ));
+    }
+    let mut out = Zeroizing::new(String::with_capacity(MAX_MARKDOWN_MATCH_BYTES));
+    let reserved = out.capacity();
+    write!(
+        &mut *out,
+        "{}\n\nFormat: `{}`\n\n{}\n\n## ADDRESS\n\n{}\n\n## PATH\n\n{}\n\n## SEED\n\n{}\n\n## PASSPHRASE\n\n{}\n\n## {}\n\n{}\n\n",
+        markdown_match_title(hit.chain),
+        MARKDOWN_MATCH_VERSION,
+        MARKDOWN_PRIVATE_WARNING,
+        hit.address,
+        path_for(hit.chain, style, hit.index),
+        hit.mnemonic.as_str(),
+        if hit.passphrase {
+            "used - value not stored; the seed alone will not reach this address"
+        } else {
+            "not used"
+        },
+        markdown_private_key_heading(hit.chain),
+        hit.privkey.as_str(),
+    )
+    .expect("writing a bounded Markdown match to a String cannot fail");
+    if hit.chain == Chain::Sol {
+        write!(
+            &mut *out,
+            "## KEYPAIR (JSON)\n\n{}\n\n",
+            hit.keypair_json.as_str()
+        )
+        .expect("writing a bounded Markdown match to a String cannot fail");
+    }
+    write!(
+        &mut *out,
+        "## IMPORT AND RECOVERY\n\n{}\n\n## CREATION RECIPE\n\n`{}`\n",
+        markdown_match_guidance(hit.chain),
+        header.recipe,
+    )
+    .expect("writing a bounded Markdown match to a String cannot fail");
+    if out.len() > MAX_MARKDOWN_MATCH_BYTES || out.capacity() != reserved {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "Markdown match exceeds its fixed secret-buffer capacity",
+        ));
+    }
+    Ok(out)
+}
+
 fn seed_display_rows(mnemonic: &str) -> Vec<String> {
     let words: Vec<&str> = mnemonic.split_whitespace().collect();
     words
@@ -2643,11 +3007,11 @@ fn list_match_names(dir: &std::path::Path) -> std::io::Result<Vec<String>> {
             ));
         }
         let kind = entry.file_type()?;
-        if name.ends_with(".txt") {
+        if name.ends_with(".txt") || name.ends_with(".md") {
             if !kind.is_file() {
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::InvalidData,
-                    "a .txt match entry is not a regular file",
+                    "a match entry is not a regular file",
                 ));
             }
             names.push(name);
@@ -2655,6 +3019,12 @@ fn list_match_names(dir: &std::path::Path) -> std::io::Result<Vec<String>> {
     }
     names.sort();
     Ok(names)
+}
+
+fn match_name_stem(name: &str) -> &str {
+    name.strip_suffix(".md")
+        .or_else(|| name.strip_suffix(".txt"))
+        .unwrap_or(name)
 }
 
 fn show_command(stem: &str) -> String {
@@ -2693,16 +3063,35 @@ fn cmd_show(file: Option<String>, with_seed: bool, with_key: bool) {
     let file = match file {
         Some(f) if std::path::Path::new(&f).exists() => f,
         Some(f) => {
-            // A bare pattern name: KEYRX -> matches/KEYRX.txt; evm/dead names
-            // the EVM file. Recovery files remain ordinary *.recovered.txt names.
-            let stem = f.trim_end_matches(".txt");
-            let sol = matches_dir().join(format!("{}.txt", stem));
-            let evm = matches_dir_for(Chain::Evm)
-                .join(format!("{}.txt", stem.trim_start_matches("evm/")));
-            let cand = if sol.exists() || (!evm.exists() && !stem.starts_with("evm/")) {
-                sol
+            // A bare name resolves both the legacy aggregate .txt format and
+            // the one-hit managed .md format.  EVM remains explicitly namespaced.
+            let requested_format = if f.ends_with(".md") {
+                Some("md")
+            } else if f.ends_with(".txt") {
+                Some("txt")
             } else {
-                evm
+                None
+            };
+            let stem = match_name_stem(&f);
+            let evm_requested = stem.starts_with("evm/");
+            let chain_stem = stem.trim_start_matches("evm/");
+            let dir = if evm_requested {
+                matches_dir_for(Chain::Evm)
+            } else {
+                matches_dir()
+            };
+            let legacy = dir.join(format!("{chain_stem}.txt"));
+            let markdown = dir.join(format!("{chain_stem}.md"));
+            let cand = match requested_format {
+                Some("md") => markdown,
+                Some("txt") => legacy,
+                _ if legacy.exists() => legacy,
+                _ if markdown.exists() => markdown,
+                _ => {
+                    // Keep the old lane name for its in-progress marker. Managed
+                    // outputs acquire that lane but do not create the .txt file.
+                    legacy
+                }
             };
             if !cand.exists() {
                 let marker = grind_marker_path(&cand);
@@ -2741,10 +3130,8 @@ fn cmd_show(file: Option<String>, with_seed: bool, with_key: bool) {
                     std::process::exit(1);
                 }
             };
-            let mut names: Vec<(std::path::PathBuf, String)> = sol_names
-                .into_iter()
-                .map(|n| (dir.join(&n), n.trim_end_matches(".txt").to_string()))
-                .collect();
+            let mut names: Vec<(std::path::PathBuf, String)> =
+                sol_names.into_iter().map(|n| (dir.join(&n), n)).collect();
             let evm_dir = matches_dir_for(Chain::Evm);
             let evm_names = match list_match_names(&evm_dir) {
                 Ok(names) => names,
@@ -2753,12 +3140,11 @@ fn cmd_show(file: Option<String>, with_seed: bool, with_key: bool) {
                     std::process::exit(1);
                 }
             };
-            names.extend(evm_names.into_iter().map(|n| {
-                (
-                    evm_dir.join(&n),
-                    format!("evm/{}", n.trim_end_matches(".txt")),
-                )
-            }));
+            names.extend(
+                evm_names
+                    .into_iter()
+                    .map(|n| (evm_dir.join(&n), format!("evm/{n}"))),
+            );
             if names.is_empty() {
                 println!(
                     "{}",
@@ -2860,6 +3246,7 @@ fn cmd_show(file: Option<String>, with_seed: bool, with_key: bool) {
     for record in records {
         n += 1;
         let ParsedMatch {
+            chain: _,
             address: a,
             path: p,
             seed,
@@ -2952,6 +3339,7 @@ const PASSPHRASE_LINE: &str =
     "\npassphrase used - NOT stored: the seed alone will not reach this address; the keys will";
 
 struct ParsedMatch {
+    chain: Chain,
     address: String,
     path: String,
     seed: Zeroizing<String>,
@@ -3014,15 +3402,156 @@ fn sol_secret_from_seed(seed: &[u8], style: PathStyle, index: u32) -> Zeroizing<
     Zeroizing::new(secret)
 }
 
+struct MatchHeaderSpec {
+    chain: Chain,
+    matcher: Matcher,
+    path: PathStyle,
+    indices: u32,
+    words: usize,
+    passphrase: bool,
+}
+
+fn split_match_file_header(text: &str) -> std::io::Result<(Option<MatchHeaderSpec>, &str)> {
+    if !text.starts_with('╔') {
+        return Ok((None, text));
+    }
+    let Some(candidate_len) = text.find("\n\n") else {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "match file ends inside its header",
+        ));
+    };
+    let framed_len = candidate_len
+        .checked_add(2)
+        .ok_or_else(|| std::io::Error::other("match header length overflow"))?;
+    if framed_len > MAX_MATCH_FILE_HEADER_BYTES {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "match file header exceeds its supported size",
+        ));
+    }
+    let candidate = &text[..candidate_len];
+    let body = &text[framed_len..];
+    let title = candidate.lines().next().unwrap_or_default();
+    let chain = if title.contains("· SOLANA PRIVATE MATCH FILE ") {
+        Chain::Sol
+    } else if title.contains("· EVM PRIVATE MATCH FILE ") {
+        Chain::Evm
+    } else {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "match file has an unknown header",
+        ));
+    };
+    let recipe = candidate.lines().last().unwrap_or_default();
+    let expected = format_match_file_header(chain, recipe)?;
+    if &text.as_bytes()[..framed_len] != expected.bytes.as_bytes() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "match file has a malformed header",
+        ));
+    }
+    let parsed = Cli::try_parse_from(recipe.split_ascii_whitespace()).map_err(|_| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "match file header has an invalid creation recipe",
+        )
+    })?;
+    if parsed.update
+        || recipe
+            .split_ascii_whitespace()
+            .any(|word| matches!(word, "--count" | "--out" | "--threads" | "--show-seed"))
+    {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "match file header has a noncanonical creation recipe",
+        ));
+    }
+    let Some(Cmd::Grind {
+        pattern,
+        threads: _,
+        indices,
+        count,
+        words,
+        out,
+        show_seed,
+        passphrase,
+    }) = parsed.cmd
+    else {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "match file header recipe is not a grind command",
+        ));
+    };
+    if count != 1 || out.is_some() || show_seed || pattern.chain != chain {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "match file header has a noncanonical creation recipe",
+        ));
+    }
+    let matcher = Matcher::new(&pattern).map_err(|_| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "match file header has an invalid creation recipe",
+        )
+    })?;
+    if !matches!(words, 12 | 24) || indices == 0 || indices > HARDENED {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "match file header has an invalid creation recipe",
+        ));
+    }
+    let canonical = grind_creation_recipe(&pattern, indices, words, passphrase).map_err(|_| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "match file header has an invalid creation recipe",
+        )
+    })?;
+    if canonical != recipe {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "match file header has a noncanonical creation recipe",
+        ));
+    }
+    Ok((
+        Some(MatchHeaderSpec {
+            chain,
+            matcher,
+            path: pattern.path,
+            indices,
+            words,
+            passphrase,
+        }),
+        body,
+    ))
+}
+
+struct ParsedMatchFile {
+    header_chain: Option<Chain>,
+    records: Vec<ParsedMatch>,
+}
+
 /// One strict parser owns append validation, listing, and direct `show`. A
-/// damaged record is never treated as an empty or shorter valid file.
-fn parse_match_bytes(bytes: &[u8]) -> std::io::Result<Vec<ParsedMatch>> {
+/// damaged header or record is never treated as an empty or shorter valid file.
+/// Headerless files from every earlier keyRX release remain valid.
+fn parse_legacy_match_file_bytes(bytes: &[u8]) -> std::io::Result<ParsedMatchFile> {
     if bytes.is_empty() {
-        return Ok(Vec::new());
+        return Ok(ParsedMatchFile {
+            header_chain: None,
+            records: Vec::new(),
+        });
     }
     let text = std::str::from_utf8(bytes).map_err(|_| {
         std::io::Error::new(std::io::ErrorKind::InvalidData, "match file is not UTF-8")
     })?;
+    let (header_spec, text) = split_match_file_header(text)?;
+    let header_chain = header_spec.as_ref().map(|spec| spec.chain);
+    if text.is_empty() {
+        return Ok(ParsedMatchFile {
+            header_chain,
+            records: Vec::new(),
+        });
+    }
     let Some(body) = text.strip_suffix("\n\n") else {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
@@ -3050,7 +3579,8 @@ fn parse_match_bytes(bytes: &[u8]) -> std::io::Result<Vec<ParsedMatch>> {
         let address = exact(lines.first(), "address ")?;
         let path = exact(lines.get(1), "path    ")?;
         let seed = Zeroizing::new(exact(lines.get(2), "seed    ")?);
-        if !matches!(seed.split_whitespace().count(), 12 | 24) {
+        let seed_words = seed.split_whitespace().count();
+        if !matches!(seed_words, 12 | 24) {
             return Err(fail());
         }
         let mnemonic = bip39::Mnemonic::parse_normalized(seed.as_str()).map_err(|_| fail())?;
@@ -3076,8 +3606,26 @@ fn parse_match_bytes(bytes: &[u8]) -> std::io::Result<Vec<ParsedMatch>> {
             return Err(fail());
         }
         let evm = matches!(parsed_path, ParsedPath::Evm(_));
+        if header_chain.is_some_and(|chain| (chain == Chain::Evm) != evm) {
+            return Err(fail());
+        }
         if evm != address.starts_with("0x") {
             return Err(fail());
+        }
+        if let Some(spec) = header_spec.as_ref() {
+            let (record_chain, record_path, record_index) = match parsed_path {
+                ParsedPath::Sol(path, index) => (Chain::Sol, Some(path), index),
+                ParsedPath::Evm(index) => (Chain::Evm, None, index),
+            };
+            if record_chain != spec.chain
+                || !spec.matcher.address_hit(&address)
+                || record_index >= spec.indices
+                || seed_words != spec.words
+                || passphrase != spec.passphrase
+                || (record_chain == Chain::Sol && record_path != Some(spec.path))
+            {
+                return Err(fail());
+            }
         }
         let keypair = if evm {
             if address.len() != 42
@@ -3149,6 +3697,7 @@ fn parse_match_bytes(bytes: &[u8]) -> std::io::Result<Vec<ParsedMatch>> {
             return Err(fail());
         }
         records.push(ParsedMatch {
+            chain: if evm { Chain::Evm } else { Chain::Sol },
             address,
             path,
             seed,
@@ -3157,7 +3706,165 @@ fn parse_match_bytes(bytes: &[u8]) -> std::io::Result<Vec<ParsedMatch>> {
             passphrase,
         });
     }
-    Ok(records)
+    Ok(ParsedMatchFile {
+        header_chain,
+        records,
+    })
+}
+
+fn take_markdown_value<'a>(rest: &mut &'a str, heading: &str) -> std::io::Result<&'a str> {
+    let prefix = format!("## {heading}\n\n");
+    *rest = rest.strip_prefix(&prefix).ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("Markdown match is missing its {heading} heading"),
+        )
+    })?;
+    let (value, tail) = rest.split_once("\n\n").ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("Markdown match ends inside its {heading} value"),
+        )
+    })?;
+    if value.is_empty()
+        || value.trim() != value
+        || value.contains('\n')
+        || value.chars().any(unsafe_terminal_char)
+    {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("Markdown match has a malformed {heading} value"),
+        ));
+    }
+    *rest = tail;
+    Ok(value)
+}
+
+/// Strictly parse the one-hit Markdown format, then hand its values to the
+/// legacy parser.  That one parser remains the authority for mnemonic,
+/// derivation, private-key/address, path, matcher, and recipe consistency.
+fn parse_markdown_match_file_bytes(bytes: &[u8]) -> std::io::Result<ParsedMatchFile> {
+    let text = std::str::from_utf8(bytes).map_err(|_| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "Markdown match file is not UTF-8",
+        )
+    })?;
+    let (chain, mut rest) = if let Some(rest) = text.strip_prefix(&format!(
+        "{}\n\nFormat: `{}`\n\n{}\n\n",
+        markdown_match_title(Chain::Sol),
+        MARKDOWN_MATCH_VERSION,
+        MARKDOWN_PRIVATE_WARNING
+    )) {
+        (Chain::Sol, rest)
+    } else if let Some(rest) = text.strip_prefix(&format!(
+        "{}\n\nFormat: `{}`\n\n{}\n\n",
+        markdown_match_title(Chain::Evm),
+        MARKDOWN_MATCH_VERSION,
+        MARKDOWN_PRIVATE_WARNING
+    )) {
+        (Chain::Evm, rest)
+    } else {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "Markdown match has an unknown title or format version",
+        ));
+    };
+    let address = take_markdown_value(&mut rest, "ADDRESS")?;
+    let path = take_markdown_value(&mut rest, "PATH")?;
+    let seed = take_markdown_value(&mut rest, "SEED")?;
+    let passphrase_status = take_markdown_value(&mut rest, "PASSPHRASE")?;
+    let passphrase = match passphrase_status {
+        "not used" => false,
+        "used - value not stored; the seed alone will not reach this address" => true,
+        _ => {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "Markdown match has a malformed PASSPHRASE value",
+            ))
+        }
+    };
+    let privkey = take_markdown_value(&mut rest, markdown_private_key_heading(chain))?;
+    let keypair = if chain == Chain::Sol {
+        Some(take_markdown_value(&mut rest, "KEYPAIR (JSON)")?)
+    } else {
+        None
+    };
+    let guidance_prefix = "## IMPORT AND RECOVERY\n\n";
+    rest = rest.strip_prefix(guidance_prefix).ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "Markdown match is missing its IMPORT AND RECOVERY heading",
+        )
+    })?;
+    let recipe_boundary = "\n\n## CREATION RECIPE\n\n`";
+    let (guidance, recipe_tail) = rest.split_once(recipe_boundary).ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "Markdown match is missing its creation recipe",
+        )
+    })?;
+    if guidance != markdown_match_guidance(chain) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "Markdown match has noncanonical import or recovery guidance",
+        ));
+    }
+    let recipe = recipe_tail.strip_suffix("`\n").ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "Markdown match has a malformed creation recipe",
+        )
+    })?;
+    if recipe.contains('\n') {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "Markdown match creation recipe spans more than one line",
+        ));
+    }
+
+    let header = format_match_file_header(chain, recipe)?;
+    let mut legacy = Zeroizing::new(String::with_capacity(MAX_MARKDOWN_MATCH_BYTES));
+    legacy.push_str(&header.bytes);
+    write!(
+        &mut *legacy,
+        "address {address}\npath    {path}\nseed    {seed}{}\nprivkey {privkey}\n",
+        if passphrase { PASSPHRASE_LINE } else { "" }
+    )
+    .expect("writing a bounded compatibility record to a String cannot fail");
+    if let Some(keypair) = keypair {
+        writeln!(&mut *legacy, "keypair {keypair}")
+            .expect("writing a bounded compatibility record to a String cannot fail");
+        legacy.push('\n');
+    } else {
+        legacy.push('\n');
+    }
+    if legacy.len() > MAX_MARKDOWN_MATCH_BYTES {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "Markdown match exceeds its supported size",
+        ));
+    }
+    let parsed = parse_legacy_match_file_bytes(legacy.as_bytes())?;
+    if parsed.records.len() != 1 || parsed.header_chain != Some(chain) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "Markdown match does not contain exactly one canonical record",
+        ));
+    }
+    Ok(parsed)
+}
+
+fn parse_match_file_bytes(bytes: &[u8]) -> std::io::Result<ParsedMatchFile> {
+    if bytes.starts_with(b"# keyRX \xc2\xb7 ") {
+        parse_markdown_match_file_bytes(bytes)
+    } else {
+        parse_legacy_match_file_bytes(bytes)
+    }
+}
+
+fn parse_match_bytes(bytes: &[u8]) -> std::io::Result<Vec<ParsedMatch>> {
+    parse_match_file_bytes(bytes).map(|file| file.records)
 }
 
 /// Create only missing output directories. A caller-owned `--out` parent keeps its
@@ -3243,11 +3950,42 @@ fn grind_marker_path(out: &std::path::Path) -> std::path::PathBuf {
 /// Open one held append descriptor for the entire grind. On Unix the final path
 /// may not be a symlink or other special file, hard-linked aliases are refused,
 /// and permissions are narrowed on the descriptor before any secret is written.
-fn validate_existing_match_bytes(bytes: &[u8]) -> std::io::Result<()> {
-    parse_match_bytes(bytes).map(|_| ())
+fn validate_existing_match_bytes(
+    bytes: &[u8],
+    expected_header: &MatchFileHeader,
+) -> std::io::Result<()> {
+    let parsed = parse_match_file_bytes(bytes)?;
+    if parsed
+        .records
+        .iter()
+        .any(|record| record.chain != expected_header.chain)
+    {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "match file already contains records from the other chain",
+        ));
+    }
+    if let Some(chain) = parsed.header_chain {
+        if chain != expected_header.chain {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "match file header belongs to the other chain",
+            ));
+        }
+        if !bytes.starts_with(expected_header.bytes.as_bytes()) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "match file header belongs to another creation recipe",
+            ));
+        }
+    }
+    Ok(())
 }
 
-fn open_match_file(out: &std::path::Path) -> std::io::Result<std::fs::File> {
+fn open_match_file(
+    out: &std::path::Path,
+    expected_header: &MatchFileHeader,
+) -> std::io::Result<std::fs::File> {
     let options = |create_new: bool| {
         let mut opts = std::fs::OpenOptions::new();
         opts.append(true)
@@ -3319,7 +4057,7 @@ fn open_match_file(out: &std::path::Path) -> std::io::Result<std::fs::File> {
         }
     }
     let existing = read_held_private_bytes(&mut f, &meta, out)?;
-    validate_existing_match_bytes(&existing)?;
+    validate_existing_match_bytes(&existing, expected_header)?;
     // `sync_all` covers file data plus mode metadata. A newly-created name also
     // needs its parent directory flushed before a match may be reported.
     f.sync_all()?;
@@ -3576,18 +4314,14 @@ fn format_hit_record(h: &Hit, style: PathStyle) -> std::io::Result<(Zeroizing<St
     Ok((record, reserved))
 }
 
-fn write_hit(file: &Mutex<std::fs::File>, h: &Hit, style: PathStyle) -> std::io::Result<()> {
-    let (record, _) = format_hit_record(h, style)?;
-    let mut file = file
-        .lock()
-        .map_err(|_| std::io::Error::other("match-file lock poisoned"))?;
-    #[cfg(unix)]
-    validate_grind_output_descriptor(&file)?;
-    let current = file.metadata()?.len();
-    let record_len = u64::try_from(record.len())
-        .map_err(|_| std::io::Error::other("match record length does not fit u64"))?;
+fn checked_match_append_len(
+    current: u64,
+    header_len: u64,
+    record_len: u64,
+) -> std::io::Result<u64> {
     let final_len = current
-        .checked_add(record_len)
+        .checked_add(header_len)
+        .and_then(|length| length.checked_add(record_len))
         .ok_or_else(|| std::io::Error::other("match-file length overflow"))?;
     if final_len > MAX_PRIVATE_MATCH_FILE_BYTES {
         return Err(std::io::Error::new(
@@ -3597,6 +4331,41 @@ fn write_hit(file: &Mutex<std::fs::File>, h: &Hit, style: PathStyle) -> std::io:
                 MAX_PRIVATE_MATCH_FILE_BYTES
             ),
         ));
+    }
+    Ok(final_len)
+}
+
+#[cfg(test)]
+fn write_hit(
+    file: &Mutex<std::fs::File>,
+    h: &Hit,
+    style: PathStyle,
+    header: &MatchFileHeader,
+) -> std::io::Result<()> {
+    if header.chain != h.chain {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "match header chain does not match the record",
+        ));
+    }
+    let (record, _) = format_hit_record(h, style)?;
+    let mut file = file
+        .lock()
+        .map_err(|_| std::io::Error::other("match-file lock poisoned"))?;
+    #[cfg(unix)]
+    validate_grind_output_descriptor(&file)?;
+    let current = file.metadata()?.len();
+    let header_len = if current == 0 {
+        u64::try_from(header.bytes.len())
+            .map_err(|_| std::io::Error::other("match header length does not fit u64"))?
+    } else {
+        0
+    };
+    let record_len = u64::try_from(record.len())
+        .map_err(|_| std::io::Error::other("match record length does not fit u64"))?;
+    let final_len = checked_match_append_len(current, header_len, record_len)?;
+    if current == 0 {
+        file.write_all(header.bytes.as_bytes())?;
     }
     file.write_all(record.as_bytes())?;
     file.sync_all()?;
@@ -3609,6 +4378,212 @@ fn write_hit(file: &Mutex<std::fs::File>, h: &Hit, style: PathStyle) -> std::io:
         ));
     }
     Ok(())
+}
+
+fn managed_match_path(
+    lane: &std::path::Path,
+    realized: &str,
+    ordinal: usize,
+) -> std::io::Result<std::path::PathBuf> {
+    let base = lane
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "managed match lane has no safe UTF-8 filename stem",
+            )
+        })?;
+    let suffix = if ordinal == 1 {
+        String::new()
+    } else {
+        format!(".{ordinal:02}")
+    };
+    let leaf = format!("{base}.{realized}{suffix}.md");
+    // Linux, macOS, and the Unix filesystems used under WSL admit 255-byte
+    // components. Leave margin rather than discovering an overlong generated
+    // name only after an expensive match has landed.
+    if leaf.len() > 240 {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "managed match filename would exceed the supported 240-byte bound",
+        ));
+    }
+    Ok(lane.with_file_name(leaf))
+}
+
+#[cfg(unix)]
+#[derive(Clone)]
+struct PersistedMatchIdentity {
+    path: std::path::PathBuf,
+    dev: u64,
+    ino: u64,
+    len: u64,
+}
+
+/// Owns the managed lane's completed, independently named match documents.
+struct ManagedMatchWriter {
+    lane: std::path::PathBuf,
+    #[cfg(unix)]
+    persisted: Vec<PersistedMatchIdentity>,
+}
+
+impl ManagedMatchWriter {
+    fn new(lane: std::path::PathBuf) -> Self {
+        Self {
+            lane,
+            #[cfg(unix)]
+            persisted: Vec::new(),
+        }
+    }
+
+    fn write(
+        &mut self,
+        hit: &Hit,
+        style: PathStyle,
+        header: &MatchFileHeader,
+        matcher: &Matcher,
+    ) -> std::io::Result<std::path::PathBuf> {
+        let document = format_markdown_match_file(hit, style, header)?;
+        let realized = matcher.realized_filename_edge(&hit.address)?;
+        let mut ordinal = 1usize;
+        let (path, mut file) = loop {
+            let path = managed_match_path(&self.lane, &realized, ordinal)?;
+            validate_operator_path(&path)?;
+            match private_create_new(&path) {
+                Ok(file) => break (path, file),
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                    ordinal = ordinal.checked_add(1).ok_or_else(|| {
+                        std::io::Error::new(
+                            std::io::ErrorKind::AlreadyExists,
+                            "managed match duplicate ordinal overflow",
+                        )
+                    })?;
+                }
+                Err(error) => return Err(error),
+            }
+        };
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+            validate_grind_output_descriptor(&file)?;
+        }
+        let expected_len = u64::try_from(document.len())
+            .map_err(|_| std::io::Error::other("Markdown match length does not fit u64"))?;
+        if expected_len > MAX_PRIVATE_MATCH_FILE_BYTES {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "Markdown match exceeds the private-file size bound",
+            ));
+        }
+        file.write_all(document.as_bytes())?;
+        file.sync_all()?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            let meta = validate_grind_output_descriptor(&file)?;
+            if meta.len() != expected_len {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "managed match length changed outside its held write",
+                ));
+            }
+            validate_grind_output_path(&file, &path)?;
+            sync_parent_dir(&path)?;
+            self.persisted.push(PersistedMatchIdentity {
+                path: path.clone(),
+                dev: meta.dev(),
+                ino: meta.ino(),
+                len: expected_len,
+            });
+        }
+        Ok(path)
+    }
+
+    #[cfg(unix)]
+    fn validate_all(&self) -> std::io::Result<()> {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        for expected in &self.persisted {
+            let meta = std::fs::symlink_metadata(&expected.path)?;
+            let mode = meta.permissions().mode() & 0o777;
+            if !meta.is_file()
+                || meta.uid() != unsafe { libc::geteuid() }
+                || meta.nlink() != 1
+                || mode != 0o600
+                || meta.dev() != expected.dev
+                || meta.ino() != expected.ino
+                || meta.len() != expected.len
+            {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!(
+                        "managed match custody changed before completion: {}",
+                        ui::path_text(&expected.path)
+                    ),
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
+enum GrindSink {
+    Aggregate {
+        path: std::path::PathBuf,
+        file: std::fs::File,
+    },
+    Managed(ManagedMatchWriter),
+}
+
+fn write_grind_hit(
+    sink: &Mutex<GrindSink>,
+    hit: &Hit,
+    style: PathStyle,
+    header: &MatchFileHeader,
+    matcher: &Matcher,
+) -> std::io::Result<std::path::PathBuf> {
+    let mut sink = sink
+        .lock()
+        .map_err(|_| std::io::Error::other("match-file lock poisoned"))?;
+    match &mut *sink {
+        GrindSink::Aggregate { path, file } => {
+            if header.chain != hit.chain {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "match header chain does not match the record",
+                ));
+            }
+            let (record, _) = format_hit_record(hit, style)?;
+            #[cfg(unix)]
+            validate_grind_output_descriptor(file)?;
+            let current = file.metadata()?.len();
+            let header_len = if current == 0 {
+                u64::try_from(header.bytes.len())
+                    .map_err(|_| std::io::Error::other("match header length does not fit u64"))?
+            } else {
+                0
+            };
+            let record_len = u64::try_from(record.len())
+                .map_err(|_| std::io::Error::other("match record length does not fit u64"))?;
+            let final_len = checked_match_append_len(current, header_len, record_len)?;
+            if current == 0 {
+                file.write_all(header.bytes.as_bytes())?;
+            }
+            file.write_all(record.as_bytes())?;
+            file.sync_all()?;
+            #[cfg(unix)]
+            validate_grind_output_descriptor(file)?;
+            if file.metadata()?.len() != final_len {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "match file length changed outside the held append operation",
+                ));
+            }
+            Ok(path.clone())
+        }
+        GrindSink::Managed(writer) => writer.write(hit, style, header, matcher),
+    }
 }
 
 /// Time-to-first-match rows, framed. The 50% line carries the accent: it is
@@ -4142,9 +5117,12 @@ fn cmd_start() {
     );
     println!(
         "{}",
-        n("private match file (Unix: mode 0600), never to the")
+        n("one private Markdown file per default match (Unix: mode 0600),")
     );
-    println!("{}", n("screen unless you ask."));
+    println!(
+        "{}",
+        n("never to the screen unless you ask. --out keeps an aggregate.")
+    );
     println!(
         "{}",
         ui::bot("verify -> bench -> estimate -> grind -> show")
@@ -4363,7 +5341,7 @@ fn cmd_start() {
         "{}",
         kvw(
             "files",
-            "matches/evm/<pattern>.txt  ·  keyrx show evm/<pattern>"
+            "matches/evm/<pattern>.<actual>[.02].md · keyrx show lists"
         )
     );
     println!(
@@ -4399,12 +5377,12 @@ fn cmd_start() {
         "{}",
         kvw(
             "--out FILE",
-            "where matches go. Unix: mode 0600. Default: a file"
+            "explicit aggregate file, for scripts and legacy workflows."
         )
     );
     println!(
         "{}",
-        cont("named after the pattern - KEYRX -> matches/KEYRX.txt")
+        cont("Default: one Markdown document per hit, named with its actual case.")
     );
     blank();
     println!(
@@ -4420,8 +5398,9 @@ fn cmd_start() {
     );
     println!(
         "{}",
-        cont("All land in the one file. estimate --count N prints")
+        cont("Default: one file per match. With --out, all land in FILE.")
     );
+    println!("{}", cont("estimate --count N prints"));
     println!("{}", cont("the time to all N - each match is independent."));
     blank();
     println!(
@@ -4576,12 +5555,23 @@ fn cmd_start() {
     println!("{}", ui::top("WHAT A MATCH WRITES", "and where"));
     println!(
         "{}",
-        n("By default, each Solana match appends five lines to a private file")
+        n("Default: every completed match is one private Markdown document")
     );
-    println!("{}", n("(Unix mode 0600) in a"));
     println!(
         "{}",
-        n("mode-0700 managed directory; --out overrides this location:")
+        n("with clean headings, recovery guidance, and its creation recipe.")
+    );
+    println!(
+        "{}",
+        n("Solana carries address, path, seed, private key, and JSON keypair")
+    );
+    println!(
+        "{}",
+        n("in mode 0600 inside a mode-0700 managed directory.")
+    );
+    println!(
+        "{}",
+        n("--out FILE keeps the compatible aggregate format instead:")
     );
     blank();
     println!("{}", kvw("address", "the vanity address"));
@@ -4624,13 +5614,13 @@ fn cmd_start() {
     println!("{}", kvw("file", &ui::dir_link(&matches_dir())));
     println!(
         "{}",
-        cont("named after the pattern: KEYRX.txt / KEYRX.ic.txt")
+        cont("one per hit: KEYRX.KEYRX.md / coined.ic.coiNED.md")
     );
     if ui::links_on() {
         println!("{}", cont(ui::CLICK_HINT));
     }
     blank();
-    head("EVM (--chain evm): four lines, under matches/evm/");
+    head("EVM: one chain-specific Markdown recovery record per hit");
     println!(
         "{}",
         kvw("address", "0x + forty hex digits, in EIP-55 case")
@@ -4660,7 +5650,7 @@ fn cmd_start() {
     println!("{}", cont("equivalent seed + path (+ passphrase) backup."));
     println!(
         "{}",
-        ui::bot("show lists files · show KEYRX / show evm/dead reads one")
+        ui::bot("show lists files · copy its exact .md/.txt command to read one")
     );
 
     println!(
@@ -4694,8 +5684,9 @@ fn cmd_start() {
         "key import - the simplest route, exact address",
     );
     cmd("keyrx grind --ends-with KEYRX --indices 128");
-    sub("keyrx show KEYRX --keys: base58 for Phantom/Solflare; JSON for");
-    sub("solana-keygen. The keyRX seed + path re-derives the same key.");
+    sub("keyrx show lists the exact record command; add --keys for the");
+    sub("base58 used by Phantom/Solflare. JSON is for solana-keygen.");
+    sub("The keyRX seed + path re-derives the same key.");
     sub("An unrelated receiving-wallet seed does not back up this imported");
     sub("account. Keep the keyRX match file or equivalent backup.");
     blank();
@@ -4790,7 +5781,7 @@ fn cmd_start() {
     );
     step(
         "keyrx grind --ends-with KEYRX --count 10",
-        "ten of them, one file",
+        "ten private Markdown records",
     );
     step(
         "keyrx grind --ends-with KEYRX --indices 8",
@@ -4817,10 +5808,12 @@ fn cmd_start() {
         "0x...dead, MetaMask/Rabby",
     );
     step("keyrx bench --chain evm", "the EVM rate, saved");
-    step("keyrx show evm/dead --keys", "the 0x hex private key");
+    step("keyrx show", "every match file, with exact read commands");
     step("keyrx networks", "add a network: Robinhood");
-    step("keyrx show", "every match file");
-    step("keyrx show KEYRX --keys", "one file, keys revealed");
+    step(
+        "keyrx show FILE.md --keys",
+        "one listed file, keys revealed",
+    );
     step("keyrx --update", "latest, then this screen");
     blank();
     println!(
@@ -5818,6 +6811,13 @@ fn cmd_grind(
         }
     };
     let chain = p.chain;
+    let match_header = match build_match_file_header(&p, indices, words, with_passphrase) {
+        Ok(header) => Arc::new(header),
+        Err(e) => {
+            eprintln!("cannot build the match-file header: {}", e);
+            return 1;
+        }
+    };
     if m.needs_full && chain == Chain::Sol {
         eprintln!("note: prefix matching needs full base58 per candidate (slower than suffix)");
     }
@@ -5884,6 +6884,13 @@ fn cmd_grind(
         eprintln!("cannot prepare {}: {}", ui::path_text(&requested), e);
         return 1;
     }
+    if managed_out {
+        let widest = "x".repeat(m.max_realized_filename_edge_len());
+        if let Err(e) = managed_match_path(&requested, &widest, usize::MAX) {
+            eprintln!("cannot use managed output lane: {}", e);
+            return 1;
+        }
+    }
     // Coordination owns the requested name before the file is opened, read,
     // chmodded, or validated. A second process therefore refuses rather than
     // mistaking an in-flight append for corruption and diverting to recovery.
@@ -5895,46 +6902,61 @@ fn cmd_grind(
         }
     };
     let mut recovery_lock: Option<GrindLock> = None;
-    let (out_path, file) = match open_match_file(&requested) {
-        Ok(file) => (requested, file),
-        Err(first) => {
-            let recovered = recovery_output_path(&requested);
-            if let Err(e) = prepare_output_parent(&recovered, managed_out) {
-                eprintln!(
-                    "cannot prepare {} after {}: {}",
-                    ui::path_text(&recovered),
-                    first,
-                    e
-                );
-                return 1;
-            }
-            recovery_lock = match GrindLock::acquire(&recovered) {
-                Ok(lock) => Some(lock),
-                Err(e) => {
-                    eprintln!("cannot start recovery grind: {}", e);
-                    return 1;
-                }
-            };
-            match open_match_file(&recovered) {
-                Ok(file) => {
+    let (out_path, sink) = if managed_out {
+        let out_path = requested.clone();
+        (
+            out_path,
+            GrindSink::Managed(ManagedMatchWriter::new(requested)),
+        )
+    } else {
+        let (out_path, file) = match open_match_file(&requested, &match_header) {
+            Ok(file) => (requested, file),
+            Err(first) => {
+                let recovered = recovery_output_path(&requested);
+                if let Err(e) = prepare_output_parent(&recovered, false) {
                     eprintln!(
-                        "OUTPUT REFUSED ({}) -- using {} instead",
+                        "cannot prepare {} after {}: {}",
+                        ui::path_text(&recovered),
                         first,
-                        ui::path_text(&recovered)
-                    );
-                    (recovered, file)
-                }
-                Err(second) => {
-                    eprintln!(
-                        "OUTPUT REFUSED twice ({}; {}) -- no grind started",
-                        first, second
+                        e
                     );
                     return 1;
                 }
+                recovery_lock = match GrindLock::acquire(&recovered) {
+                    Ok(lock) => Some(lock),
+                    Err(e) => {
+                        eprintln!("cannot start recovery grind: {}", e);
+                        return 1;
+                    }
+                };
+                match open_match_file(&recovered, &match_header) {
+                    Ok(file) => {
+                        eprintln!(
+                            "OUTPUT REFUSED ({}) -- using {} instead",
+                            first,
+                            ui::path_text(&recovered)
+                        );
+                        (recovered, file)
+                    }
+                    Err(second) => {
+                        eprintln!(
+                            "OUTPUT REFUSED twice ({}; {}) -- no grind started",
+                            first, second
+                        );
+                        return 1;
+                    }
+                }
             }
-        }
+        };
+        (
+            out_path.clone(),
+            GrindSink::Aggregate {
+                path: out_path,
+                file,
+            },
+        )
     };
-    let sink = Arc::new(Mutex::new(file));
+    let sink = Arc::new(Mutex::new(sink));
     ui::masthead("grind");
     println!(
         "{}",
@@ -5977,7 +6999,27 @@ fn cmd_grind(
         "{}",
         ui::kv(
             "matches ->",
-            &format!("{}  ({})", out_link(&out_path), output_protection())
+            &format!(
+                "{}  ({})",
+                if managed_out {
+                    let base = out_path
+                        .file_stem()
+                        .and_then(|value| value.to_str())
+                        .unwrap_or("match");
+                    format!(
+                        "{}/{}.<matched-case>[.02].md",
+                        ui::dir_link(
+                            out_path
+                                .parent()
+                                .unwrap_or_else(|| std::path::Path::new("."))
+                        ),
+                        base
+                    )
+                } else {
+                    out_link(&out_path)
+                },
+                output_protection()
+            )
         )
     );
     println!("{}", ui::kv("stop after", &format!("{} match(es)", count)));
@@ -6088,7 +7130,7 @@ fn cmd_grind(
 
     let worker_spawn_error = std::thread::scope(|s| {
         for _ in 0..threads {
-            let (m, stop, counter, reserved, hits, write_failed, display) = (
+            let (m, stop, counter, reserved, hits, write_failed, display, match_header) = (
                 Arc::clone(&m),
                 Arc::clone(&stop),
                 Arc::clone(&counter),
@@ -6096,8 +7138,8 @@ fn cmd_grind(
                 Arc::clone(&hits),
                 Arc::clone(&write_failed),
                 Arc::clone(&display),
+                Arc::clone(&match_header),
             );
-            let out = out_path.clone();
             let sink = Arc::clone(&sink);
             let pass = Arc::clone(&passphrase);
             let lane_stop = Arc::clone(&stop);
@@ -6114,7 +7156,15 @@ fn cmd_grind(
                     if slot >= count as u64 {
                         stop.store(true, Ordering::SeqCst);
                     }
-                    if let Err(e) = write_hit(&sink, &h, style) {
+                    let persisted_out = match write_grind_hit(
+                        &sink,
+                        &h,
+                        style,
+                        &match_header,
+                        &m,
+                    ) {
+                        Ok(path) => path,
+                        Err(e) => {
                         // Never fall back to the terminal. The descriptor was secured
                         // before grinding; a later storage failure stops the run and
                         // withholds this candidate rather than leaking its seed.
@@ -6123,7 +7173,8 @@ fn cmd_grind(
                         write_failed.store(true, Ordering::SeqCst);
                         stop.store(true, Ordering::SeqCst);
                         return;
-                    }
+                        }
+                    };
                     hits.fetch_add(1, Ordering::SeqCst);
                     let _display = display.lock().unwrap_or_else(|e| e.into_inner());
                     if stdout_tty { print!("\r\x1b[2K"); }
@@ -6135,11 +7186,11 @@ fn cmd_grind(
                             println!("{row}");
                         }
                     } else {
-                        println!("{}", ui::kv("seed", &format!("-> {}   (--show-seed to print here)", out_link(&out))));
+                        println!("{}", ui::kv("seed", &format!("-> {}   (--show-seed to print here)", out_link(&persisted_out))));
                     }
                     match h.chain {
                         Chain::Sol => {
-                            println!("{}", ui::kv("keys", &format!("-> {}   base58 + JSON array (show --keys)", out_link(&out))));
+                            println!("{}", ui::kv("keys", &format!("-> {}   base58 + JSON array (show --keys)", out_link(&persisted_out))));
                             println!("{}", ui::mid(""));
                             println!("{}", ui::note("Key:      Phantom/Solflare: choose Import Private Key where your"));
                             println!("{}", ui::note("          wallet version exposes it, then paste the base58."));
@@ -6147,14 +7198,17 @@ fn cmd_grind(
                             println!("{}", ui::note("          -> this exact address, standalone, no clicks"));
                         }
                         Chain::Evm => {
-                            println!("{}", ui::kv("key", &format!("-> {}   hex private key (show --keys)", out_link(&out))));
+                            println!("{}", ui::kv("key", &format!("-> {}   hex private key (show --keys)", out_link(&persisted_out))));
                             println!("{}", ui::mid(""));
                             println!("{}", ui::note("Key:      MetaMask/Rabby: choose Import account ->"));
                             println!("{}", ui::note("          Private key -> paste the 0x hex: this address, every chain"));
                         }
                     }
                     for l in import_hint(h.chain, style, h.index) { println!("{}", ui::note(&l)); }
-                    println!("{}", ui::note("the OTHER accounts on this seed are ordinary addresses"));
+                    println!(
+                        "{}",
+                        ui::note("other accounts on this seed are not guaranteed vanity")
+                    );
                     if h.passphrase { println!("{}", ui::warn_line("passphrase used - the seed alone will NOT reach this; the keys will")); }
                     if ui::links_on() { println!("{}", ui::note(ui::CLICK_HINT)); }
                     println!("{}", ui::bot("import and verify the address BEFORE funding"));
@@ -6175,9 +7229,9 @@ fn cmd_grind(
     let _ = progress.join();
 
     let n = hits.load(Ordering::Relaxed);
-    let held_output = match Arc::try_unwrap(sink) {
+    let held_sink = match Arc::try_unwrap(sink) {
         Ok(mutex) => match mutex.into_inner() {
-            Ok(file) => Some(file),
+            Ok(sink) => Some(sink),
             Err(_) => {
                 eprintln!("grind failed because the match-file lock was poisoned");
                 None
@@ -6188,10 +7242,14 @@ fn cmd_grind(
             None
         }
     };
-    let mut custody_failed = held_output.is_none();
+    let mut custody_failed = held_sink.is_none();
     #[cfg(unix)]
-    if let Some(ref file) = held_output {
-        if let Err(e) = validate_grind_output_path(file, &out_path) {
+    if let Some(ref sink) = held_sink {
+        let validation = match sink {
+            GrindSink::Aggregate { path, file } => validate_grind_output_path(file, path),
+            GrindSink::Managed(writer) => writer.validate_all(),
+        };
+        if let Err(e) = validation {
             custody_failed = true;
             eprintln!("grind failed because output custody changed: {}", e);
         }
@@ -6221,17 +7279,8 @@ fn cmd_grind(
     if n > 0 && !custody_failed && !marker_failed && worker_spawn_error.is_ok() {
         let (show_target, reveal_hint) = if managed_out {
             (
-                out_path
-                    .strip_prefix(matches_dir())
-                    .ok()
-                    .map(|relative| {
-                        relative
-                            .to_string_lossy()
-                            .trim_end_matches(".txt")
-                            .to_string()
-                    })
-                    .unwrap_or_else(|| ui::path_text(&out_path)),
-                "--seeds / --keys to reveal",
+                String::new(),
+                "lists every file; use its printed command to reveal",
             )
         } else {
             (
@@ -6247,8 +7296,9 @@ fn cmd_grind(
             )
         };
         println!(
-            " {}keyrx show {}   lists them · {}{}",
+            " {}keyrx show{}{}   {}{}",
             ui::gry(),
+            if show_target.is_empty() { "" } else { " " },
             show_target,
             reveal_hint,
             ui::r()
@@ -6291,6 +7341,439 @@ mod tests {
             chain,
             checksum: false,
         }
+    }
+
+    fn test_match_header(chain: Chain) -> MatchFileHeader {
+        let suffix = match chain {
+            Chain::Sol => "j",
+            Chain::Evm => "4",
+        };
+        build_match_file_header(&pargs(&[], &[suffix], chain), 4, 12, false).unwrap()
+    }
+
+    fn public_evm_hit() -> Hit {
+        public_evm_hit_at(0)
+    }
+
+    fn public_evm_hit_at(index: u32) -> Hit {
+        let mnemonic = bip39::Mnemonic::parse_normalized(evm::ABANDON).unwrap();
+        let seed = Zeroizing::new(mnemonic.to_seed(""));
+        let branch = evm::Branch::from_seed(seed.as_ref()).unwrap();
+        let mut key = branch.key_at(index).unwrap();
+        let address = evm::eip55(&evm::address_of(&key));
+        let privkey = evm::privkey_hex(&key);
+        key.zeroize();
+        Hit {
+            chain: Chain::Evm,
+            index,
+            address,
+            mnemonic: Zeroizing::new(evm::ABANDON.to_string()),
+            passphrase: false,
+            privkey,
+            keypair_json: Zeroizing::new(String::new()),
+        }
+    }
+
+    fn public_sol_hit() -> Hit {
+        let mnemonic = bip39::Mnemonic::from_entropy(&[7u8; 32]).unwrap();
+        let bip39_seed = Zeroizing::new(mnemonic.to_seed(""));
+        let secret = sol_secret_from_seed(bip39_seed.as_ref(), PathStyle::Phantom, 0);
+        let address =
+            bs58::encode(SigningKey::from_bytes(&secret).verifying_key().to_bytes()).into_string();
+        Hit {
+            chain: Chain::Sol,
+            index: 0,
+            address,
+            mnemonic: Zeroizing::new(mnemonic.to_string()),
+            passphrase: false,
+            privkey: keypair_b58(&secret),
+            keypair_json: keypair_json(&secret),
+        }
+    }
+
+    #[test]
+    fn realized_filename_edges_preserve_the_address_case() {
+        let mut pattern = pargs(&[], &["Ab"], Chain::Sol);
+        pattern.ignore_case = true;
+        let matcher = Matcher::new(&pattern).unwrap();
+        assert_eq!(matcher.realized_filename_edge("123456789aB").unwrap(), "aB");
+
+        let mut both = pargs(&["c0"], &["De"], Chain::Evm);
+        both.checksum = false;
+        let matcher = Matcher::new(&both).unwrap();
+        assert_eq!(
+            matcher
+                .realized_filename_edge("0xC0000000000000000000000000000000000000dE")
+                .unwrap(),
+            "C0...dE"
+        );
+    }
+
+    #[test]
+    fn managed_match_names_number_only_exact_case_collisions() {
+        let lane = std::path::Path::new("/private/coined.ic.txt");
+        assert_eq!(
+            managed_match_path(lane, "coiNED", 1).unwrap(),
+            std::path::Path::new("/private/coined.ic.coiNED.md")
+        );
+        assert_eq!(
+            managed_match_path(lane, "coiNED", 2).unwrap(),
+            std::path::Path::new("/private/coined.ic.coiNED.02.md")
+        );
+        assert_eq!(
+            managed_match_path(lane, "COIned", 3).unwrap(),
+            std::path::Path::new("/private/coined.ic.COIned.03.md")
+        );
+    }
+
+    #[test]
+    fn strict_markdown_round_trips_solana_and_evm_and_refuses_heading_drift() {
+        let mut format_digests = Vec::new();
+        for hit in [public_sol_hit(), public_evm_hit()] {
+            let suffix = hit.address.chars().last().unwrap().to_string();
+            let words = hit.mnemonic.split_whitespace().count();
+            let header =
+                build_match_file_header(&pargs(&[], &[&suffix], hit.chain), 1, words, false)
+                    .unwrap();
+            let markdown = format_markdown_match_file(&hit, PathStyle::Phantom, &header).unwrap();
+            format_digests.push(format!("{:x}", Sha256::digest(markdown.as_bytes())));
+            assert!(markdown.contains("## ADDRESS\n\n"));
+            assert!(markdown.contains(MARKDOWN_PRIVATE_WARNING));
+            assert_eq!(
+                parse_match_file_bytes(markdown.as_bytes())
+                    .unwrap()
+                    .records
+                    .len(),
+                1
+            );
+            let drifted = markdown.replacen("## PATH", "## DERIVATION PATH", 1);
+            assert!(parse_match_file_bytes(drifted.as_bytes()).is_err());
+        }
+        // keyrx-match-md-v1 is an on-disk compatibility promise. A copy or
+        // layout change requires a new format marker and parser branch that
+        // retains these exact Solana and EVM documents.
+        assert_eq!(
+            format_digests,
+            [
+                "e5a6ca4a3917ac9a1c94cf165abbb5485a6946f5d206f27fc2250dfcc634c3fd",
+                "0bcadefb19ba51eb624c3eec2a7b20b866d83c8558204d5a6b8e8778fe9a9771",
+            ]
+        );
+    }
+
+    fn private_test_dir(label: &str) -> std::path::PathBuf {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!(
+            "keyrx-match-header-{}-{}-{nonce}",
+            std::process::id(),
+            label
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn creation_recipe_preserves_search_semantics_and_omits_execution_controls() {
+        let mut sol = pargs(&["cMaiL"], &["coined", "KEYRX"], Chain::Sol);
+        sol.ignore_case = true;
+        sol.path = PathStyle::Legacy;
+        let recipe = grind_creation_recipe(&sol, 128, 24, true).unwrap();
+        assert_eq!(
+            recipe,
+            "keyrx grind --chain sol --ends-with coined --ends-with KEYRX --starts-with cMaiL --ignore-case --path legacy --indices 128 --words 24 --passphrase"
+        );
+        for omitted in ["--count", "--out", "--threads", "--show-seed"] {
+            assert!(!recipe.split_ascii_whitespace().any(|word| word == omitted));
+        }
+        let header = format_match_file_header(Chain::Sol, &recipe).unwrap();
+        let parsed = parse_match_file_bytes(header.bytes.as_bytes()).unwrap();
+        assert_eq!(parsed.header_chain, Some(Chain::Sol));
+
+        let mut evm = pargs(&["0xC0ffee"], &["DeAd"], Chain::Evm);
+        evm.checksum = true;
+        let recipe = grind_creation_recipe(&evm, 64, 12, false).unwrap();
+        assert_eq!(
+            recipe,
+            "keyrx grind --chain evm --ends-with DeAd --starts-with 0xC0ffee --checksum --indices 64 --words 12"
+        );
+        assert!(!recipe.contains("--path"));
+        let header = format_match_file_header(Chain::Evm, &recipe).unwrap();
+        let parsed = parse_match_file_bytes(header.bytes.as_bytes()).unwrap();
+        assert_eq!(parsed.header_chain, Some(Chain::Evm));
+
+        let mut coined = pargs(&[], &["coined"], Chain::Sol);
+        coined.ignore_case = true;
+        let recipe = grind_creation_recipe(&coined, 128, 12, false).unwrap();
+        assert_eq!(
+            recipe,
+            "keyrx grind --chain sol --ends-with coined --ignore-case --path phantom --indices 128 --words 12"
+        );
+        let header = format_match_file_header(Chain::Sol, &recipe).unwrap();
+        assert!(parse_match_file_bytes(header.bytes.as_bytes()).is_ok());
+
+        let mut unsafe_pattern = pargs(&[], &["bad value"], Chain::Sol);
+        assert!(grind_creation_recipe(&unsafe_pattern, 1, 12, false).is_err());
+        unsafe_pattern.ends_with = vec!["bad\nvalue".into()];
+        assert!(grind_creation_recipe(&unsafe_pattern, 1, 12, false).is_err());
+    }
+
+    #[test]
+    fn match_headers_are_canonical_fixed_width_and_strictly_parsed() {
+        for chain in [Chain::Sol, Chain::Evm] {
+            let header = test_match_header(chain);
+            let parsed = parse_match_file_bytes(header.bytes.as_bytes()).unwrap();
+            assert_eq!(parsed.header_chain, Some(chain));
+            assert!(parsed.records.is_empty());
+            for line in header.bytes.lines().filter(|line| {
+                line.starts_with('╔') || line.starts_with('║') || line.starts_with('╚')
+            }) {
+                assert_eq!(line.chars().count(), ui::W, "ragged header row: {line:?}");
+            }
+            assert_eq!(header.bytes.matches(MATCH_FILE_HEADER_VERSION).count(), 1);
+            assert!(header.bytes.contains(
+                "creation recipe (count, output, display, and worker settings omitted):"
+            ));
+        }
+
+        let sol = test_match_header(Chain::Sol);
+        for required in [
+            "SOLANA PRIVATE MATCH FILE",
+            "Phantom/Solflare",
+            "base58 privkey",
+            "JSON for solana-keygen-compatible tools",
+            "m/44'/501'/N'/0'",
+            "N=89 is account #90",
+            "printed path is authoritative",
+            "not guaranteed vanity",
+            "Verify the imported address before funding",
+        ] {
+            assert!(
+                sol.bytes.contains(required),
+                "Solana header lost {required:?}"
+            );
+        }
+        for forbidden in ["MetaMask", "Rabby", "m/44'/60'/0'/0/N"] {
+            assert!(
+                !sol.bytes.contains(forbidden),
+                "Solana header contains EVM guidance {forbidden:?}"
+            );
+        }
+
+        let evm = test_match_header(Chain::Evm);
+        for required in [
+            "EVM PRIVATE MATCH FILE",
+            "MetaMask/Rabby",
+            "0x hex privkey",
+            "standalone across EVM networks",
+            "m/44'/60'/0'/0/N",
+            "not guaranteed vanity",
+            "Verify the imported address before funding",
+        ] {
+            assert!(evm.bytes.contains(required), "EVM header lost {required:?}");
+        }
+        for forbidden in [
+            "Phantom",
+            "Solflare",
+            "solana-keygen",
+            "base58",
+            "JSON",
+            "m/44'/501'",
+        ] {
+            assert!(
+                !evm.bytes.contains(forbidden),
+                "EVM header contains Solana guidance {forbidden:?}"
+            );
+        }
+
+        // keyrx-match-v1 is an on-disk compatibility promise. A copy change
+        // requires a new version and an explicit parser branch that retains v1.
+        assert_eq!(
+            format!("{:x}", Sha256::digest(sol.bytes.as_bytes())),
+            "ede75c735f0fb5debab374edb600326d4bd1081b78ecca69a9cbedcf0380b9b0"
+        );
+        assert_eq!(
+            format!("{:x}", Sha256::digest(evm.bytes.as_bytes())),
+            "bacb372e4f13cadd3ac5775d3e4e0d9d493ac7db164f198adb5223680461e032"
+        );
+
+        let header = test_match_header(Chain::Sol);
+        for mutation in [
+            header
+                .bytes
+                .replace(MATCH_FILE_HEADER_VERSION, "keyrx-match-v2"),
+            header.bytes.replace("--indices 4", "--indices 0"),
+            header.bytes.replace("--indices 4", "--indices 4 --count 2"),
+            format!("prose that is not a header\n\n{}", header.bytes),
+            format!("{}{}", header.bytes, header.bytes),
+        ] {
+            assert!(
+                parse_match_file_bytes(mutation.as_bytes()).is_err(),
+                "accepted malformed header: {mutation:?}"
+            );
+        }
+        let mut truncated = header.bytes.clone();
+        truncated.pop();
+        assert!(parse_match_file_bytes(truncated.as_bytes()).is_err());
+        let oversized = format!("╔{}\n\n", "a".repeat(MAX_MATCH_FILE_HEADER_BYTES));
+        let error = parse_match_file_bytes(oversized.as_bytes())
+            .err()
+            .expect("an oversized header must be refused");
+        assert!(error.to_string().contains("header exceeds"), "{error}");
+        assert!(
+            format_match_file_header(Chain::Sol, "keyrx grind --chain sol\n--ends-with a").is_err()
+        );
+    }
+
+    #[test]
+    fn a_header_recipe_is_bound_to_every_record_dimension() {
+        let evm_hit = public_evm_hit();
+        let (evm_record, _) = format_hit_record(&evm_hit, PathStyle::Phantom).unwrap();
+        let evm_pattern = pargs(&[], &["94"], Chain::Evm);
+        let evm_header = build_match_file_header(&evm_pattern, 4, 12, false).unwrap();
+        let green = format!(
+            "{}{}{}",
+            evm_header.bytes,
+            evm_record.as_str(),
+            evm_record.as_str()
+        );
+        assert_eq!(
+            parse_match_file_bytes(green.as_bytes())
+                .unwrap()
+                .records
+                .len(),
+            2
+        );
+
+        let wrong_pattern =
+            build_match_file_header(&pargs(&[], &["00"], Chain::Evm), 4, 12, false).unwrap();
+        assert!(parse_match_file_bytes(
+            format!("{}{}", wrong_pattern.bytes, evm_record.as_str()).as_bytes()
+        )
+        .is_err());
+
+        let mut wrong_checksum_pattern = pargs(&[], &["A94"], Chain::Evm);
+        wrong_checksum_pattern.checksum = true;
+        let wrong_checksum =
+            build_match_file_header(&wrong_checksum_pattern, 4, 12, false).unwrap();
+        assert!(parse_match_file_bytes(
+            format!("{}{}", wrong_checksum.bytes, evm_record.as_str()).as_bytes()
+        )
+        .is_err());
+
+        for header in [
+            build_match_file_header(&evm_pattern, 4, 24, false).unwrap(),
+            build_match_file_header(&evm_pattern, 4, 12, true).unwrap(),
+        ] {
+            assert!(parse_match_file_bytes(
+                format!("{}{}", header.bytes, evm_record.as_str()).as_bytes()
+            )
+            .is_err());
+        }
+
+        let evm_index_one = public_evm_hit_at(1);
+        let suffix = &evm_index_one.address[evm_index_one.address.len() - 1..];
+        let index_header =
+            build_match_file_header(&pargs(&[], &[suffix], Chain::Evm), 1, 12, false).unwrap();
+        let (index_record, _) = format_hit_record(&evm_index_one, PathStyle::Phantom).unwrap();
+        assert!(parse_match_file_bytes(
+            format!("{}{}", index_header.bytes, index_record.as_str()).as_bytes()
+        )
+        .is_err());
+
+        let sol_hit = public_sol_hit();
+        let suffix = &sol_hit.address[sol_hit.address.len() - 1..];
+        let mut wrong_path_pattern = pargs(&[], &[suffix], Chain::Sol);
+        wrong_path_pattern.path = PathStyle::Legacy;
+        let wrong_path = build_match_file_header(&wrong_path_pattern, 4, 12, false).unwrap();
+        let (sol_record, _) = format_hit_record(&sol_hit, PathStyle::Phantom).unwrap();
+        assert!(parse_match_file_bytes(
+            format!("{}{}", wrong_path.bytes, sol_record.as_str()).as_bytes()
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn first_record_writes_one_header_while_legacy_append_stays_headerless() {
+        let dir = private_test_dir("once");
+        let out = dir.join("new.txt");
+        let header = test_match_header(Chain::Evm);
+        let hit = public_evm_hit();
+        let file = Mutex::new(open_match_file(&out, &header).unwrap());
+        write_hit(&file, &hit, PathStyle::Phantom, &header).unwrap();
+        write_hit(&file, &hit, PathStyle::Phantom, &header).unwrap();
+        drop(file);
+        let file = Mutex::new(open_match_file(&out, &header).unwrap());
+        write_hit(&file, &hit, PathStyle::Phantom, &header).unwrap();
+        drop(file);
+
+        let bytes = std::fs::read(&out).unwrap();
+        let parsed = parse_match_file_bytes(&bytes).unwrap();
+        assert_eq!(parsed.header_chain, Some(Chain::Evm));
+        assert_eq!(parsed.records.len(), 3);
+        let text = std::str::from_utf8(&bytes).unwrap();
+        assert_eq!(text.matches(MATCH_FILE_HEADER_VERSION).count(), 1);
+        assert_eq!(text.matches(MATCH_FILE_RECIPE_LABEL).count(), 1);
+        let sol_header = test_match_header(Chain::Sol);
+        assert!(open_match_file(&out, &sol_header)
+            .unwrap_err()
+            .to_string()
+            .contains("other chain"));
+        let other_evm_header =
+            build_match_file_header(&pargs(&[], &["b"], Chain::Evm), 4, 12, false).unwrap();
+        assert!(open_match_file(&out, &other_evm_header)
+            .unwrap_err()
+            .to_string()
+            .contains("another creation recipe"));
+
+        let legacy = dir.join("legacy.txt");
+        let (record, _) = format_hit_record(&hit, PathStyle::Phantom).unwrap();
+        let mut legacy_file = private_create_new(&legacy).unwrap();
+        legacy_file.write_all(record.as_bytes()).unwrap();
+        legacy_file.sync_all().unwrap();
+        drop(legacy_file);
+        let legacy_file = Mutex::new(open_match_file(&legacy, &header).unwrap());
+        write_hit(&legacy_file, &hit, PathStyle::Phantom, &header).unwrap();
+        drop(legacy_file);
+        let bytes = std::fs::read(&legacy).unwrap();
+        assert!(!bytes
+            .windows(MATCH_FILE_HEADER_VERSION.len())
+            .any(|window| window == MATCH_FILE_HEADER_VERSION.as_bytes()));
+        assert_eq!(parse_match_bytes(&bytes).unwrap().len(), 2);
+        assert!(open_match_file(&legacy, &sol_header)
+            .unwrap_err()
+            .to_string()
+            .contains("other chain"));
+
+        let legacy_sol = dir.join("legacy-sol.txt");
+        let (record, _) = format_hit_record(&public_sol_hit(), PathStyle::Phantom).unwrap();
+        let mut legacy_sol_file = private_create_new(&legacy_sol).unwrap();
+        legacy_sol_file.write_all(record.as_bytes()).unwrap();
+        legacy_sol_file.sync_all().unwrap();
+        drop(legacy_sol_file);
+        assert!(open_match_file(&legacy_sol, &header)
+            .unwrap_err()
+            .to_string()
+            .contains("other chain"));
+
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_header_rejects_records_from_the_other_chain_and_counts_toward_the_bound() {
+        let sol_header = test_match_header(Chain::Sol);
+        let (evm_record, _) = format_hit_record(&public_evm_hit(), PathStyle::Phantom).unwrap();
+        let mut mixed = sol_header.bytes.clone();
+        mixed.push_str(evm_record.as_str());
+        assert!(parse_match_file_bytes(mixed.as_bytes()).is_err());
+
+        assert!(checked_match_append_len(0, MAX_PRIVATE_MATCH_FILE_BYTES, 1).is_err());
+        assert_eq!(
+            checked_match_append_len(0, sol_header.bytes.len() as u64, 1).unwrap(),
+            sol_header.bytes.len() as u64 + 1
+        );
     }
 
     /// 0.4.11 pooled every pattern into one OR, so `--starts-with cMaiL
@@ -7009,7 +8492,7 @@ mod tests {
     }
 
     #[test]
-    fn evm_grind_finds_a_hit_that_rederives_and_writes_four_lines() {
+    fn evm_grind_finds_a_hit_that_rederives_and_writes_one_header_and_four_record_lines() {
         // One hex digit: nothing valuable is ever generated. The hit must re-derive
         // from its own mnemonic at the stated index, its key must be the address's,
         // and the file must carry four lines and no keypair.
@@ -7049,21 +8532,24 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
 
         let out = dir.join("a.txt");
-        let file = Mutex::new(open_match_file(&out).unwrap());
-        write_hit(&file, &h, PathStyle::Phantom).unwrap();
+        let header = test_match_header(Chain::Evm);
+        let file = Mutex::new(open_match_file(&out, &header).unwrap());
+        write_hit(&file, &h, PathStyle::Phantom, &header).unwrap();
         let text = std::fs::read_to_string(&out).unwrap();
         let _ = std::fs::remove_dir_all(&dir);
+        assert!(text.starts_with("╔═ keyRX · EVM PRIVATE MATCH FILE"));
+        let (_, records) = split_match_file_header(&text).unwrap();
         assert!(
-            text.starts_with(&format!(
+            records.starts_with(&format!(
                 "address {}\npath    m/44'/60'/0'/0/{}\nseed    ",
                 h.address, h.index
             )),
             "{}",
-            text
+            records
         );
         assert!(text.contains(&format!("\nprivkey {}\n", h.privkey.as_str())));
         assert!(!text.contains("keypair"), "EVM has one key form");
-        assert_eq!(text.lines().filter(|l| !l.is_empty()).count(), 4);
+        assert_eq!(records.lines().filter(|l| !l.is_empty()).count(), 4);
     }
 
     #[test]
@@ -7223,8 +8709,9 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("keyrx-pass-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let out = dir.join("a.txt");
-        let file = Mutex::new(open_match_file(&out).unwrap());
-        write_hit(&file, &h, PathStyle::Phantom).unwrap();
+        let header = build_match_file_header(&pargs(&[], &["a"], Chain::Sol), 4, 12, true).unwrap();
+        let file = Mutex::new(open_match_file(&out, &header).unwrap());
+        write_hit(&file, &h, PathStyle::Phantom, &header).unwrap();
         let text = std::fs::read_to_string(&out).unwrap();
         let _ = std::fs::remove_dir_all(&dir);
         assert!(text.contains("\npassphrase used - NOT stored"), "{}", text);
@@ -7285,7 +8772,7 @@ mod tests {
         drop(writer);
         let error = read_private_text(&oversized).unwrap_err();
         assert!(error.to_string().contains("supported maximum"), "{error}");
-        let error = open_match_file(&oversized).unwrap_err();
+        let error = open_match_file(&oversized, &test_match_header(Chain::Sol)).unwrap_err();
         assert!(error.to_string().contains("supported maximum"), "{error}");
 
         std::fs::remove_dir_all(&dir).unwrap();
@@ -7375,10 +8862,11 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
 
         let out = dir.join("held.txt");
-        let held = open_match_file(&out).unwrap();
+        let header = test_match_header(Chain::Evm);
+        let held = open_match_file(&out, &header).unwrap();
         let moved = dir.join("moved.txt");
         std::fs::rename(&out, &moved).unwrap();
-        let replacement = open_match_file(&out).unwrap();
+        let replacement = open_match_file(&out, &header).unwrap();
         let error = validate_grind_output_path(&held, &out).unwrap_err();
         assert!(error.to_string().contains("no longer names"), "{error}");
         drop(replacement);
@@ -7396,7 +8884,13 @@ mod tests {
             keypair_json: Zeroizing::new(String::new()),
         };
         let held = Mutex::new(held);
-        let error = write_hit(&held, &hit, PathStyle::Phantom).unwrap_err();
+        let error = write_hit(
+            &held,
+            &hit,
+            PathStyle::Phantom,
+            &test_match_header(Chain::Evm),
+        )
+        .unwrap_err();
         assert!(error.to_string().contains("custody changed"), "{error}");
 
         std::fs::remove_dir_all(&dir).unwrap();
@@ -7470,7 +8964,13 @@ mod tests {
         let before = MAX_PRIVATE_MATCH_FILE_BYTES - record.len() as u64 + 1;
         file.set_len(before).unwrap();
         let file = Mutex::new(file);
-        let error = write_hit(&file, &hit, PathStyle::Phantom).unwrap_err();
+        let error = write_hit(
+            &file,
+            &hit,
+            PathStyle::Phantom,
+            &test_match_header(Chain::Evm),
+        )
+        .unwrap_err();
         assert!(error.to_string().contains("would exceed the supported"));
         assert_eq!(std::fs::metadata(&path).unwrap().len(), before);
         std::fs::remove_file(path).unwrap();
@@ -7543,7 +9043,13 @@ mod tests {
             privkey: Zeroizing::new("0x00".into()),
             keypair_json: Zeroizing::new(String::new()),
         };
-        assert!(write_hit(&readonly, &hit, PathStyle::Phantom).is_err());
+        assert!(write_hit(
+            &readonly,
+            &hit,
+            PathStyle::Phantom,
+            &test_match_header(Chain::Sol),
+        )
+        .is_err());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
