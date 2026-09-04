@@ -1105,6 +1105,12 @@ fn concurrent_bench_on_the_same_lane_refuses_before_timing() {
         std::thread::sleep(std::time::Duration::from_millis(20));
     }
     assert!(ceremony.exists(), "first benchmark never acquired its lane");
+    assert_eq!(
+        unsafe { libc::kill(first.id() as libc::pid_t, libc::SIGSTOP) },
+        0,
+        "could not hold the first benchmark at the acquired-lane boundary: {}",
+        std::io::Error::last_os_error()
+    );
 
     let second = keyrx(
         &dir.0,
@@ -1117,6 +1123,12 @@ fn concurrent_bench_on_the_same_lane_refuses_before_timing() {
             "--seconds",
             "1",
         ],
+    );
+    assert_eq!(
+        unsafe { libc::kill(first.id() as libc::pid_t, libc::SIGCONT) },
+        0,
+        "could not resume the first benchmark: {}",
+        std::io::Error::last_os_error()
     );
     assert!(
         !second.status.success(),
