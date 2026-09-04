@@ -30,7 +30,7 @@ file carries the same product content as plain text.
     keyrx verify                 # run first, always: base58, derivation, the pinned solana-keygen answer, the BIP39 passphrase vector
     keyrx bench --indices 128    # this machine's measured 128-index workload; estimate uses it
     keyrx estimate --ends-with KEYRX --indices 128 --count 10    # odds; measured time to one and all ten
-    keyrx grind --ends-with KEYRX --indices 128
+    keyrx grind --ends-with KEYRX --indices 128    # writes one .md and prints its exact show command
     keyrx grind --ends-with KEYRX --count 10       # ten matches, one Markdown file per hit
     keyrx grind --ends-with KEYRX --indices 8      # keep seed-path discovery bounded; verify the printed path
     keyrx grind --ends-with KEYRX --passphrase     # BIP39 passphrase: prompted, hidden, never stored; import that address by key
@@ -66,6 +66,11 @@ The filename combines the requested lane with the address text that actually mat
 exists, keyRX creates `coined.ic.coiNED.02.md`, then `.03.md`, with create-new semantics and no
 overwrite. Prefix-only and combined prefix/suffix lanes preserve their realized address edges too.
 EVM records remain under `matches/evm/`.
+
+After final custody checks, a successful default grind prints one exact copy-ready `keyrx show`
+command per record it created. Its full managed path makes it unambiguous from any working
+directory; actual case, duplicate suffixes, and the EVM directory are preserved. `--seeds` and
+`--keys` are never added automatically.
 
 An explicit `--out FILE` selects the established appendable ledger instead. A new explicit ledger
 uses the versioned v1 header and record format; an earlier headerless ledger remains headerless and

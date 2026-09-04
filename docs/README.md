@@ -20,7 +20,8 @@ The documentation for keyRX lives in three places, all kept in step with the cod
 - **Reference:** the default format (one self-contained, versioned Markdown record per successful
   hit, with uppercase field headings and each exact value below its heading), the actual-case names
   (`coined.ic.coiNED.md`, then `.02.md`, `.03.md` without overwrite), the explicit `--out FILE`
-  append-ledger format retained for earlier `.txt` files, `keyrx show` support for both, the paths
+  append-ledger format retained for earlier `.txt` files, the exact copy-ready `keyrx show` command
+  printed for each new default record, `keyrx show` support for both formats, the paths
   (`m/44'/501'/N'/0'`, `m/44'/501'/N'`, `m/44'/60'/0'/0/N`), the pattern alphabets (base58 without
   0 O I l; hex 0-9 a-f), and every flag, in the README and the start screen. The changelog is
   [CHANGELOG.md](../CHANGELOG.md).

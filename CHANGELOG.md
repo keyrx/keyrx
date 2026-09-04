@@ -2,6 +2,14 @@
 
 All notable changes to keyRX, newest first. Versions are the ones on crates.io.
 
+## 0.4.17 - 2026-09-04
+
+- After a successful default grind, print the exact copy-ready `keyrx show` command for every
+  Markdown record just written. The command carries the full managed path, realized address casing,
+  duplicate `.02` / `.03` suffixes, and the EVM directory without revealing seeds or private keys.
+  A successful explicit `--out FILE` grind keeps its established completion-line form; any grind
+  that later fails persistence or custody now withholds every completion command.
+
 ## 0.4.16 - 2026-09-02
 
 - Save every default grind hit as its own mode-0600 Markdown recovery record. Uppercase field

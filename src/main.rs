@@ -4526,6 +4526,40 @@ impl ManagedMatchWriter {
         }
         Ok(())
     }
+
+    #[cfg(unix)]
+    fn show_commands(&self) -> Vec<String> {
+        self.persisted
+            .iter()
+            .map(|persisted| {
+                show_command(
+                    persisted
+                        .path
+                        .to_str()
+                        .expect("validated managed match path remains UTF-8"),
+                )
+            })
+            .collect()
+    }
+}
+
+#[cfg(unix)]
+fn managed_show_lines(writer: &ManagedMatchWriter, grind_status: i32) -> Vec<String> {
+    if grind_status != 0 {
+        return Vec::new();
+    }
+    writer
+        .show_commands()
+        .into_iter()
+        .map(|command| {
+            format!(
+                " {}{}   read this saved match{}",
+                ui::gry(),
+                command,
+                ui::r()
+            )
+        })
+        .collect()
 }
 
 enum GrindSink {
@@ -5684,7 +5718,7 @@ fn cmd_start() {
         "key import - the simplest route, exact address",
     );
     cmd("keyrx grind --ends-with KEYRX --indices 128");
-    sub("keyrx show lists the exact record command; add --keys for the");
+    sub("each hit prints its exact keyrx show command; add --keys for the");
     sub("base58 used by Phantom/Solflare. JSON is for solana-keygen.");
     sub("The keyRX seed + path re-derives the same key.");
     sub("An unrelated receiving-wallet seed does not back up this imported");
@@ -5723,8 +5757,8 @@ fn cmd_start() {
         "MetaMask/Rabby private-key import - one key, every EVM chain",
     );
     cmd("keyrx grind --chain evm --ends-with dead --indices 128");
-    sub("hex, any case: 0x...dead, 0x...DEAD, 0x...DeAd all count. keyrx show");
-    sub("evm/dead --keys: paste the 0x hex into Import account / Private key.");
+    sub("hex, any case: 0x...dead, 0x...DEAD, 0x...DeAd all count.");
+    sub("Each hit prints its exact full-path show command; add --keys for hex.");
     blank();
     wal(
         "EVM, EIP-55",
@@ -7265,6 +7299,13 @@ fn cmd_grind(
         marker_failed = true;
         eprintln!("cannot release requested-output grind marker: {}", e);
     }
+    let failed_write = write_failed.load(Ordering::SeqCst);
+    let grind_status = grind_exit_status(
+        failed_write || custody_failed || marker_failed || worker_spawn_error.is_err(),
+        interrupted.load(Ordering::SeqCst),
+        n,
+        count,
+    );
     if stdout_tty {
         print!("\r\x1b[2K");
     }
@@ -7276,36 +7317,30 @@ fn cmd_grind(
         fmt_dur(start.elapsed().as_secs_f64()),
         ui::r()
     );
-    if n > 0 && !custody_failed && !marker_failed && worker_spawn_error.is_ok() {
-        let (show_target, reveal_hint) = if managed_out {
-            (
-                String::new(),
-                "lists every file; use its printed command to reveal",
+    if managed_out {
+        #[cfg(unix)]
+        if let Some(GrindSink::Managed(writer)) = held_sink.as_ref() {
+            for line in managed_show_lines(writer, grind_status) {
+                println!("{line}");
+            }
+        }
+    } else if grind_status == 0 {
+        let show_target = format!(
+            "-- {}",
+            shell_quote_posix(
+                out_path
+                    .to_str()
+                    .expect("validated operator path remains UTF-8")
             )
-        } else {
-            (
-                format!(
-                    "-- {}",
-                    shell_quote_posix(
-                        out_path
-                            .to_str()
-                            .expect("validated operator path remains UTF-8")
-                    )
-                ),
-                "put --seeds / --keys before the -- separator",
-            )
-        };
+        );
         println!(
-            " {}keyrx show{}{}   {}{}",
+            " {}keyrx show {}   put --seeds / --keys before the -- separator{}",
             ui::gry(),
-            if show_target.is_empty() { "" } else { " " },
             show_target,
-            reveal_hint,
             ui::r()
         );
     }
     println!();
-    let failed_write = write_failed.load(Ordering::SeqCst);
     if failed_write {
         eprintln!("grind failed because a complete match record could not be persisted");
     }
@@ -7318,12 +7353,7 @@ fn cmd_grind(
     if let Err(ref e) = worker_spawn_error {
         eprintln!("grind failed because a worker could not start: {}", e);
     }
-    grind_exit_status(
-        failed_write || custody_failed || marker_failed || worker_spawn_error.is_err(),
-        interrupted.load(Ordering::SeqCst),
-        n,
-        count,
-    )
+    grind_status
 }
 
 // ---------------------------------------------------------------- tests
@@ -9051,5 +9081,46 @@ mod tests {
         )
         .is_err());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn partial_persist_then_later_write_failure_withholds_show_command() {
+        let dir = private_test_dir("partial-managed-write");
+        let lane = dir.join("a.txt");
+        let hit = public_sol_hit();
+        let suffix = &hit.address[hit.address.len() - 1..];
+        let pattern = pargs(&[], &[suffix], Chain::Sol);
+        let matcher = Matcher::new(&pattern).unwrap();
+        let header = build_match_file_header(&pattern, 4, 12, false).unwrap();
+        let mut writer = ManagedMatchWriter::new(lane);
+
+        let first = writer
+            .write(&hit, PathStyle::Phantom, &header, &matcher)
+            .unwrap();
+        assert!(first.is_file(), "the first match was not really persisted");
+        assert!(
+            writer.show_commands().join("\n").contains("keyrx show"),
+            "the suppression premise has no persisted command"
+        );
+
+        writer.lane = dir.join("missing-parent/a.txt");
+        assert!(
+            writer
+                .write(&hit, PathStyle::Phantom, &header, &matcher)
+                .is_err(),
+            "the later persistence failure did not occur"
+        );
+
+        let failed_status = grind_exit_status(true, false, 1, 2);
+        assert_eq!(failed_status, 1);
+        let completion = managed_show_lines(&writer, failed_status).join("\n");
+        assert!(!completion.contains("keyrx show"), "{completion}");
+        assert!(
+            !completion.contains("read this saved match"),
+            "{completion}"
+        );
+
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }

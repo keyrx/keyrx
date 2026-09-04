@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/keyrx/keyrx/v0.4.16/assets/x-header-1500x500.png" width="100%" alt="keyRX CLI: Solana and EVM vanity address grinder">
+  <img src="https://raw.githubusercontent.com/keyrx/keyrx/v0.4.17/assets/x-header-1500x500.png" width="100%" alt="keyRX CLI: Solana and EVM vanity address grinder">
 </p>
 
 <p align="center">
@@ -44,11 +44,11 @@ PBKDF2. Suffix matching needs only the last N base58 characters.
     keyrx estimate --ends-with KEYRX --indices 128                       # odds plus measured time for that profile
     keyrx grind --ends-with KEYRX --words 12 --indices 8 --out mint.txt  # bounded seed-recovery lane
     keyrx show mint.txt --keys                                           # read that custom output file
-    keyrx grind --ends-with KEYRX --indices 128                          # private-key import; one Markdown file per hit
+    keyrx grind --ends-with KEYRX --indices 128                          # one Markdown file per hit; prints its exact show command
     keyrx grind --starts-with cMaiL --ends-with gg --indices 128          # both ends: prefix AND suffix, one address
     keyrx show                                                           # list every managed record and its exact show command
     keyrx estimate --chain evm --ends-with dead                          # EVM: hex, any case by default
-    keyrx grind --chain evm --ends-with dead                             # 0x...dead; the key imports into MetaMask/Rabby
+    keyrx grind --chain evm --ends-with dead                             # 0x...dead; prints the exact full-path show command
     keyrx grind --chain evm --starts-with 0xc0ffee --checksum            # the letters in EIP-55 case as typed, too
     keyrx show                                                           # EVM records are listed under evm/
 
@@ -246,6 +246,10 @@ that matched: `--ends-with coined --ignore-case` can write
 overwriting a prior key. Prefix-only and prefix-plus-suffix searches preserve the
 realized address edges the same way. EVM files sit under `matches/evm/`.
 
+After its final custody check, a successful default grind prints the exact copy-ready
+`keyrx show -- '<full-managed-path>/<record>.md'` command for every record it just created,
+including actual case, duplicate suffix, and the EVM directory. The full path makes the command
+unambiguous from any working directory. It never adds `--seeds` or `--keys`.
 `keyrx show` lists both new Markdown records and legacy `.txt` ledgers and prints an
 exact command for each (`--seeds` / `--keys` reveal the secrets). `--out FILE`
 explicitly selects the existing appendable ledger format. A no-match default grind

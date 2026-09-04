@@ -101,6 +101,38 @@ fn keyrx(dir: &Path, args: &[&str]) -> Output {
     output_with_deadline(command)
 }
 
+#[cfg(unix)]
+fn printed_managed_show_commands(stdout: &str) -> Vec<&str> {
+    stdout
+        .lines()
+        .filter_map(|line| {
+            line.trim()
+                .strip_suffix("   read this saved match")
+                .filter(|command| command.starts_with("keyrx show -- "))
+        })
+        .collect()
+}
+
+#[cfg(unix)]
+fn run_printed_show_command(cwd: &Path, command: &str) -> Output {
+    let binary = Path::new(env!("CARGO_BIN_EXE_keyrx"));
+    let binary_dir = binary.parent().expect("test binary has a parent directory");
+    let mut search = vec![binary_dir.to_path_buf()];
+    if let Some(existing) = std::env::var_os("PATH") {
+        search.extend(std::env::split_paths(&existing));
+    }
+    let path = std::env::join_paths(search).expect("construct test PATH");
+    let mut invocation = Command::new("sh");
+    invocation
+        .arg("-c")
+        .arg(command)
+        .current_dir(cwd)
+        .env("PATH", path)
+        .env("NO_COLOR", "1")
+        .env("KEYRX_NO_LINKS", "1");
+    output_with_deadline(invocation)
+}
+
 fn keyrx_without_home(args: &[&str]) -> Output {
     let mut command = Command::new(env!("CARGO_BIN_EXE_keyrx"));
     command
@@ -202,6 +234,15 @@ fn count_one_persists_exactly_one_complete_record_and_narrows_mode() {
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains(&format!(
+            "keyrx show -- '{}'   put --seeds / --keys before the -- separator",
+            out_text
+        )),
+        "{stdout}"
+    );
+    assert!(!stdout.contains("read this saved match"));
     let secret = std::fs::read_to_string(&out).expect("read result for structural test");
     assert!(secret.starts_with("╔═ keyRX · SOLANA PRIVATE MATCH FILE"));
     assert_eq!(secret.matches("keyrx-match-v1").count(), 1);
@@ -531,17 +572,54 @@ fn managed_solana_writes_one_markdown_per_hit_with_exact_case_and_collision_ordi
         "{}",
         String::from_utf8_lossy(&first.stderr)
     );
+    let first_stdout = String::from_utf8_lossy(&first.stdout);
     let root = dir.0.join("keyrx/matches");
     let first_path = root.join("a.a.md");
+    let expected_first = format!("keyrx show -- '{}'", first_path.display());
+    let first_commands = printed_managed_show_commands(&first_stdout);
+    assert_eq!(first_commands, [expected_first.as_str()], "{first_stdout}");
     let first_bytes = std::fs::read(&first_path).expect("first managed Markdown match");
+    let first_text = std::str::from_utf8(&first_bytes).unwrap();
+    assert!(!first_stdout.contains(markdown_value(first_text, "SEED")));
+    assert!(!first_stdout.contains(markdown_value(first_text, "PRIVATE KEY (BASE58)")));
+    assert!(!first_stdout.contains("keyrx show --keys"));
+    assert!(!first_stdout.contains("keyrx show --seeds"));
 
-    for _ in 0..2 {
+    let collision = dir.0.join("colliding-cwd");
+    std::fs::create_dir(&collision).unwrap();
+    std::fs::create_dir(collision.join("a.a.md")).unwrap();
+    let shown = run_printed_show_command(&collision, first_commands[0]);
+    assert!(
+        shown.status.success(),
+        "printed command was not copy-ready: {}",
+        String::from_utf8_lossy(&shown.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&shown.stdout).contains(markdown_value(first_text, "ADDRESS")),
+        "printed command opened something other than its saved record"
+    );
+
+    for expected in ["a.a.02.md", "a.a.03.md"] {
         let output = keyrx(&dir.0, &args);
         assert!(
             output.status.success(),
             "{}",
             String::from_utf8_lossy(&output.stderr)
         );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let expected_path = root.join(expected);
+        let expected_command = format!("keyrx show -- '{}'", expected_path.display());
+        let commands = printed_managed_show_commands(&stdout);
+        assert_eq!(commands, [expected_command.as_str()], "{stdout}");
+        std::fs::create_dir(collision.join(expected)).unwrap();
+        let shown = run_printed_show_command(&collision, commands[0]);
+        assert!(
+            shown.status.success(),
+            "duplicate command was not copy-ready: {}",
+            String::from_utf8_lossy(&shown.stderr)
+        );
+        assert!(!stdout.contains("keyrx show --keys"));
+        assert!(!stdout.contains("keyrx show --seeds"));
     }
     assert_eq!(
         std::fs::read(&first_path).unwrap(),
@@ -644,7 +722,35 @@ fn managed_evm_writes_independent_markdown_with_exact_case_and_duplicate_numberi
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
+    let stdout = String::from_utf8_lossy(&output.stdout);
     let root = dir.0.join("keyrx/matches/evm");
+    let expected_paths = [root.join("a.cs.a.md"), root.join("a.cs.a.02.md")];
+    let expected_commands: Vec<_> = expected_paths
+        .iter()
+        .map(|path| format!("keyrx show -- '{}'", path.display()))
+        .collect();
+    let commands = printed_managed_show_commands(&stdout);
+    assert_eq!(
+        commands,
+        expected_commands
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
+        "{stdout}"
+    );
+    let collision = dir.0.join("colliding-evm-cwd");
+    std::fs::create_dir(&collision).unwrap();
+    for (path, command) in expected_paths.iter().zip(commands) {
+        std::fs::create_dir(collision.join(path.file_name().unwrap())).unwrap();
+        let shown = run_printed_show_command(&collision, command);
+        assert!(
+            shown.status.success(),
+            "EVM command was not copy-ready: {}",
+            String::from_utf8_lossy(&shown.stderr)
+        );
+    }
+    assert!(!stdout.contains("keyrx show --keys"));
+    assert!(!stdout.contains("keyrx show --seeds"));
     assert!(!root.join("a.cs.txt").exists());
     let files = managed_match_files(&dir.0);
     let names: Vec<_> = files

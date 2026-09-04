@@ -447,7 +447,7 @@ dependencies = [
 
 [[package]]
 name = "keyrx"
-version = "0.4.16"
+version = "0.4.17"
 dependencies = [
  "bip39",
  "bs58",
