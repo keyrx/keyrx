@@ -34,7 +34,7 @@ ctrlc = "3.4"
 rpassword = "7.3"
 libc = "0.2"
 # EVM: secp256k1 (BIP32 tree, public keys) and keccak-256 (addresses, EIP-55). Nothing else.
-k256 = { version = "0.13", default-features = false, features = ["arithmetic", "std", "precomputed-tables"] }
+k256 = { version = "0.14", default-features = false, features = ["arithmetic", "std", "precomputed-tables"] }
 sha3 = "0.10"
 
 [profile.release]
