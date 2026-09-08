@@ -22,6 +22,7 @@ import tomllib
 
 
 CRATE_NAME = "keyrx"
+LINUX_TARGET = "x86_64-unknown-linux-musl"
 VERSION_RE = re.compile(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\Z")
 SITE_VERSION_RE = re.compile(r"\bvar\s+VERSION\s*=\s*(['\"])([^'\"]+)\1\s*;")
 CHANGELOG_RELEASE_RE = re.compile(
@@ -258,12 +259,17 @@ def validate_repository(root: Path, version: str) -> str:
 def validate_checksum_manifest(text: str, version: str, source: str) -> dict[str, str]:
     """Require one canonical checksum for each non-manifest release asset."""
     require_release_version(version)
+    linux_archive = f"{CRATE_NAME}-{version}-{LINUX_TARGET}.tar.gz"
     expected = {
         f"{CRATE_NAME}-{version}.crate",
         f"{CRATE_NAME}-{version}.crate.sha256",
         f"{CRATE_NAME}-{version}.cdx.json",
         f"{CRATE_NAME}-{version}.crate.sigstore.json",
         f"{CRATE_NAME}-{version}.crate.intoto.jsonl",
+        linux_archive,
+        f"{linux_archive}.sha256",
+        f"{linux_archive}.sigstore.json",
+        f"{linux_archive}.intoto.jsonl",
     }
     checksums: dict[str, str] = {}
     lines = text.splitlines()

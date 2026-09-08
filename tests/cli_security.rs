@@ -143,6 +143,113 @@ fn keyrx_without_home(args: &[&str]) -> Output {
     output_with_deadline(command)
 }
 
+#[test]
+fn update_without_cargo_reports_only_supported_platform_paths() {
+    let dir = SecretDir::new("source-without-cargo-update");
+    let empty_path = dir.0.join("empty-path");
+    std::fs::create_dir(&empty_path).expect("create an empty executable search path");
+    let before = std::fs::read_dir(&dir.0)
+        .expect("read update sandbox before invocation")
+        .count();
+    let mut command = Command::new(env!("CARGO_BIN_EXE_keyrx"));
+    command
+        .arg("--update")
+        .env_clear()
+        .env("PATH", &empty_path)
+        .env("HOME", &dir.0)
+        .env("NO_COLOR", "1");
+    let output = output_with_deadline(command);
+    assert!(
+        !output.status.success(),
+        "a no-Cargo update claimed success"
+    );
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    #[cfg(all(unix, target_os = "linux", target_arch = "x86_64"))]
+    let required = [
+        "https://github.com/keyrx/keyrx/releases/latest",
+        "x86_64-unknown-linux-musl",
+        ".sha256",
+        "https://rustup.rs",
+        "cargo install --locked keyrx",
+    ];
+    #[cfg(all(unix, not(all(target_os = "linux", target_arch = "x86_64"))))]
+    let required = [
+        "https://rustup.rs",
+        "${CARGO_HOME:-$HOME/.cargo}/bin",
+        "cargo install --locked keyrx",
+    ];
+    #[cfg(not(unix))]
+    let required = [
+        "use WSL on Windows",
+        "https://github.com/keyrx/keyrx/releases/latest",
+        "x86_64-unknown-linux-musl",
+        ".sha256",
+    ];
+    for required in required {
+        assert!(
+            text.contains(required),
+            "update guidance lost {required:?}: {text}"
+        );
+    }
+    assert!(
+        !text.contains("installed and updated by cargo"),
+        "prebuilt users were still told Cargo is the only install path: {text}"
+    );
+    let after = std::fs::read_dir(&dir.0)
+        .expect("read update sandbox after invocation")
+        .count();
+    assert_eq!(after, before, "a refused update wrote inside its sandbox");
+}
+
+#[cfg(unix)]
+#[test]
+fn cargo_update_invokes_the_exact_locked_install_at_the_selected_root() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = SecretDir::new("cargo-update");
+    let install_root = dir.0.join("install-root");
+    let fake_cargo = dir.0.join("cargo-fixture");
+    let argv_log = dir.0.join("cargo-argv");
+    std::fs::write(
+        &fake_cargo,
+        b"#!/bin/sh\nset -eu\nprintf '%s\\n' \"$@\" > \"$KEYRX_TEST_ARGV\"\nmkdir -p \"$CARGO_INSTALL_ROOT/bin\"\ncp \"$KEYRX_TEST_BINARY\" \"$CARGO_INSTALL_ROOT/bin/keyrx\"\nchmod 0700 \"$CARGO_INSTALL_ROOT/bin/keyrx\"\n",
+    )
+    .expect("write fake Cargo");
+    std::fs::set_permissions(&fake_cargo, std::fs::Permissions::from_mode(0o700))
+        .expect("make fake Cargo executable");
+
+    let mut command = Command::new(env!("CARGO_BIN_EXE_keyrx"));
+    command
+        .arg("--update")
+        .env("CARGO", &fake_cargo)
+        .env("CARGO_INSTALL_ROOT", &install_root)
+        .env("KEYRX_TEST_ARGV", &argv_log)
+        .env("KEYRX_TEST_BINARY", env!("CARGO_BIN_EXE_keyrx"))
+        .env("NO_COLOR", "1");
+    let output = output_with_deadline(command);
+    assert!(
+        output.status.success(),
+        "fake Cargo update failed: {}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let argv = std::fs::read_to_string(&argv_log).expect("read fake Cargo argv");
+    assert_eq!(
+        argv.lines().collect::<Vec<_>>(),
+        vec![
+            "install",
+            "--locked",
+            "--root",
+            install_root.to_str().expect("UTF-8 test install root"),
+            "keyrx",
+        ]
+    );
+}
+
 fn grind_args(out: &str) -> Vec<&str> {
     vec![
         "grind",

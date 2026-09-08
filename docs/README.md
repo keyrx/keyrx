@@ -2,9 +2,18 @@
 
 The documentation for keyRX lives in three places, all kept in step with the code:
 
-- **Install:** `cargo install --locked keyrx`, then `keyrx`; Rust 1.85 or newer; or from a
-  clone with `cargo install --locked --path .`. See the README section [Install](../README.md) and
-  <https://keyrx.tech> (F3, INSTALL).
+- **Install:** Linux x86-64, including Windows through WSL, can download and verify
+  `keyrx-<version>-x86_64-unknown-linux-musl.tar.gz` from the
+  [GitHub Release](https://github.com/keyrx/keyrx/releases/latest). Native Windows is not
+  supported. macOS Apple silicon and Intel use the source path until signed and notarized macOS
+  binaries exist: install Rust 1.85 or newer from the official
+  [rustup instructions](https://rustup.rs/), put Cargo's bin directory on `PATH`, run
+  `rustup default stable`, then run `cargo install --locked keyrx`. Ubuntu's
+  suggested `apt install cargo` can be below the required Rust version; distro rustup packages
+  are not the tested upstream-rustup path. If Cargo's binary directory is not on `PATH`, run
+  `export PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"`. See [Install](../README.md) for exact
+  download, checksum, extraction, provenance, and source-build commands, and <https://keyrx.tech>
+  (F3, INSTALL) for the same choices.
 - **Start:** `keyrx` with no arguments prints the start screen, which explains every command and
   every flag in place: WHAT THIS IS, COMMANDS, PATTERN FLAGS, EVM, GRIND FLAGS, THE 128, WHAT A
   MATCH WRITES, RECIPES, A TYPICAL SESSION. `keyrx <command> --help` for any one of them.

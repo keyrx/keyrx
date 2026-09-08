@@ -330,7 +330,8 @@ class WorkflowShapeTests(unittest.TestCase):
         steps = {
             "reuse": "Reuse complete provenance from an exact prior run",
             "attest": "Attest the exact registry archive when no complete release exists",
-            "complete": "Complete and validate a new six-asset set",
+            "attest-linux": "Attest the exact Linux and WSL archive when no complete release exists",
+            "complete": "Complete and validate a new ten-asset set",
             "create": "Create the inert draft when no release exists",
             "empty-fetch": "Fetch the selected empty draft by immutable API identity",
             "empty-validate": "Validate the selected draft is empty before upload",
@@ -362,6 +363,7 @@ class WorkflowShapeTests(unittest.TestCase):
             selected("absent", "1.2.2"),
             {
                 "attest",
+                "attest-linux",
                 "complete",
                 "create",
                 "empty-fetch",
@@ -376,6 +378,7 @@ class WorkflowShapeTests(unittest.TestCase):
         )
         draft_empty_without_predecessors = {
             "attest",
+            "attest-linux",
             "complete",
             "empty-fetch",
             "empty-validate",
@@ -396,11 +399,141 @@ class WorkflowShapeTests(unittest.TestCase):
             "steps.registry.outputs.predecessors != '[]'",
         )
 
-    def test_exact_six_assets_are_named_once_by_the_validator(self):
+    def test_exact_ten_assets_are_named_once_by_the_validator(self):
         names = release_state.required_assets("1.2.3")
-        self.assertEqual(len(names), 6)
-        self.assertEqual(len(set(names)), 6)
+        self.assertEqual(len(names), 10)
+        self.assertEqual(len(set(names)), 10)
+        self.assertIn("keyrx-1.2.3-x86_64-unknown-linux-musl.tar.gz", names)
         self.assertEqual(names[-1], "keyrx-1.2.3.SHA256SUMS")
+
+    def test_linux_binary_job_is_read_only_and_effect_needs_its_exact_handoff(self):
+        linux_test = WORKFLOW.split("\n  linux_test:\n", 1)[1].split("\n  linux_binary:\n", 1)[0]
+        linux = WORKFLOW.split("\n  linux_binary:\n", 1)[1].split("\n  verify_binary:\n", 1)[0]
+        verify = WORKFLOW.split("\n  verify_binary:\n", 1)[1].split("\n  effect:\n", 1)[0]
+        effect = WORKFLOW.split("\n  effect:\n", 1)[1]
+        self.assertIn("    needs: prepare\n", linux_test)
+        self.assertIn("    needs: [prepare, linux_test]\n", linux)
+        self.assertIn("      contents: read", linux)
+        self.assertNotIn("contents: write", linux)
+        self.assertNotIn("id-token: write", linux)
+        self.assertNotIn("environment:", linux)
+        self.assertIn("    needs: [prepare, linux_binary]\n", verify)
+        self.assertIn("      actions: read", verify)
+        self.assertIn("      contents: read", verify)
+        self.assertNotIn("contents: write", verify)
+        self.assertNotIn("id-token: write", verify)
+        self.assertNotIn("environment:", verify)
+        self.assertIn("    needs: [prepare, linux_binary, verify_binary]\n", WORKFLOW)
+        self.assertIn(
+            "artifact-ids: ${{ needs.linux_binary.outputs.artifact_id }}", effect
+        )
+        self.assertIn(
+            "artifact-ids: ${{ needs.linux_binary.outputs.artifact_id }}", verify
+        )
+        self.assertNotIn("outputs:", verify)
+        self.assertNotIn("GITHUB_OUTPUT", verify)
+        self.assertNotIn("Bind the exact independently verified", verify)
+        self.assertEqual(
+            verify.rfind("      - name:"),
+            verify.index("      - name: Exercise the independently verified packaged binary"),
+        )
+        download = WORKFLOW.index("Download the exact Linux binary handoff")
+        rederive = WORKFLOW.index("Re-derive and bind every prepared byte", download)
+        provider = WORKFLOW.index("Classify the registry before requesting publish authority")
+        self.assertLess(download, rederive)
+        self.assertLess(rederive, provider)
+
+    def test_linux_build_is_exact_repeatable_static_and_target_tested(self):
+        linux_test = WORKFLOW.split("\n  linux_test:\n", 1)[1].split("\n  linux_binary:\n", 1)[0]
+        linux = WORKFLOW.split("\n  linux_binary:\n", 1)[1].split("\n  verify_binary:\n", 1)[0]
+        self.assertIn('RUST_TOOLCHAIN: 1.85.0', WORKFLOW)
+        self.assertIn('rustc 1.85.0 (4d91de4e4 2025-02-17)', linux)
+        self.assertIn('rustup target add --toolchain "$RUST_TOOLCHAIN" "$LINUX_TARGET"', linux)
+        self.assertIn(
+            'cargo +"$RUST_TOOLCHAIN" test --locked --all-targets',
+            linux_test,
+        )
+        self.assertNotIn(
+            'KEYRX_DISTRIBUTION', linux_test,
+        )
+        build = workflow_run("Build, compare, and package Linux and WSL bytes twice")
+        self.assertIn('for target_dir in "$first" "$second"', build)
+        self.assertIn('cargo +"$RUST_TOOLCHAIN" build --release --locked', build)
+        self.assertIn('cmp "$first_binary" "$second_binary"', build)
+        self.assertIn('KEYRX_DISTRIBUTION=linux-musl-prebuilt', build)
+        self.assertIn('cmp "$first_package/$archive" "$second_package/$archive"', build)
+        self.assertIn('readelf --program-headers --wide "$first_binary"', build)
+        self.assertIn('grep -q INTERP "$RUNNER_TEMP/linux-first-program-headers"', build)
+        self.assertIn('readelf --dynamic --wide "$first_binary"', build)
+        self.assertIn('grep -q NEEDED "$RUNNER_TEMP/linux-first-dynamic"', build)
+        self.assertNotIn('! readelf', build)
+        self.assertNotIn('"$first_binary" --version', build)
+        self.assertNotIn('"$second_binary" --version', build)
+        self.assertNotIn("apt-get", linux)
+        self.assertNotIn("musl-tools", linux)
+
+    def test_packaged_archive_not_loose_binary_owns_every_smoke(self):
+        smoke = workflow_run("Exercise the independently verified packaged binary")
+        self.assertIn('tar --extract --gzip --file "$handoff/$archive"', smoke)
+        self.assertIn('binary="$smoke/$CRATE_NAME-$VERSION-$LINUX_TARGET/keyrx"', smoke)
+        for required in (
+            'file --brief "$binary"',
+            'readelf --program-headers --wide "$binary"',
+            '"$RUNNER_TEMP/smoke-linux-program-headers"',
+            'readelf --dynamic --wide "$binary"',
+            '"$RUNNER_TEMP/smoke-linux-dynamic"',
+            'ldd "$binary"',
+            '"$binary" --version',
+            '"$binary" verify',
+            '"$binary" bench --threads 1 --indices 1 --seconds 1',
+            '"$binary" grind --ends-with a --threads 1',
+            '"$binary" show "$match"',
+            'test "$(stat -c %a "$match")" = 600',
+            '/usr/bin/env -u CARGO -u CARGO_HOME -u USERPROFILE',
+            'HOME="$no_cargo_home"',
+            'PATH="$empty_path" "$binary" --update',
+            'CARGO="$fake_cargo"',
+            'test ! -e "$cargo_called"',
+            "'https://github.com/keyrx/keyrx/releases/latest'",
+            "'x86_64-unknown-linux-musl'",
+            "'.sha256'",
+        ):
+            with self.subTest(required=required):
+                self.assertIn(required, smoke)
+        self.assertNotIn('! readelf', smoke)
+
+    def test_read_only_verifier_rebuilds_before_effect_attests_and_rechecks(self):
+        verify = WORKFLOW.split("\n  verify_binary:\n", 1)[1].split("\n  effect:\n", 1)[0]
+        rebuild = workflow_run("Rebuild and compare the Linux and WSL archive independently")
+        self.assertIn('cargo +"$RUST_TOOLCHAIN" build --release --locked', rebuild)
+        self.assertIn('KEYRX_DISTRIBUTION=linux-musl-prebuilt', rebuild)
+        self.assertIn('--output "$package/$archive"', rebuild)
+        self.assertIn('cmp "$package/$archive" "$handoff/$archive"', rebuild)
+        self.assertIn('"$RUNNER_TEMP/verified-linux-program-headers"', rebuild)
+        self.assertIn('"$RUNNER_TEMP/verified-linux-dynamic"', rebuild)
+        self.assertNotIn('! readelf', rebuild)
+        self.assertNotIn('"$binary" --version', rebuild)
+        self.assertNotIn("contents: write", verify)
+        effect = WORKFLOW.split("\n  effect:\n", 1)[1]
+        self.assertNotIn('cargo +"$RUST_TOOLCHAIN" build', effect)
+        self.assertNotIn("package_binary.py", effect)
+        self.assertNotIn('/release/keyrx', effect)
+        linux_attest = WORKFLOW.index(
+            "Attest the exact Linux and WSL archive when no complete release exists"
+        )
+        complete = WORKFLOW.index("Complete and validate a new ten-asset set", linux_attest)
+        self.assertIn(
+            "subject-path: ${{ runner.temp }}/prepared/keyrx-${{ needs.prepare.outputs.version }}-x86_64-unknown-linux-musl.tar.gz",
+            WORKFLOW[linux_attest:complete],
+        )
+        completed = workflow_run("Complete and validate a new ten-asset set")
+        self.assertGreaterEqual(completed.count("(.subject | length == 1)"), 2)
+        selected = workflow_run("Verify the selected provider-signed provenance")
+        self.assertIn('for subject in "$crate" "$archive"', selected)
+        self.assertIn('(.subject | length == 1)', selected)
+        final = workflow_run("Verify the immutable release and every attached digest")
+        self.assertIn('gh attestation verify', final)
+        self.assertIn('"$RUNNER_TEMP/prepared/$archive"', final)
 
     def test_preparation_and_ci_own_release_and_site_controls(self):
         self.assertIn("node tests/site_harness.js site/index.html", WORKFLOW)
@@ -769,6 +902,11 @@ class ReleaseStateTests(unittest.TestCase):
             bad_stable_digest = copy.deepcopy(canonical)
             bad_stable_digest["assets"][0]["digest"] = "sha256:" + "0" * 64
             mutations.append(bad_stable_digest)
+            bad_linux_digest = copy.deepcopy(canonical)
+            linux_name = f"keyrx-{self.VERSION}-x86_64-unknown-linux-musl.tar.gz"
+            linux_row = next(row for row in bad_linux_digest["assets"] if row["name"] == linux_name)
+            linux_row["digest"] = "sha256:" + "0" * 64
+            mutations.append(bad_linux_digest)
             for payload in mutations:
                 with self.subTest(payload=payload), self.assertRaises(
                     release_state.ReleaseError
@@ -1196,6 +1334,7 @@ raise SystemExit(0 if ok else 1)
                     "RUNNER_TEMP": str(runner),
                     "CRATE_NAME": "keyrx",
                     "VERSION": version,
+                    "LINUX_TARGET": "x86_64-unknown-linux-musl",
                     "GITHUB_REPOSITORY": "keyrx/keyrx",
                     "GH_TOKEN": "fixture-token",
                     "FAKE_CURL_LOG": str(log),
@@ -1213,10 +1352,14 @@ raise SystemExit(0 if ok else 1)
             )
             self.assertEqual(accepted.returncode, 0, accepted.stderr)
             urls = log.read_text(encoding="utf-8").splitlines()
-            self.assertEqual(len(urls), 6)
-            self.assertEqual(len(set(urls)), 6)
+            self.assertEqual(len(urls), 10)
+            self.assertEqual(len(set(urls)), 10)
+            self.assertEqual(
+                {url.split("?name=", 1)[1] for url in urls},
+                set(release_state.required_assets(version)),
+            )
             self.assertTrue(
-                all("/releases/42/assets?name=keyrx-1.2.3." in url for url in urls)
+                all("/releases/42/assets?name=keyrx-1.2.3" in url for url in urls)
             )
             self.assertFalse(any("/tags/" in url for url in urls))
 
@@ -1363,6 +1506,8 @@ elif args[:2] == ["api", "-H"] and endpoint.endswith("releases/latest"):
     print(os.environ["TAG"])
 elif args[:2] == ["release", "verify"]:
     pass
+elif args[:2] == ["attestation", "verify"]:
+    pass
 else:
     raise SystemExit(22)
 """,
@@ -1371,10 +1516,13 @@ else:
             base_env.update(
                 {
                     "RUNNER_TEMP": str(runner),
+                    "CRATE_NAME": "keyrx",
+                    "LINUX_TARGET": "x86_64-unknown-linux-musl",
                     "VERSION": self.VERSION,
                     "SOURCE_SHA": self.SOURCE,
                     "TAG": self.TAG,
                     "GITHUB_REPOSITORY": "keyrx/keyrx",
+                    "GITHUB_SERVER_URL": "https://github.com",
                     "GH_TOKEN": "fixture-token",
                     "FAKE_PUBLISHED": str(payload_path),
                     "PATH": str(tools) + os.pathsep + base_env["PATH"],
@@ -1515,6 +1663,7 @@ shutil.copyfile(source, out)
             {
                 "RUNNER_TEMP": str(runner),
                 "CRATE_NAME": "keyrx",
+                "LINUX_TARGET": "x86_64-unknown-linux-musl",
                 "VERSION": self.VERSION,
                 "SOURCE_SHA": self.SOURCE,
                 "GITHUB_REPOSITORY": self.REPOSITORY,
@@ -1636,6 +1785,8 @@ class ReleaseReuseShimTests(unittest.TestCase):
             names[0]: b"exact crate bytes\n",
             names[1]: b"crate checksum sidecar\n",
             names[2]: b'{"bomFormat":"CycloneDX"}\n',
+            names[5]: b"exact Linux archive bytes\n",
+            names[6]: b"Linux archive checksum sidecar\n",
         }
         for name, data in stable.items():
             (prepared / name).write_bytes(data)
@@ -1651,24 +1802,28 @@ class ReleaseReuseShimTests(unittest.TestCase):
         (remote / names[4]).write_text(
             json.dumps(envelope, separators=(",", ":")) + "\n", encoding="utf-8"
         )
+        (remote / names[7]).write_text(json.dumps(bundle), encoding="utf-8")
+        (remote / names[8]).write_text(
+            json.dumps(envelope, separators=(",", ":")) + "\n", encoding="utf-8"
+        )
         manifest_rows = []
-        for name in names[:5]:
+        for name in names[:9]:
             manifest_rows.append(
                 f"{hashlib.sha256((remote / name).read_bytes()).hexdigest()}  {name}"
             )
-        (remote / names[5]).write_text("\n".join(manifest_rows) + "\n", encoding="utf-8")
+        (remote / names[9]).write_text("\n".join(manifest_rows) + "\n", encoding="utf-8")
         if tamper == "intoto":
             (remote / names[4]).write_text('{}\n', encoding="utf-8")
-            rows = (remote / names[5]).read_text(encoding="utf-8").splitlines()
+            rows = (remote / names[9]).read_text(encoding="utf-8").splitlines()
             rows[4] = (
                 hashlib.sha256((remote / names[4]).read_bytes()).hexdigest()
                 + rows[4][64:]
             )
-            (remote / names[5]).write_text("\n".join(rows) + "\n", encoding="utf-8")
+            (remote / names[9]).write_text("\n".join(rows) + "\n", encoding="utf-8")
         elif tamper == "manifest":
-            rows = (remote / names[5]).read_text(encoding="utf-8").splitlines()
+            rows = (remote / names[9]).read_text(encoding="utf-8").splitlines()
             rows[0] = "0" * 64 + rows[0][64:]
-            (remote / names[5]).write_text("\n".join(rows) + "\n", encoding="utf-8")
+            (remote / names[9]).write_text("\n".join(rows) + "\n", encoding="utf-8")
         elif tamper == "stable":
             (remote / names[0]).write_bytes(b"different crate bytes\n")
         api = "https://api.github.test"
@@ -1734,6 +1889,7 @@ test "$1 $2" = 'attestation verify'
                 "VERSION": self.VERSION,
                 "SOURCE_SHA": self.SOURCE,
                 "GITHUB_API_URL": api,
+                "LINUX_TARGET": "x86_64-unknown-linux-musl",
                 "GITHUB_SERVER_URL": "https://github.com",
                 "GITHUB_REPOSITORY": self.REPOSITORY,
                 "GH_TOKEN": "fixture-token",
@@ -1759,8 +1915,8 @@ test "$1 $2" = 'attestation verify'
                 for name in release_state.required_assets(self.VERSION):
                     self.assertEqual((prepared / name).read_bytes(), (remote / name).read_bytes())
                 urls = curl_log.read_text(encoding="utf-8").splitlines()
-                self.assertEqual(len(urls), 6)
-                self.assertEqual(len(set(urls)), 6)
+                self.assertEqual(len(urls), 10)
+                self.assertEqual(len(set(urls)), 10)
                 invocation = gh_log.read_text(encoding="utf-8")
                 self.assertIn("attestation verify", invocation)
                 self.assertIn(f"--source-digest {self.SOURCE}", invocation)

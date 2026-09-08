@@ -27,5 +27,6 @@ reviewer reads the change, not only the green check.
 ## Releases
 
 Versions follow SemVer and are tagged `vX.Y.Z`. A tag publishes the crate by trusted publishing,
-attests the build, attaches the crate, its Sigstore bundle and an SBOM to the GitHub Release, and
-yanks the release before it on crates.io so a fresh install can only land on the newest.
+builds and exercises the supported static Linux/WSL archive, attests both subjects separately,
+attaches the exact checksummed asset set and SBOM to the GitHub Release, and yanks the release
+before it on crates.io so a fresh source install can only land on the newest.

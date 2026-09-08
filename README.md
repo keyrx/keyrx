@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/keyrx/keyrx/v0.4.17/assets/x-header-1500x500.png" width="100%" alt="keyRX CLI: Solana and EVM vanity address grinder">
+  <img src="https://raw.githubusercontent.com/keyrx/keyrx/v0.4.18/assets/x-header-1500x500.png" width="100%" alt="keyRX CLI: Solana and EVM vanity address grinder">
 </p>
 
 <p align="center">
@@ -23,7 +23,7 @@ base58 model and are labeled approximate because signing-key outputs are not uni
 
 Solana and EVM BIP39 vanity address grinder. Standalone terminal tool - no daemon
 or service. Grinding, estimating, benchmarking, showing and verifying make no network
-requests; only the explicit `--update` command asks Cargo to fetch a release. Replaces
+requests; only the explicit `--update` command may ask Cargo to fetch a release. Replaces
 `solana-keygen grind --use-mnemonic`; on EVM it
 does the same thing for Ethereum, Base, Arbitrum, Optimism, Polygon, BNB, Robinhood Chain
 and every chain that shares the key format (one key is every one of them).
@@ -34,9 +34,74 @@ m/44'/501' once, then walk the account index; each extra candidate costs
 two HMAC-SHA512 ops and one Ed25519 scalar mult instead of 2048 rounds of
 PBKDF2. Suffix matching needs only the last N base58 characters.
 
-    cargo install --locked keyrx                                         # from crates.io · Rust 1.85 or newer
-    keyrx                                                                # the start screen
-    RUSTFLAGS="-C target-cpu=native" cargo install --locked --path .    # from a clone, tuned to this CPU
+## Install
+
+### Linux x86-64 and Windows through WSL
+
+The shortest path is the prebuilt Linux x86-64 archive from the
+[GitHub Release](https://github.com/keyrx/keyrx/releases/latest):
+`keyrx-<version>-x86_64-unknown-linux-musl.tar.gz`. The target-qualified filename is part of the
+release contract. Download its matching `.sha256` file alongside it, verify before extracting,
+and run the installed binary's own verification. The release also carries one complete
+`keyrx-<version>.SHA256SUMS` manifest for every other attached asset.
+
+```sh
+set -eu
+VERSION=0.4.18
+TARGET=x86_64-unknown-linux-musl
+ARCHIVE="keyrx-$VERSION-$TARGET.tar.gz"
+BASE="https://github.com/keyrx/keyrx/releases/download/v$VERSION"
+WORKDIR="$(mktemp -d)"
+cd "$WORKDIR"
+curl --proto '=https' --tlsv1.2 -fLO "$BASE/$ARCHIVE"
+curl --proto '=https' --tlsv1.2 -fLO "$BASE/$ARCHIVE.sha256"
+sha256sum -c "$ARCHIVE.sha256"
+if command -v gh >/dev/null 2>&1; then
+  gh attestation verify "$ARCHIVE" --repo keyrx/keyrx
+fi
+tar -xzf "$ARCHIVE"
+mkdir -p "${CARGO_HOME:-$HOME/.cargo}/bin"
+install -m 0755 "keyrx-$VERSION-$TARGET/keyrx" "${CARGO_HOME:-$HOME/.cargo}/bin/keyrx"
+export PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"
+keyrx verify
+```
+
+The mandatory SHA-256 check detects an incomplete or corrupted download. When GitHub CLI is
+installed, the block also verifies the archive's signed build provenance against the exact
+`keyrx/keyrx` repository before extraction. Without `gh`, inspect and verify the matching
+attestation from the Release before installing if your threat model requires independent build
+provenance.
+
+On Windows, run these Linux commands inside WSL. A native Windows binary is not offered:
+`bench`, `grind`, and `show` require Unix owner-only file semantics.
+
+### macOS and build-from-source installs
+
+No macOS archive is offered until signed and notarized Apple silicon and Intel binaries exist.
+On macOS, or to build on Linux instead of using the archive, install Rust 1.85 or newer by
+following the official [rustup instructions](https://rustup.rs/), then compile the locked
+crates.io release. On Ubuntu, do not assume the terminal's suggested `apt install cargo` meets
+the requirement: the distribution package can be older than Rust 1.85. Distro-packaged rustup
+variants have their own setup and PATH behavior; the supported instructions here use upstream
+rustup.
+
+```sh
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+export PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"
+rustup default stable
+cargo install --locked keyrx
+keyrx verify
+```
+
+From a clone, the source-build equivalent tuned to the current CPU is:
+
+```sh
+RUSTFLAGS="-C target-cpu=native" cargo install --locked --path .
+```
+
+The portable `PATH` line above works whether `CARGO_HOME` is customized or left at its default;
+it does not assume that `~/.cargo/env` exists. Add the same line to your shell profile if a new
+terminal still cannot find `keyrx`.
 
     keyrx                                                               # start screen: every command and flag, explained
     keyrx verify                                                        # run first, always
@@ -69,13 +134,16 @@ prints its address, path and the wallet import guidance for that path style and 
 `keyrx verify` first, on your own machine. Release evidence is tag-specific. The current
 `publish.yml` uses crates.io trusted publishing: no long-lived publish token is stored, and a
 short-lived crates.io token is obtained through OIDC only for an authorized upload. Every release
-completed by that workflow carries a signed build-provenance attestation
-(`gh attestation verify --owner keyrx keyrx-<version>.crate`), compares the tag-built package with
-the registry copy, and attaches a CycloneDX SBOM. Provenance and SBOM assets were introduced in
-0.4.7; check the exact tag's Actions run and GitHub Release rather than assuming an older release
-has the current asset set. The dependency tree is audited against RustSec on every change and every
-week, OpenSSF Scorecard reads repository practice continuously, and the project self-certifies
-against the OpenSSF Best Practices criteria. What to report, and how (security@keyrx.tech):
+completed by that workflow carries separate signed build-provenance attestations for the source
+crate and supported Linux/WSL archive (`gh attestation verify <downloaded-file> --repo keyrx/keyrx`),
+compares the tag-built crate with the registry copy, and attaches a CycloneDX SBOM. The static
+binary is built twice, exercised from its archive, and re-derived before publication; the crate's
+attestation is never substituted for the binary archive's. Provenance and SBOM assets were
+introduced in 0.4.7; check the exact tag's Actions run and GitHub Release rather than assuming an
+older release has the current asset set. The dependency tree is audited against RustSec on every
+change and every week, OpenSSF Scorecard reads repository practice continuously, and the project
+self-certifies against the OpenSSF Best Practices criteria. What to report, and how
+(security@keyrx.tech):
 [SECURITY.md](https://github.com/keyrx/keyrx/blob/main/SECURITY.md). How to contribute, and what a
 change has to bring: [CONTRIBUTING.md](https://github.com/keyrx/keyrx/blob/main/CONTRIBUTING.md).
 
@@ -258,10 +326,12 @@ leaves no recovery record; every created Markdown file contains exactly one hit.
 ## Known behaviour (unchanged from the reference, by instruction)
 
 Superseded releases are yanked on crates.io when a new one publishes (never deleted; an
-existing install keeps working). On Unix, `keyrx --update` preserves the install root of
-the running `<root>/bin/keyrx`, holds the newly installed executable by descriptor and
-relaunches that exact inode. An explicit root must be absolute. Other platforms refuse
-the automatic relaunch and print the manual Cargo command.
+existing install keeps working). On Unix, a Cargo-installed `keyrx --update` preserves the install
+root of the running `<root>/bin/keyrx`, holds the newly installed executable by descriptor and
+relaunches that exact inode. An explicit root must be absolute. The official prebuilt release
+refuses the automatic update even when Cargo happens to be installed and points to the verified
+release archive; it does not guess that Cargo owns or may replace that executable. Other platforms
+refuse the automatic relaunch and print the supported manual path.
 
 `--count N` reserves exactly N output slots before writing. Threads that find
 later candidates after all slots are reserved discard them; a default run creates

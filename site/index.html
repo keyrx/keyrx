@@ -101,11 +101,21 @@ noscript div{white-space:normal;max-width:68ch;color:var(--gray);padding:1em 0}
   becomes its own private Markdown recovery record with an instruction guide, reproducible recipe,
   address, derivation path, seed, and supported import material (base58 and JSON array for Solana,
   0x hex for EVM). One Rust binary. No daemon or service; grinding is offline.</p>
-  <pre>cargo install --locked keyrx
-keyrx
-keyrx verify
-keyrx grind --ends-with KEYRX --indices 128</pre>
-  <p><a href="https://github.com/keyrx/keyrx">github.com/keyrx/keyrx</a></p>
+  <p>On Linux x86-64, download the versioned
+  <code>keyrx-&lt;version&gt;-x86_64-unknown-linux-musl.tar.gz</code> archive from the GitHub Release,
+  verify it with its matching <code>.sha256</code> file, then run <code>keyrx verify</code>. Windows uses that Linux build
+  inside WSL; there is no native Windows binary.</p>
+  <p>On macOS Apple silicon or Intel, build from source until signed and notarized macOS binaries
+  exist. Install Rust 1.85 or newer from the official
+  <a href="https://rustup.rs/">rustup instructions</a>. On Ubuntu, the suggested
+  <code>apt install cargo</code> can be too old; distro rustup packages are not this tested path.</p>
+  <pre>curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+export PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"
+rustup default stable
+cargo install --locked keyrx
+keyrx verify</pre>
+  <p><a href="https://github.com/keyrx/keyrx/blob/main/README.md#install">Exact install commands</a>
+  · <a href="https://github.com/keyrx/keyrx/releases/latest">GitHub Releases</a></p>
 </div></noscript>
 <div id="out" role="region" aria-label="keyRX terminal output"></div>
 <div id="prompt" style="display:none"><span>keyRX&gt;</span><input id="in" autocomplete="off" spellcheck="false" aria-label="command"><span id="cur"></span></div>
@@ -128,7 +138,7 @@ keyrx grind --ends-with KEYRX --indices 128</pre>
 (function(){
 /* The masthead version must equal Cargo.toml. A repository test enforces the
    pair, and this is the only place on the site where the version is written. */
-var VERSION='0.4.17';
+var VERSION='0.4.18';
 var out=document.getElementById('out'),scr=document.getElementById('scr'),
     inp=document.getElementById('in'),prom=document.getElementById('prompt'),
     sr=document.getElementById('sr');
@@ -213,14 +223,20 @@ function copyIn(d,text,value,note){
 }
 function commandRows(c,desc,col){
   col=col||'y';var parts=[],cur='',limit=IN-3;
-  c.split(' ').forEach(function(w){var nx=cur?cur+' '+w:w;if(vis(nx)>limit&&cur){parts.push(cur);cur=w;}else cur=nx;});
+  c.split(' ').forEach(function(w){
+    if(vis(w)>limit){
+      if(cur){parts.push(cur);cur='';}
+      while(vis(w)>limit){parts.push(w.slice(0,limit));w=w.slice(limit);}
+    }
+    var nx=cur?cur+' '+w:w;if(vis(nx)>limit&&cur){parts.push(cur);cur=w;}else cur=nx;
+  });
   if(cur)parts.push(cur);
   var inline=!MOBILE&&parts.length===1&&(!desc||4+vis(c)+4+vis(desc)<=IN);
   parts.forEach(function(pt,i){
     var d=row((i?'   ':' [[y]]$[[/]] ')+'[['+col+']]'+pt+'[[/]]'+(inline&&desc?'  [[d]]# '+desc+'[[/]]':''));
     copyIn(d,pt,c,'command');
   });
-  if(desc&&!inline)row('   [[d]]# '+desc+'[[/]]');
+  if(desc&&!inline)wrapWords(desc,IN-5).forEach(function(l){row('   [[d]]# '+l+'[[/]]');});
 }
 
 /* ── masthead ─────────────────────────────────────────────────────────── */
@@ -321,7 +337,7 @@ C.what=function(){blank();
   head('WHAT THIS IS',MOBILE?'':'one seed, many addresses, exact keys and paths');
   prose('d','Grinds Solana and EVM vanity addresses - an address that ends (or starts) with the letters you choose - and writes the seed, derivation path, and supported key forms: base58 and JSON array for Solana, 0x hex for EVM.');row('');
   prose('d','Fast because solana-keygen grind pays 2048 rounds of PBKDF2 (~1.2 ms) to test ONE address; keyRX pays it once per seed, then walks that seed\'s account indices at ~21 us each. The cited run measured 19.5-32.2x aggregate throughput and 33-55x per core.');row('');
-  prose('d','Standalone. No daemon or service. Grinding is offline; only the explicit --update command asks Cargo to fetch a release. Secrets go to a mode-0600 file on Unix, never to the screen unless you ask.');
+  prose('d','Standalone. No daemon or service. Grinding is offline; only the explicit --update command may ask Cargo to fetch a release. A prebuilt install without Cargo points back to the verified archive. Secrets go to a mode-0600 file on Unix, never to the screen unless you ask.');
   foot('verify -> bench -> estimate -> grind -> show');
   if(!MOBILE){
     head('THE 128','what --indices means and why it matters');
@@ -336,8 +352,19 @@ C.what=function(){blank();
   }
   blank();};
 C.install=function(){blank();
-  head('INSTALL',MOBILE?'':'Rust 1.85+ · one binary · no daemon or service');
-  commandRows('cargo install --locked keyrx','install from crates.io');
+  head('INSTALL',MOBILE?'Linux / WSL first':'Linux x86-64 archive · source path for macOS');
+  var release='https://github.com/keyrx/keyrx/releases/download/v'+VERSION+'/';
+  var stem='keyrx-'+VERSION+'-';
+  var archive=stem+'x86_64-unknown-linux-musl.tar.gz';
+  commandRows('curl --proto \'=https\' --tlsv1.2 -fLO '+release+archive,'Linux x86-64 archive');
+  commandRows('curl --proto \'=https\' --tlsv1.2 -fLO '+release+archive+'.sha256','checksum for that exact archive');
+  commandRows('sha256sum -c '+archive+'.sha256','must say OK; stop if it does not');
+  commandRows('gh attestation verify '+archive+' --repo keyrx/keyrx','optional GitHub CLI provenance, before extraction');
+  commandRows('tar -xzf '+archive,'extract only after verification');
+  commandRows('mkdir -p "${CARGO_HOME:-$HOME/.cargo}/bin"','create the private install lane');
+  commandRows('install -m 0755 '+stem+'x86_64-unknown-linux-musl/keyrx "${CARGO_HOME:-$HOME/.cargo}/bin/keyrx"','install the verified executable');
+  commandRows('export PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"','portable PATH, no ~/.cargo/env assumption');
+  prose('d','Run those Linux commands in order. Stop after any failed download or checksum, and stop if you choose the provenance check and it fails. Windows runs the same archive inside WSL; native Windows is not supported. The README Install section is the complete fail-closed script, including its fresh work directory.');row('');
   commandRows('keyrx','the start screen');
   commandRows('keyrx verify','run first, always');
   commandRows('keyrx bench --indices 128','this box\'s 128-index rate, saved');
@@ -351,9 +378,14 @@ C.install=function(){blank();
   commandRows('keyrx estimate --chain evm --ends-with dead','EVM: hex, any case');
   commandRows('keyrx grind --chain evm --ends-with dead','0x...dead, MetaMask/Rabby');
   commandRows('keyrx show','list records');
-  commandRows('keyrx --update','the latest, then this');
+  commandRows('keyrx --update','Cargo-installed builds update; prebuilt shows release path');
   row('');
-  note('from source (POSIX shell):');
+  note('macOS and source builds (Rust 1.85+):');
+  prose('d','Until signed and notarized macOS binaries exist, install Rust from the official rustup.rs instructions and build the locked release. Ubuntu\'s suggested apt install cargo can be too old; distro rustup packages are not this tested path.');row('');
+  commandRows('curl --proto \'=https\' --tlsv1.2 -sSf https://sh.rustup.rs | sh','official upstream rustup');
+  commandRows('export PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"','portable PATH, no ~/.cargo/env assumption');
+  commandRows('rustup default stable','select a current supported toolchain');
+  commandRows('cargo install --locked keyrx','build the crates.io release');
   commandRows('git clone https://github.com/keyrx/keyrx','clone the repository');
   commandRows('cd keyrx','enter the clone');
   commandRows('RUSTFLAGS="-C target-cpu=native" cargo install --locked --path .','tuned to this CPU');
@@ -568,9 +600,9 @@ function fit(){
 }
 var booted=false;
 function rerender(){stopGrind();out.innerHTML='';start();}
-var INSTALL='cargo install --locked keyrx';
+var INSTALL='https://github.com/keyrx/keyrx/releases/tag/v'+VERSION;
 function installBox(){
-  head('INSTALL',MOBILE?'':'one command, then run keyrx');
+  head('DOWNLOAD',MOBILE?'Linux / WSL release':'Linux / WSL archive · macOS from source');
   var padn=Math.max(0,Math.floor((IN-INSTALL.length)/2));
   var d=row(' '.repeat(padn)+'[[y]]'+INSTALL+'[[/]]');
   copyIn(d,INSTALL,INSTALL,'install command');
@@ -580,7 +612,7 @@ function installBox(){
   else{row('  [[w]]Solana vanity addresses, 19.5-32.2x measured aggregate - and EVM[[/]]');
        row('  [[d]]- and every match writes the seed, path, and supported key forms.[[/]]');
        row('  [[d]]One Rust binary. Offline grinding. No daemon.[[/]]');}
-  foot(MOBILE?'tap to copy · then run keyrx · MIT':'copy it · then run keyrx · Rust 1.85+ · MIT');
+  foot(MOBILE?'tap to copy · verify .sha256 · MIT':'Linux: verify archive · macOS: official rustup · MIT');
 }
 function start(){
   masthead('v'+VERSION);

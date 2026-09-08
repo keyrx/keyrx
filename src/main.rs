@@ -1,7 +1,7 @@
 // keyRX -- Solana and EVM vanity address grinder
 //
 // Standalone terminal tool. No daemon or service. Grinding and local inspection
-// are offline; the explicit --update command invokes Cargo's networked install.
+// are offline; the explicit --update command may invoke Cargo's networked install.
 //
 // Why it's fast: `solana-keygen grind --use-mnemonic` generates a fresh
 // mnemonic per candidate, paying 2048 rounds of PBKDF2-HMAC-SHA512 (~1.2ms)
@@ -48,6 +48,8 @@ use zeroize::{Zeroize, Zeroizing};
 type HmacSha512 = Hmac<Sha512>;
 
 const HARDENED: u32 = 0x8000_0000;
+#[cfg(unix)]
+const LINUX_PREBUILT_DISTRIBUTION: &str = "linux-musl-prebuilt";
 /// The donation address. ONE place - the CLI panel reads it, and the site
 /// carries the same string in its own DONATE_SOL const; change both
 /// together. The address is set; an empty value remains a supported build-time
@@ -117,7 +119,7 @@ struct Cli {
     #[command(subcommand)]
     cmd: Option<Cmd>,
 
-    /// Update: `cargo install --locked keyrx`, then clear, then keyrx.
+    /// Update a Cargo install; prebuilt users download and verify the new release.
     #[arg(long)]
     update: bool,
 }
@@ -4755,20 +4757,84 @@ fn main() {
 /// The start screen: `keyrx` with no arguments. Every command, every flag,
 /// and the two ideas you need - what a path index is, and why --indices
 /// trades speed for where the match lands.
-/// `keyrx --update`: the install line - cargo install --locked keyrx, then keyrx -
-/// as one flag. cargo does the work with its own output on screen; if it ends
-/// clean, the screen is cleared and the freshly installed keyrx starts, so the
-/// first thing you see is the new start screen with the new version on it.
+/// For Cargo installations, `keyrx --update` runs cargo install --locked keyrx
+/// and then the newly installed binary. An official prebuilt installation
+/// always refuses with the verified release-download path instead of pretending
+/// it can safely replace itself.
 #[cfg(not(unix))]
 fn cmd_update() {
     ui::masthead(&format!("v{}", env!("CARGO_PKG_VERSION")));
-    println!("{}", ui::top("UPDATE", "manual on this platform"));
+    println!("{}", ui::top("UPDATE", "use WSL on Windows"));
     println!(
         "{}",
-        ui::crit_line("automatic update refuses without held-executable relaunch support.")
+        ui::crit_line("native Windows is unsupported; run keyrx inside WSL.")
     );
-    println!("{}", ui::note("run: cargo install --locked keyrx"));
-    println!("{}", ui::bot("then start keyrx again from your shell"));
+    println!(
+        "{}",
+        ui::note("release: https://github.com/keyrx/keyrx/releases/latest")
+    );
+    println!(
+        "{}",
+        ui::note("choose the x86_64-unknown-linux-musl archive and .sha256")
+    );
+    println!("{}", ui::bot("verify and run that Linux binary inside WSL"));
+    println!();
+    std::process::exit(1);
+}
+
+#[cfg(unix)]
+fn official_prebuilt_distribution() -> bool {
+    cfg!(all(target_os = "linux", target_arch = "x86_64"))
+        && option_env!("KEYRX_DISTRIBUTION") == Some(LINUX_PREBUILT_DISTRIBUTION)
+}
+
+#[cfg(unix)]
+fn refuse_manual_update(reason: &str, linux_x86_64: bool, official_prebuilt: bool) -> ! {
+    println!(
+        "{}",
+        ui::top(
+            "UPDATE",
+            if linux_x86_64 {
+                "manual verified release"
+            } else {
+                "manual source install"
+            }
+        )
+    );
+    println!("{}", ui::crit_line(reason));
+    if linux_x86_64 {
+        println!(
+            "{}",
+            ui::note("release: https://github.com/keyrx/keyrx/releases/latest")
+        );
+        println!(
+            "{}",
+            ui::note("choose the x86_64-unknown-linux-musl archive and .sha256")
+        );
+        if !official_prebuilt {
+            println!(
+                "{}",
+                ui::note("source alternative: https://rustup.rs, then")
+            );
+        }
+    } else {
+        println!("{}", ui::note("install Rust from https://rustup.rs, then:"));
+        println!(
+            "{}",
+            ui::note("export PATH=\"${CARGO_HOME:-$HOME/.cargo}/bin:$PATH\"")
+        );
+    }
+    if !official_prebuilt {
+        println!("{}", ui::note("cargo install --locked keyrx"));
+    }
+    println!(
+        "{}",
+        ui::bot(if linux_x86_64 {
+            "verify the download before replacing keyrx"
+        } else {
+            "then start keyrx again from your shell"
+        })
+    );
     println!();
     std::process::exit(1);
 }
@@ -4776,20 +4842,15 @@ fn cmd_update() {
 #[cfg(unix)]
 fn cmd_update() {
     ui::masthead(&format!("v{}", env!("CARGO_PKG_VERSION")));
+    if official_prebuilt_distribution() {
+        refuse_manual_update("this prebuilt release does not replace itself.", true, true);
+    }
     let Some(cargo) = find_cargo() else {
-        println!("{}", ui::top("UPDATE", ""));
-        println!(
-            "{}",
-            ui::crit_line("cargo is not on PATH - keyrx is installed and updated by cargo.")
+        refuse_manual_update(
+            "cargo is not on PATH; this install cannot use Cargo.",
+            cfg!(all(target_os = "linux", target_arch = "x86_64")),
+            false,
         );
-        println!(
-            "{}",
-            ui::note("install Rust from https://rustup.rs (one command), then:")
-        );
-        println!("{}", ui::note("cargo install --locked keyrx"));
-        println!("{}", ui::bot(""));
-        println!();
-        std::process::exit(1);
     };
     let install_root = match cargo_install_root() {
         Ok(Some(root)) => root,
@@ -5147,11 +5208,11 @@ fn cmd_start() {
     );
     println!(
         "{}",
-        n("offline; --update alone uses Cargo's network. Secrets go to a")
+        n("offline; Cargo-installed updates alone use the network. Secrets")
     );
     println!(
         "{}",
-        n("one private Markdown file per default match (Unix: mode 0600),")
+        n("go to one private Markdown file per default match (Unix: 0600),")
     );
     println!(
         "{}",
@@ -5230,12 +5291,12 @@ fn cmd_start() {
         "{}",
         kvw(
             "--update",
-            "cargo install --locked keyrx, then starts keyrx."
+            "Cargo install: update, then start the held keyrx."
         )
     );
     println!(
         "{}",
-        cont("cargo prints its work; then the new start screen.")
+        cont("prebuilt install: download and verify the new release.")
     );
     println!("{}", ui::bot("every command takes --help"));
 
@@ -5848,7 +5909,10 @@ fn cmd_start() {
         "keyrx show FILE.md --keys",
         "one listed file, keys revealed",
     );
-    step("keyrx --update", "latest, then this screen");
+    step(
+        "keyrx --update",
+        "Cargo installs only; prebuilt: get the release",
+    );
     blank();
     println!(
         "{}",

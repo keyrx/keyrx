@@ -9,7 +9,7 @@
 > the address, its derivation path, the seed phrase, a base58 keypair for current
 > Phantom/Solflare private-key import flows, and a JSON byte array for
 > solana-keygen. One Rust binary. No daemon or service. Grinding, estimating,
-> benchmarking, showing and verifying are offline; explicit --update uses Cargo's network access.
+> benchmarking, showing and verifying are offline; explicit --update may use Cargo's network access.
 >
 > `--chain evm` (0.4.0): Ethereum and every EVM chain - the same mnemonic walk on
 > secp256k1 at m/44'/60'/0'/0/N, keccak addresses in EIP-55 case; hex patterns,
@@ -23,11 +23,37 @@ file carries the same product content as plain text.
 
 ## Install
 
-    cargo install --locked keyrx
-    keyrx                       # the start screen
-    git clone https://github.com/keyrx/keyrx && cd keyrx    # source alternative
-    RUSTFLAGS="-C target-cpu=native" cargo install --locked --path .  # POSIX shell; tuned to this CPU
+Linux x86-64 has one prebuilt release archive; Windows runs the same Linux binary inside WSL:
+
+    keyrx-<version>-x86_64-unknown-linux-musl.tar.gz
+
+Download it and its matching `.tar.gz.sha256` sidecar from the same GitHub Release, verify the
+archive, extract it, install `keyrx` into `${CARGO_HOME:-$HOME/.cargo}/bin`, then run `keyrx verify`.
+The release's
+`keyrx-<version>.SHA256SUMS` separately inventories every other attached asset.
+
+    export PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"
     keyrx verify                 # run first, always: base58, derivation, the pinned solana-keygen answer, the BIP39 passphrase vector
+
+There is no native Windows binary. There are no macOS archives until signed and notarized Apple
+silicon and Intel binaries exist. macOS and source-build users install Rust 1.85 or newer from the
+official rustup instructions at https://rustup.rs/, then:
+
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+    export PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"
+    rustup default stable
+    cargo install --locked keyrx
+    keyrx verify
+
+Ubuntu's suggested `apt install cargo` can be below Rust 1.85. Distro rustup packages are not the
+tested upstream-rustup path. The PATH remedy does not assume `~/.cargo/env` exists. From a clone:
+
+    git clone https://github.com/keyrx/keyrx && cd keyrx
+    RUSTFLAGS="-C target-cpu=native" cargo install --locked --path .  # POSIX shell; tuned to this CPU
+
+Then use the tool:
+
+    keyrx                       # the start screen
     keyrx bench --indices 128    # this machine's measured 128-index workload; estimate uses it
     keyrx estimate --ends-with KEYRX --indices 128 --count 10    # odds; measured time to one and all ten
     keyrx grind --ends-with KEYRX --indices 128    # writes one .md and prints its exact show command
@@ -36,7 +62,7 @@ file carries the same product content as plain text.
     keyrx grind --ends-with KEYRX --passphrase     # BIP39 passphrase: prompted, hidden, never stored; import that address by key
     keyrx grind --starts-with Key --ends-with RX   # both ends; --ignore-case for any case (32x likelier for five letters)
     keyrx show                   # every Markdown record and legacy ledger; prints each exact show command
-    keyrx --update               # install the latest, clear, then start it
+    keyrx --update               # Cargo-installed builds update in place; prebuilt users get the release path
 
 `bench`, `grind`, and `show` require Unix owner-only file semantics. On
 Windows, run them under WSL. Probability is not machine-specific; a matching

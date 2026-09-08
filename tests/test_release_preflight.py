@@ -621,12 +621,17 @@ class PackagePreflightTests(unittest.TestCase):
 
 class ChecksumManifestTests(unittest.TestCase):
     def valid_manifest(self):
+        archive = f"keyrx-{VERSION}-x86_64-unknown-linux-musl.tar.gz"
         names = (
             f"keyrx-{VERSION}.crate",
             f"keyrx-{VERSION}.crate.sha256",
             f"keyrx-{VERSION}.cdx.json",
             f"keyrx-{VERSION}.crate.sigstore.json",
             f"keyrx-{VERSION}.crate.intoto.jsonl",
+            archive,
+            f"{archive}.sha256",
+            f"{archive}.sigstore.json",
+            f"{archive}.intoto.jsonl",
         )
         return "".join(f"{index:064x}  {name}\n" for index, name in enumerate(names, 1))
 
@@ -634,7 +639,7 @@ class ChecksumManifestTests(unittest.TestCase):
         result = release_preflight.validate_checksum_manifest(
             self.valid_manifest(), VERSION, "SHA256SUMS"
         )
-        self.assertEqual(len(result), 5)
+        self.assertEqual(len(result), 9)
 
     def test_duplicate_entry_cannot_substitute_for_a_missing_asset(self):
         lines = self.valid_manifest().splitlines()

@@ -18,6 +18,7 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   CRATE_NAME: keyrx
+  LINUX_TARGET: x86_64-unknown-linux-musl
   PYTHONDONTWRITEBYTECODE: "1"
   RUST_TOOLCHAIN: 1.85.0
 
@@ -134,8 +135,296 @@ jobs:
           include-hidden-files: true
           retention-days: 1
 
-  effect:
+  linux_test:
     needs: prepare
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    env:
+      SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+    steps:
+      - name: Check out the exact prepared source for Linux target tests
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.prepare.outputs.source_sha }}
+          persist-credentials: false
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Install the exact Rust Linux target for tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup target add --toolchain "$RUST_TOOLCHAIN" "$LINUX_TARGET"
+          test "$(rustc +"$RUST_TOOLCHAIN" --version)" = \
+            "rustc 1.85.0 (4d91de4e4 2025-02-17)"
+
+      - name: Test every Rust target on the Linux and WSL build
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^{commit})" = "$SOURCE_SHA"
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
+          cargo +"$RUST_TOOLCHAIN" test --locked --all-targets \
+            --target "$LINUX_TARGET"
+
+  linux_binary:
+    needs: [prepare, linux_test]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      artifact_id: ${{ steps.handoff.outputs.artifact-id }}
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+    steps:
+      - name: Check out the exact prepared source for Linux
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.prepare.outputs.source_sha }}
+          persist-credentials: false
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Install the exact Rust Linux target
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup target add --toolchain "$RUST_TOOLCHAIN" "$LINUX_TARGET"
+          test "$(rustc +"$RUST_TOOLCHAIN" --version)" = \
+            "rustc 1.85.0 (4d91de4e4 2025-02-17)"
+
+      - name: Build, compare, and package Linux and WSL bytes twice
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^{commit})" = "$SOURCE_SHA"
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
+          epoch="$(git show -s --format=%ct "$SOURCE_SHA")"
+          [[ "$epoch" =~ ^[0-9]+$ ]]
+          first="$RUNNER_TEMP/linux-first"
+          second="$RUNNER_TEMP/linux-second"
+          handoff="$RUNNER_TEMP/linux-handoff"
+          first_package="$RUNNER_TEMP/linux-package-first"
+          second_package="$RUNNER_TEMP/linux-package-second"
+          mkdir "$handoff" "$first_package" "$second_package"
+          for target_dir in "$first" "$second"; do
+            KEYRX_DISTRIBUTION=linux-musl-prebuilt \
+              SOURCE_DATE_EPOCH="$epoch" CARGO_INCREMENTAL=0 \
+              cargo +"$RUST_TOOLCHAIN" build --release --locked \
+                --target "$LINUX_TARGET" --target-dir "$target_dir"
+          done
+          first_binary="$first/$LINUX_TARGET/release/keyrx"
+          second_binary="$second/$LINUX_TARGET/release/keyrx"
+          cmp "$first_binary" "$second_binary"
+          readelf --program-headers --wide "$first_binary" \
+            > "$RUNNER_TEMP/linux-first-program-headers"
+          ! grep -q INTERP "$RUNNER_TEMP/linux-first-program-headers"
+          readelf --dynamic --wide "$first_binary" \
+            > "$RUNNER_TEMP/linux-first-dynamic"
+          ! grep -q NEEDED "$RUNNER_TEMP/linux-first-dynamic"
+          archive="$CRATE_NAME-$VERSION-$LINUX_TARGET.tar.gz"
+          python3 ops/package_binary.py --version "$VERSION" \
+            --source-sha "$SOURCE_SHA" --target "$LINUX_TARGET" \
+            --epoch "$epoch" --license LICENSE --readme README.md create \
+            --binary "$first_binary" --output "$first_package/$archive"
+          python3 ops/package_binary.py --version "$VERSION" \
+            --source-sha "$SOURCE_SHA" --target "$LINUX_TARGET" \
+            --epoch "$epoch" --license LICENSE --readme README.md create \
+            --binary "$second_binary" --output "$second_package/$archive"
+          cmp "$first_package/$archive" "$second_package/$archive"
+          cp -- "$first_package/$archive" "$handoff/$archive"
+          (cd "$handoff" && sha256sum "$archive" > "$archive.sha256")
+          python3 ops/package_binary.py --version "$VERSION" \
+            --source-sha "$SOURCE_SHA" --target "$LINUX_TARGET" \
+            --epoch "$epoch" --license LICENSE --readme README.md check \
+            --archive "$handoff/$archive" --sidecar "$handoff/$archive.sha256"
+          (
+            cd "$handoff"
+            LC_ALL=C sha256sum "$archive" "$archive.sha256" \
+              > PREPARED_BINARY_SHA256SUMS
+          )
+          test "$(git rev-parse HEAD^{commit})" = "$SOURCE_SHA"
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
+
+      - name: Upload the read-only Linux binary handoff
+        id: handoff
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: keyrx-linux-${{ needs.prepare.outputs.source_sha }}
+          path: ${{ runner.temp }}/linux-handoff
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 1
+
+  verify_binary:
+    needs: [prepare, linux_binary]
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      contents: read
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+    steps:
+      - name: Check out the exact prepared source for independent binary verification
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.prepare.outputs.source_sha }}
+          persist-credentials: false
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Install the exact Rust Linux target for independent verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup target add --toolchain "$RUST_TOOLCHAIN" "$LINUX_TARGET"
+          test "$(rustc +"$RUST_TOOLCHAIN" --version)" = \
+            "rustc 1.85.0 (4d91de4e4 2025-02-17)"
+
+      - name: Download the exact untrusted Linux binary handoff
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.linux_binary.outputs.artifact_id }}
+          path: ${{ runner.temp }}/linux-handoff
+          merge-multiple: true
+
+      - name: Rebuild and compare the Linux and WSL archive independently
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^{commit})" = "$SOURCE_SHA"
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
+          handoff="$RUNNER_TEMP/linux-handoff"
+          archive="$CRATE_NAME-$VERSION-$LINUX_TARGET.tar.gz"
+          epoch="$(git show -s --format=%ct "$SOURCE_SHA")"
+          [[ "$epoch" =~ ^[0-9]+$ ]]
+          mapfile -t names < <(find "$handoff" -mindepth 1 -maxdepth 1 \
+            -type f -printf '%f\n' | LC_ALL=C sort)
+          expected=(PREPARED_BINARY_SHA256SUMS "$archive" "$archive.sha256")
+          mapfile -t expected_sorted < <(printf '%s\n' "${expected[@]}" | LC_ALL=C sort)
+          test "${names[*]}" = "${expected_sorted[*]}"
+          mapfile -t entries < <(find "$handoff" -mindepth 1 \
+            -printf '%P\t%y\n' | LC_ALL=C sort)
+          mapfile -t expected_entries < <(printf '%s\tf\n' \
+            "${expected[@]}" | LC_ALL=C sort)
+          test "${entries[*]}" = "${expected_entries[*]}"
+          (cd "$handoff" && sha256sum --check --strict \
+            PREPARED_BINARY_SHA256SUMS)
+          python3 ops/package_binary.py --version "$VERSION" \
+            --source-sha "$SOURCE_SHA" --target "$LINUX_TARGET" \
+            --epoch "$epoch" --license LICENSE --readme README.md check \
+            --archive "$handoff/$archive" --sidecar "$handoff/$archive.sha256"
+          rebuilt="$RUNNER_TEMP/verified-linux-build"
+          package="$RUNNER_TEMP/verified-linux-package"
+          mkdir "$package"
+          KEYRX_DISTRIBUTION=linux-musl-prebuilt \
+            SOURCE_DATE_EPOCH="$epoch" CARGO_INCREMENTAL=0 \
+            cargo +"$RUST_TOOLCHAIN" build --release --locked \
+              --target "$LINUX_TARGET" --target-dir "$rebuilt"
+          binary="$rebuilt/$LINUX_TARGET/release/keyrx"
+          readelf --program-headers --wide "$binary" \
+            > "$RUNNER_TEMP/verified-linux-program-headers"
+          ! grep -q INTERP "$RUNNER_TEMP/verified-linux-program-headers"
+          readelf --dynamic --wide "$binary" \
+            > "$RUNNER_TEMP/verified-linux-dynamic"
+          ! grep -q NEEDED "$RUNNER_TEMP/verified-linux-dynamic"
+          python3 ops/package_binary.py --version "$VERSION" \
+            --source-sha "$SOURCE_SHA" --target "$LINUX_TARGET" \
+            --epoch "$epoch" --license LICENSE --readme README.md create \
+            --binary "$binary" --output "$package/$archive"
+          cmp "$package/$archive" "$handoff/$archive"
+          (cd "$package" && sha256sum "$archive" > "$archive.sha256")
+          cmp "$package/$archive.sha256" "$handoff/$archive.sha256"
+          test "$(git rev-parse HEAD^{commit})" = "$SOURCE_SHA"
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
+
+      - name: Exercise the independently verified packaged binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$CRATE_NAME-$VERSION-$LINUX_TARGET.tar.gz"
+          handoff="$RUNNER_TEMP/linux-handoff"
+          smoke="$RUNNER_TEMP/linux-archive-smoke"
+          home="$RUNNER_TEMP/linux-smoke-home"
+          data="$RUNNER_TEMP/linux-smoke-data"
+          no_cargo_home="$RUNNER_TEMP/no-cargo-home"
+          empty_path="$RUNNER_TEMP/no-cargo-path"
+          mkdir "$smoke" "$home" "$data" "$no_cargo_home" "$empty_path"
+          chmod 0700 "$smoke" "$home" "$data" "$no_cargo_home" "$empty_path"
+          tar --extract --gzip --file "$handoff/$archive" --directory "$smoke"
+          binary="$smoke/$CRATE_NAME-$VERSION-$LINUX_TARGET/keyrx"
+          test -x "$binary"
+          file_output="$(file --brief "$binary")"
+          case "$file_output" in
+            *ELF*64-bit*x86-64*statically\ linked*|*ELF*64-bit*x86-64*static-pie\ linked*) ;;
+            *) printf 'unexpected file identity: %s\n' "$file_output" >&2; exit 1 ;;
+          esac
+          readelf --program-headers --wide "$binary" \
+            > "$RUNNER_TEMP/smoke-linux-program-headers"
+          ! grep -q INTERP "$RUNNER_TEMP/smoke-linux-program-headers"
+          readelf --dynamic --wide "$binary" \
+            > "$RUNNER_TEMP/smoke-linux-dynamic"
+          ! grep -q NEEDED "$RUNNER_TEMP/smoke-linux-dynamic"
+          set +e
+          ldd_output="$(ldd "$binary" 2>&1)"
+          ldd_status=$?
+          set -e
+          if test "$ldd_status" -eq 0; then
+            printf '%s\n' "$ldd_output" | grep -F 'statically linked' >/dev/null
+          else
+            test "$ldd_status" -eq 1
+            printf '%s\n' "$ldd_output" | grep -F 'not a dynamic executable' >/dev/null
+          fi
+          test "$("$binary" --version)" = "keyrx $VERSION"
+          HOME="$home" XDG_DATA_HOME="$data" NO_COLOR=1 KEYRX_NO_LINKS=1 \
+            timeout 60s "$binary" verify
+          HOME="$home" XDG_DATA_HOME="$data" NO_COLOR=1 KEYRX_NO_LINKS=1 \
+            timeout 30s "$binary" bench --threads 1 --indices 1 --seconds 1
+          match="$smoke/match.txt"
+          HOME="$home" XDG_DATA_HOME="$data" NO_COLOR=1 KEYRX_NO_LINKS=1 \
+            timeout 60s "$binary" grind --ends-with a --threads 1 \
+              --indices 1 --count 1 --out "$match"
+          test "$(stat -c %a "$match")" = 600
+          HOME="$home" XDG_DATA_HOME="$data" NO_COLOR=1 KEYRX_NO_LINKS=1 \
+            timeout 30s "$binary" show "$match"
+          fake_cargo="$smoke/cargo"
+          cargo_called="$smoke/cargo-called"
+          printf '%s\n' '#!/bin/sh' ': > "$KEYRX_TEST_CARGO_CALLED"' 'exit 99' \
+            > "$fake_cargo"
+          chmod 0700 "$fake_cargo"
+          if update_output="$(CARGO="$fake_cargo" \
+            KEYRX_TEST_CARGO_CALLED="$cargo_called" HOME="$home" \
+            XDG_DATA_HOME="$data" NO_COLOR=1 KEYRX_NO_LINKS=1 \
+            PATH="$empty_path" "$binary" --update 2>&1)"; then
+            echo 'official prebuilt update unexpectedly succeeded' >&2
+            exit 1
+          fi
+          test ! -e "$cargo_called"
+          for expected in \
+            'https://github.com/keyrx/keyrx/releases/latest' \
+            'x86_64-unknown-linux-musl' '.sha256'; do
+            printf '%s\n' "$update_output" | grep -F "$expected" >/dev/null
+          done
+          if no_cargo_output="$(/usr/bin/env -u CARGO -u CARGO_HOME -u USERPROFILE \
+            HOME="$no_cargo_home" XDG_DATA_HOME="$data" NO_COLOR=1 KEYRX_NO_LINKS=1 \
+            PATH="$empty_path" "$binary" --update 2>&1)"; then
+            echo 'official prebuilt update without Cargo unexpectedly succeeded' >&2
+            exit 1
+          fi
+          for expected in \
+            'https://github.com/keyrx/keyrx/releases/latest' \
+            'x86_64-unknown-linux-musl' '.sha256'; do
+            printf '%s\n' "$no_cargo_output" | grep -F "$expected" >/dev/null
+          done
+
+  effect:
+    needs: [prepare, linux_binary, verify_binary]
     runs-on: ubuntu-24.04
     environment: release
     permissions:
@@ -169,6 +458,13 @@ jobs:
           path: ${{ runner.temp }}/prepared
           merge-multiple: true
 
+      - name: Download the exact Linux binary handoff
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.linux_binary.outputs.artifact_id }}
+          path: ${{ runner.temp }}/linux-handoff
+          merge-multiple: true
+
       - name: Re-derive and bind every prepared byte
         shell: bash
         run: |
@@ -178,6 +474,8 @@ jobs:
           test "$tag_sha" = "$SOURCE_SHA"
           test -z "$(git status --porcelain=v1 --untracked-files=all)"
           out="$RUNNER_TEMP/prepared"
+          binary_handoff="$RUNNER_TEMP/linux-handoff"
+          archive="$CRATE_NAME-$VERSION-$LINUX_TARGET.tar.gz"
           mapfile -t names < <(find "$out" -mindepth 1 -maxdepth 1 -type f \
             -printf '%f\n' | LC_ALL=C sort)
           expected=(PREPARED_SHA256SUMS "$CRATE_NAME-$VERSION.cdx.json"
@@ -189,6 +487,33 @@ jobs:
           mapfile -t expected_entries < <(printf '%s\tf\n' "${expected[@]}" | LC_ALL=C sort)
           test "${entries[*]}" = "${expected_entries[*]}"
           (cd "$out" && sha256sum --check --strict PREPARED_SHA256SUMS)
+          mapfile -t binary_names < <(find "$binary_handoff" -mindepth 1 \
+            -maxdepth 1 -type f -printf '%f\n' | LC_ALL=C sort)
+          binary_expected=(PREPARED_BINARY_SHA256SUMS "$archive" "$archive.sha256")
+          mapfile -t binary_expected_sorted < <(printf '%s\n' \
+            "${binary_expected[@]}" | LC_ALL=C sort)
+          test "${binary_names[*]}" = "${binary_expected_sorted[*]}"
+          mapfile -t binary_entries < <(find "$binary_handoff" -mindepth 1 \
+            -printf '%P\t%y\n' | LC_ALL=C sort)
+          mapfile -t binary_expected_entries < <(printf '%s\tf\n' \
+            "${binary_expected[@]}" | LC_ALL=C sort)
+          test "${binary_entries[*]}" = "${binary_expected_entries[*]}"
+          (cd "$binary_handoff" && sha256sum --check --strict \
+            PREPARED_BINARY_SHA256SUMS)
+          cp -- "$binary_handoff/$archive" "$binary_handoff/$archive.sha256" "$out/"
+          assembled_expected=(PREPARED_SHA256SUMS "$CRATE_NAME-$VERSION.cdx.json"
+            "$CRATE_NAME-$VERSION.crate" "$CRATE_NAME-$VERSION.crate.sha256"
+            "$archive" "$archive.sha256" release-notes.md)
+          mapfile -t assembled_names < <(find "$out" -mindepth 1 -maxdepth 1 \
+            -type f -printf '%f\n' | LC_ALL=C sort)
+          mapfile -t assembled_expected_sorted < <(printf '%s\n' \
+            "${assembled_expected[@]}" | LC_ALL=C sort)
+          test "${assembled_names[*]}" = "${assembled_expected_sorted[*]}"
+          mapfile -t assembled_entries < <(find "$out" -mindepth 1 \
+            -printf '%P\t%y\n' | LC_ALL=C sort)
+          mapfile -t assembled_expected_entries < <(printf '%s\tf\n' \
+            "${assembled_expected[@]}" | LC_ALL=C sort)
+          test "${assembled_entries[*]}" = "${assembled_expected_entries[*]}"
           python3 ops/release_preflight.py "$VERSION" --notes \
             > "$RUNNER_TEMP/effect-notes.md"
           cmp "$RUNNER_TEMP/effect-notes.md" "$out/release-notes.md"
@@ -301,9 +626,11 @@ jobs:
           python3 ops/release_state.py "$RUNNER_TEMP/release-before.json" \
             "$VERSION" "$SOURCE_SHA" "$out/release-notes.md" \
             "$prior" "$expected_state"
+          archive="$CRATE_NAME-$VERSION-$LINUX_TARGET.tar.gz"
           for name in "$CRATE_NAME-$VERSION.crate" \
             "$CRATE_NAME-$VERSION.crate.sha256" \
-            "$CRATE_NAME-$VERSION.cdx.json"; do
+            "$CRATE_NAME-$VERSION.cdx.json" \
+            "$archive" "$archive.sha256"; do
             cmp "$prior/$name" "$out/$name"
           done
           python3 ops/release_preflight.py "$VERSION" \
@@ -315,6 +642,10 @@ jobs:
             > "$RUNNER_TEMP/prior-intoto.jsonl"
           cmp "$RUNNER_TEMP/prior-intoto.jsonl" \
             "$prior/$CRATE_NAME-$VERSION.crate.intoto.jsonl"
+          jq -c '.dsseEnvelope' "$prior/$archive.sigstore.json" \
+            > "$RUNNER_TEMP/prior-linux-intoto.jsonl"
+          cmp "$RUNNER_TEMP/prior-linux-intoto.jsonl" \
+            "$prior/$archive.intoto.jsonl"
           signer_host="${GITHUB_SERVER_URL#*://}"
           signer_workflow="$signer_host/$GITHUB_REPOSITORY/.github/workflows/publish.yml"
           GH_TOKEN="$token" GH_NO_UPDATE_NOTIFIER=1 gh attestation verify \
@@ -324,9 +655,18 @@ jobs:
             --signer-workflow "$signer_workflow" \
             --source-digest "$SOURCE_SHA" \
             > "$RUNNER_TEMP/verified-prior-attestation.json"
+          GH_TOKEN="$token" GH_NO_UPDATE_NOTIFIER=1 gh attestation verify \
+            "$prior/$archive" \
+            --repo "$GITHUB_REPOSITORY" \
+            --bundle "$prior/$archive.sigstore.json" \
+            --signer-workflow "$signer_workflow" \
+            --source-digest "$SOURCE_SHA" \
+            > "$RUNNER_TEMP/verified-prior-linux-attestation.json"
           unset token
           cp -- "$prior/$CRATE_NAME-$VERSION.crate.sigstore.json" \
             "$prior/$CRATE_NAME-$VERSION.crate.intoto.jsonl" \
+            "$prior/$archive.sigstore.json" \
+            "$prior/$archive.intoto.jsonl" \
             "$prior/$CRATE_NAME-$VERSION.SHA256SUMS" "$out/"
 
       - name: Require the existing yank-only credential when predecessors are live
@@ -398,29 +738,54 @@ jobs:
         with:
           subject-path: ${{ runner.temp }}/prepared/keyrx-${{ needs.prepare.outputs.version }}.crate
 
-      - name: Complete and validate a new six-asset set
+      - name: Attest the exact Linux and WSL archive when no complete release exists
+        if: steps.release.outputs.state == 'absent' || steps.release.outputs.state == 'draft-empty'
+        id: attest_linux
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: ${{ runner.temp }}/prepared/keyrx-${{ needs.prepare.outputs.version }}-x86_64-unknown-linux-musl.tar.gz
+
+      - name: Complete and validate a new ten-asset set
         if: steps.release.outputs.state == 'absent' || steps.release.outputs.state == 'draft-empty'
         shell: bash
         run: |
           set -euo pipefail
           out="$RUNNER_TEMP/prepared"
           crate="$CRATE_NAME-$VERSION.crate"
+          archive="$CRATE_NAME-$VERSION-$LINUX_TARGET.tar.gz"
           cp -- "${{ steps.attest.outputs.bundle-path }}" "$out/$crate.sigstore.json"
+          cp -- "${{ steps.attest_linux.outputs.bundle-path }}" \
+            "$out/$archive.sigstore.json"
           jq -c '.dsseEnvelope' "$out/$crate.sigstore.json" \
             > "$out/$crate.intoto.jsonl"
+          jq -c '.dsseEnvelope' "$out/$archive.sigstore.json" \
+            > "$out/$archive.intoto.jsonl"
           jq -e '.payloadType == "application/vnd.in-toto+json" and (.signatures | length) >= 1' \
             "$out/$crate.intoto.jsonl" >/dev/null
+          jq -e '.payloadType == "application/vnd.in-toto+json" and (.signatures | length) >= 1' \
+            "$out/$archive.intoto.jsonl" >/dev/null
           jq -r .payload "$out/$crate.intoto.jsonl" | base64 -d \
-            > "$RUNNER_TEMP/statement.json"
+            > "$RUNNER_TEMP/crate-statement.json"
           jq -e --arg name "$crate" --arg digest "$(sha256sum "$out/$crate" | cut -d' ' -f1)" \
             '(.predicateType | startswith("https://slsa.dev/provenance/")) and
              (.subject | length == 1) and .subject[0].name == $name and
-             .subject[0].digest.sha256 == $digest' "$RUNNER_TEMP/statement.json" >/dev/null
+             .subject[0].digest.sha256 == $digest' \
+            "$RUNNER_TEMP/crate-statement.json" >/dev/null
+          jq -r .payload "$out/$archive.intoto.jsonl" | base64 -d \
+            > "$RUNNER_TEMP/linux-statement.json"
+          jq -e --arg name "$archive" \
+            --arg digest "$(sha256sum "$out/$archive" | cut -d' ' -f1)" \
+            '(.predicateType | startswith("https://slsa.dev/provenance/")) and
+             (.subject | length == 1) and .subject[0].name == $name and
+             .subject[0].digest.sha256 == $digest' \
+            "$RUNNER_TEMP/linux-statement.json" >/dev/null
           (
             cd "$out"
             LC_ALL=C sha256sum \
               "$crate" "$crate.sha256" "$CRATE_NAME-$VERSION.cdx.json" \
               "$crate.sigstore.json" "$crate.intoto.jsonl" \
+              "$archive" "$archive.sha256" \
+              "$archive.sigstore.json" "$archive.intoto.jsonl" \
               > "$CRATE_NAME-$VERSION.SHA256SUMS"
           )
           python3 ops/release_preflight.py "$VERSION" \
@@ -435,15 +800,38 @@ jobs:
         run: |
           set -euo pipefail
           out="$RUNNER_TEMP/prepared"
+          crate="$CRATE_NAME-$VERSION.crate"
+          archive="$CRATE_NAME-$VERSION-$LINUX_TARGET.tar.gz"
           signer_host="${GITHUB_SERVER_URL#*://}"
           signer_workflow="$signer_host/$GITHUB_REPOSITORY/.github/workflows/publish.yml"
+          for subject in "$crate" "$archive"; do
+            jq -c '.dsseEnvelope' "$out/$subject.sigstore.json" \
+              > "$RUNNER_TEMP/selected-$subject.intoto.jsonl"
+            cmp "$RUNNER_TEMP/selected-$subject.intoto.jsonl" \
+              "$out/$subject.intoto.jsonl"
+            jq -r .payload "$out/$subject.intoto.jsonl" | base64 -d \
+              > "$RUNNER_TEMP/selected-$subject.statement.json"
+            jq -e --arg name "$subject" \
+              --arg digest "$(sha256sum "$out/$subject" | cut -d' ' -f1)" \
+              '(.predicateType | startswith("https://slsa.dev/provenance/")) and
+               (.subject | length == 1) and .subject[0].name == $name and
+               .subject[0].digest.sha256 == $digest' \
+              "$RUNNER_TEMP/selected-$subject.statement.json" >/dev/null
+          done
           GH_NO_UPDATE_NOTIFIER=1 gh attestation verify \
-            "$out/$CRATE_NAME-$VERSION.crate" \
+            "$out/$crate" \
             --repo "$GITHUB_REPOSITORY" \
-            --bundle "$out/$CRATE_NAME-$VERSION.crate.sigstore.json" \
+            --bundle "$out/$crate.sigstore.json" \
             --signer-workflow "$signer_workflow" \
             --source-digest "$SOURCE_SHA" \
             > "$RUNNER_TEMP/verified-attestation.json"
+          GH_NO_UPDATE_NOTIFIER=1 gh attestation verify \
+            "$out/$archive" \
+            --repo "$GITHUB_REPOSITORY" \
+            --bundle "$out/$archive.sigstore.json" \
+            --signer-workflow "$signer_workflow" \
+            --source-digest "$SOURCE_SHA" \
+            > "$RUNNER_TEMP/verified-linux-attestation.json"
 
       - name: Create the inert draft when no release exists
         if: steps.release.outputs.state == 'absent'
@@ -526,12 +914,17 @@ jobs:
           expected="https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$release_id/assets{?name,label}"
           test "$upload_template" = "$expected"
           upload_url="${upload_template%%\{*}"
+          archive="$CRATE_NAME-$VERSION-$LINUX_TARGET.tar.gz"
           names=(
             "$CRATE_NAME-$VERSION.crate"
             "$CRATE_NAME-$VERSION.crate.sha256"
             "$CRATE_NAME-$VERSION.cdx.json"
             "$CRATE_NAME-$VERSION.crate.sigstore.json"
             "$CRATE_NAME-$VERSION.crate.intoto.jsonl"
+            "$archive"
+            "$archive.sha256"
+            "$archive.sigstore.json"
+            "$archive.intoto.jsonl"
             "$CRATE_NAME-$VERSION.SHA256SUMS"
           )
           for name in "${names[@]}"; do
@@ -652,6 +1045,16 @@ jobs:
             "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)" = "$TAG"
           GH_TOKEN="$token" GH_NO_UPDATE_NOTIFIER=1 gh release verify \
             "$TAG" --repo "$GITHUB_REPOSITORY"
+          archive="$CRATE_NAME-$VERSION-$LINUX_TARGET.tar.gz"
+          signer_host="${GITHUB_SERVER_URL#*://}"
+          signer_workflow="$signer_host/$GITHUB_REPOSITORY/.github/workflows/publish.yml"
+          GH_TOKEN="$token" GH_NO_UPDATE_NOTIFIER=1 gh attestation verify \
+            "$RUNNER_TEMP/prepared/$archive" \
+            --repo "$GITHUB_REPOSITORY" \
+            --bundle "$RUNNER_TEMP/prepared/$archive.sigstore.json" \
+            --signer-workflow "$signer_workflow" \
+            --source-digest "$SOURCE_SHA" \
+            > "$RUNNER_TEMP/verified-final-linux-attestation.json"
           unset token
 
       - name: Rebind the measured predecessors immediately before yank

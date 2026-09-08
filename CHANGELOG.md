@@ -2,6 +2,17 @@
 
 All notable changes to keyRX, newest first. Versions are the ones on crates.io.
 
+## 0.4.18 - 2026-09-08
+
+- Add an attested, checksummed `x86_64-unknown-linux-musl` release archive so Linux and Windows
+  WSL users can download and verify keyRX without first compiling its Rust dependency tree. Keep
+  native Windows unsupported until its owner-only file guarantees exist, and keep macOS on the
+  source-build path until signed and notarized native archives can be tested honestly.
+- Make first-run guidance lead with the prebuilt archive and give source builders one complete
+  official-rustup, Rust 1.85+, Cargo `PATH`, and `cargo install --locked` path. The official
+  prebuilt now points `--update` users back to the verified release instead of trying to infer that
+  Cargo owns an executable it did not install.
+
 ## 0.4.17 - 2026-09-04
 
 - After a successful default grind, print the exact copy-ready `keyrx show` command for every
