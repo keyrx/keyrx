@@ -27,6 +27,15 @@ Linux x86-64 has one prebuilt release archive; Windows runs the same Linux binar
 
     keyrx-<version>-x86_64-unknown-linux-musl.tar.gz
 
+The one-command path downloads the exact versioned archive, verifies SHA-256 before extraction,
+verifies GitHub provenance when GitHub CLI is available, installs to the user's Cargo bin directory,
+and runs `keyrx verify`:
+
+    curl --proto '=https' --tlsv1.2 -fsSL https://keyrx.tech/install.sh | sh
+
+The same `install.sh` bytes are attached to the GitHub Release, covered by its checksum manifest and
+signed provenance, and served at keyrx.tech. The manual archive path below remains available.
+
 Download it and its matching `.tar.gz.sha256` sidecar from the same GitHub Release, verify the
 archive, extract it, install `keyrx` into `${CARGO_HOME:-$HOME/.cargo}/bin`, then run `keyrx verify`.
 The release's

@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/keyrx/keyrx/v0.4.18/assets/x-header-1500x500.png" width="100%" alt="keyRX CLI: Solana and EVM vanity address grinder">
+  <img src="https://raw.githubusercontent.com/keyrx/keyrx/v0.4.19/assets/x-header-1500x500.png" width="100%" alt="keyRX CLI: Solana and EVM vanity address grinder">
 </p>
 
 <p align="center">
@@ -45,9 +45,24 @@ release contract. Download its matching `.sha256` file alongside it, verify befo
 and run the installed binary's own verification. The release also carries one complete
 `keyrx-<version>.SHA256SUMS` manifest for every other attached asset.
 
+One command installs the exact current Linux/WSL release into your user-owned Cargo bin directory,
+verifies its SHA-256 before extraction, verifies GitHub provenance when `gh` is available, then runs
+the installed binary's own verification:
+
+```sh
+curl --proto '=https' --tlsv1.2 -fsSL https://keyrx.tech/install.sh | sh
+```
+
+The installer is itself an attested, checksummed release asset and is served byte-for-byte at
+`https://keyrx.tech/install.sh`. To inspect it before execution, download that URL first and compare
+it with the `install.sh` asset on the current GitHub Release. Set `KEYRX_REQUIRE_ATTESTATION=1` to
+refuse unless GitHub CLI is available for archive provenance verification.
+
+The complete manual equivalent remains below:
+
 ```sh
 set -eu
-VERSION=0.4.18
+VERSION=0.4.19
 TARGET=x86_64-unknown-linux-musl
 ARCHIVE="keyrx-$VERSION-$TARGET.tar.gz"
 BASE="https://github.com/keyrx/keyrx/releases/download/v$VERSION"

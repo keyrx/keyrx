@@ -14,6 +14,10 @@ The documentation for keyRX lives in three places, all kept in step with the cod
   `export PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"`. See [Install](../README.md) for exact
   download, checksum, extraction, provenance, and source-build commands, and <https://keyrx.tech>
   (F3, INSTALL) for the same choices.
+  The one-command path is
+  `curl --proto '=https' --tlsv1.2 -fsSL https://keyrx.tech/install.sh | sh`; the served script is
+  byte-identical to the attested `install.sh` release asset and keeps the manual path available for
+  inspection-first installs.
 - **Start:** `keyrx` with no arguments prints the start screen, which explains every command and
   every flag in place: WHAT THIS IS, COMMANDS, PATTERN FLAGS, EVM, GRIND FLAGS, THE 128, WHAT A
   MATCH WRITES, RECIPES, A TYPICAL SESSION. `keyrx <command> --help` for any one of them.

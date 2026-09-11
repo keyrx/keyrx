@@ -32,6 +32,9 @@ def required_assets(version: str) -> tuple[str, ...]:
         f"{linux_archive}.sha256",
         f"{linux_archive}.sigstore.json",
         f"{linux_archive}.intoto.jsonl",
+        "install.sh",
+        "install.sh.sigstore.json",
+        "install.sh.intoto.jsonl",
         f"keyrx-{version}.SHA256SUMS",
     )
 
@@ -98,6 +101,7 @@ def probe_release(
         f"keyrx-{version}.cdx.json",
         f"keyrx-{version}-{LINUX_TARGET}.tar.gz",
         f"keyrx-{version}-{LINUX_TARGET}.tar.gz.sha256",
+        "install.sh",
     }
     names = set()
     asset_ids = set()
@@ -135,7 +139,7 @@ def probe_release(
             if row["size"] != path.stat().st_size or row["digest"] != "sha256:" + digest(path):
                 raise ReleaseError(f"release stable asset {name!r} differs")
     if not draft and names != allowed:
-        raise ReleaseError("published release does not contain the exact ten assets")
+        raise ReleaseError("published release does not contain the exact thirteen assets")
     if not names:
         state = "draft-empty"
     elif names == allowed:

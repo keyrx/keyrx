@@ -114,13 +114,15 @@ jobs:
           python3 ops/generate_sbom.py "$VERSION" "$SOURCE_SHA" \
             "$out/$CRATE_NAME-$VERSION.cdx.json"
           cp -- "$RUNNER_TEMP/release-notes.md" "$out/release-notes.md"
+          cp -- site/install.sh "$out/install.sh"
+          test -x "$out/install.sh"
           (
             cd "$out"
             LC_ALL=C sha256sum \
               "$CRATE_NAME-$VERSION.crate" \
               "$CRATE_NAME-$VERSION.crate.sha256" \
               "$CRATE_NAME-$VERSION.cdx.json" \
-              release-notes.md > PREPARED_SHA256SUMS
+              install.sh release-notes.md > PREPARED_SHA256SUMS
           )
           test "$(git rev-parse HEAD^{commit})" = "$SOURCE_SHA"
           test -z "$(git status --porcelain=v1 --untracked-files=all)"
@@ -480,7 +482,7 @@ jobs:
             -printf '%f\n' | LC_ALL=C sort)
           expected=(PREPARED_SHA256SUMS "$CRATE_NAME-$VERSION.cdx.json"
             "$CRATE_NAME-$VERSION.crate" "$CRATE_NAME-$VERSION.crate.sha256"
-            release-notes.md)
+            install.sh release-notes.md)
           mapfile -t expected_sorted < <(printf '%s\n' "${expected[@]}" | LC_ALL=C sort)
           test "${names[*]}" = "${expected_sorted[*]}"
           mapfile -t entries < <(find "$out" -mindepth 1 -printf '%P\t%y\n' | LC_ALL=C sort)
@@ -503,7 +505,7 @@ jobs:
           cp -- "$binary_handoff/$archive" "$binary_handoff/$archive.sha256" "$out/"
           assembled_expected=(PREPARED_SHA256SUMS "$CRATE_NAME-$VERSION.cdx.json"
             "$CRATE_NAME-$VERSION.crate" "$CRATE_NAME-$VERSION.crate.sha256"
-            "$archive" "$archive.sha256" release-notes.md)
+            "$archive" "$archive.sha256" install.sh release-notes.md)
           mapfile -t assembled_names < <(find "$out" -mindepth 1 -maxdepth 1 \
             -type f -printf '%f\n' | LC_ALL=C sort)
           mapfile -t assembled_expected_sorted < <(printf '%s\n' \
@@ -517,6 +519,8 @@ jobs:
           python3 ops/release_preflight.py "$VERSION" --notes \
             > "$RUNNER_TEMP/effect-notes.md"
           cmp "$RUNNER_TEMP/effect-notes.md" "$out/release-notes.md"
+          cmp site/install.sh "$out/install.sh"
+          test -x "$out/install.sh"
           CARGO_TARGET_DIR="$RUNNER_TEMP/effect-package" \
             cargo package --locked --no-verify
           cmp "$RUNNER_TEMP/effect-package/package/$CRATE_NAME-$VERSION.crate" \
@@ -630,7 +634,7 @@ jobs:
           for name in "$CRATE_NAME-$VERSION.crate" \
             "$CRATE_NAME-$VERSION.crate.sha256" \
             "$CRATE_NAME-$VERSION.cdx.json" \
-            "$archive" "$archive.sha256"; do
+            "$archive" "$archive.sha256" install.sh; do
             cmp "$prior/$name" "$out/$name"
           done
           python3 ops/release_preflight.py "$VERSION" \
@@ -646,6 +650,10 @@ jobs:
             > "$RUNNER_TEMP/prior-linux-intoto.jsonl"
           cmp "$RUNNER_TEMP/prior-linux-intoto.jsonl" \
             "$prior/$archive.intoto.jsonl"
+          jq -c '.dsseEnvelope' "$prior/install.sh.sigstore.json" \
+            > "$RUNNER_TEMP/prior-installer-intoto.jsonl"
+          cmp "$RUNNER_TEMP/prior-installer-intoto.jsonl" \
+            "$prior/install.sh.intoto.jsonl"
           signer_host="${GITHUB_SERVER_URL#*://}"
           signer_workflow="$signer_host/$GITHUB_REPOSITORY/.github/workflows/publish.yml"
           GH_TOKEN="$token" GH_NO_UPDATE_NOTIFIER=1 gh attestation verify \
@@ -662,11 +670,20 @@ jobs:
             --signer-workflow "$signer_workflow" \
             --source-digest "$SOURCE_SHA" \
             > "$RUNNER_TEMP/verified-prior-linux-attestation.json"
+          GH_TOKEN="$token" GH_NO_UPDATE_NOTIFIER=1 gh attestation verify \
+            "$prior/install.sh" \
+            --repo "$GITHUB_REPOSITORY" \
+            --bundle "$prior/install.sh.sigstore.json" \
+            --signer-workflow "$signer_workflow" \
+            --source-digest "$SOURCE_SHA" \
+            > "$RUNNER_TEMP/verified-prior-installer-attestation.json"
           unset token
           cp -- "$prior/$CRATE_NAME-$VERSION.crate.sigstore.json" \
             "$prior/$CRATE_NAME-$VERSION.crate.intoto.jsonl" \
             "$prior/$archive.sigstore.json" \
             "$prior/$archive.intoto.jsonl" \
+            "$prior/install.sh.sigstore.json" \
+            "$prior/install.sh.intoto.jsonl" \
             "$prior/$CRATE_NAME-$VERSION.SHA256SUMS" "$out/"
 
       - name: Require the existing yank-only credential when predecessors are live
@@ -745,7 +762,14 @@ jobs:
         with:
           subject-path: ${{ runner.temp }}/prepared/keyrx-${{ needs.prepare.outputs.version }}-x86_64-unknown-linux-musl.tar.gz
 
-      - name: Complete and validate a new ten-asset set
+      - name: Attest the exact installer when no complete release exists
+        if: steps.release.outputs.state == 'absent' || steps.release.outputs.state == 'draft-empty'
+        id: attest_installer
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: ${{ runner.temp }}/prepared/install.sh
+
+      - name: Complete and validate a new thirteen-asset set
         if: steps.release.outputs.state == 'absent' || steps.release.outputs.state == 'draft-empty'
         shell: bash
         run: |
@@ -756,14 +780,20 @@ jobs:
           cp -- "${{ steps.attest.outputs.bundle-path }}" "$out/$crate.sigstore.json"
           cp -- "${{ steps.attest_linux.outputs.bundle-path }}" \
             "$out/$archive.sigstore.json"
+          cp -- "${{ steps.attest_installer.outputs.bundle-path }}" \
+            "$out/install.sh.sigstore.json"
           jq -c '.dsseEnvelope' "$out/$crate.sigstore.json" \
             > "$out/$crate.intoto.jsonl"
           jq -c '.dsseEnvelope' "$out/$archive.sigstore.json" \
             > "$out/$archive.intoto.jsonl"
+          jq -c '.dsseEnvelope' "$out/install.sh.sigstore.json" \
+            > "$out/install.sh.intoto.jsonl"
           jq -e '.payloadType == "application/vnd.in-toto+json" and (.signatures | length) >= 1' \
             "$out/$crate.intoto.jsonl" >/dev/null
           jq -e '.payloadType == "application/vnd.in-toto+json" and (.signatures | length) >= 1' \
             "$out/$archive.intoto.jsonl" >/dev/null
+          jq -e '.payloadType == "application/vnd.in-toto+json" and (.signatures | length) >= 1' \
+            "$out/install.sh.intoto.jsonl" >/dev/null
           jq -r .payload "$out/$crate.intoto.jsonl" | base64 -d \
             > "$RUNNER_TEMP/crate-statement.json"
           jq -e --arg name "$crate" --arg digest "$(sha256sum "$out/$crate" | cut -d' ' -f1)" \
@@ -779,6 +809,14 @@ jobs:
              (.subject | length == 1) and .subject[0].name == $name and
              .subject[0].digest.sha256 == $digest' \
             "$RUNNER_TEMP/linux-statement.json" >/dev/null
+          jq -r .payload "$out/install.sh.intoto.jsonl" | base64 -d \
+            > "$RUNNER_TEMP/installer-statement.json"
+          jq -e --arg name install.sh \
+            --arg digest "$(sha256sum "$out/install.sh" | cut -d' ' -f1)" \
+            '(.predicateType | startswith("https://slsa.dev/provenance/")) and
+             (.subject | length == 1) and .subject[0].name == $name and
+             .subject[0].digest.sha256 == $digest' \
+            "$RUNNER_TEMP/installer-statement.json" >/dev/null
           (
             cd "$out"
             LC_ALL=C sha256sum \
@@ -786,6 +824,7 @@ jobs:
               "$crate.sigstore.json" "$crate.intoto.jsonl" \
               "$archive" "$archive.sha256" \
               "$archive.sigstore.json" "$archive.intoto.jsonl" \
+              install.sh install.sh.sigstore.json install.sh.intoto.jsonl \
               > "$CRATE_NAME-$VERSION.SHA256SUMS"
           )
           python3 ops/release_preflight.py "$VERSION" \
@@ -804,7 +843,7 @@ jobs:
           archive="$CRATE_NAME-$VERSION-$LINUX_TARGET.tar.gz"
           signer_host="${GITHUB_SERVER_URL#*://}"
           signer_workflow="$signer_host/$GITHUB_REPOSITORY/.github/workflows/publish.yml"
-          for subject in "$crate" "$archive"; do
+          for subject in "$crate" "$archive" install.sh; do
             jq -c '.dsseEnvelope' "$out/$subject.sigstore.json" \
               > "$RUNNER_TEMP/selected-$subject.intoto.jsonl"
             cmp "$RUNNER_TEMP/selected-$subject.intoto.jsonl" \
@@ -832,6 +871,13 @@ jobs:
             --signer-workflow "$signer_workflow" \
             --source-digest "$SOURCE_SHA" \
             > "$RUNNER_TEMP/verified-linux-attestation.json"
+          GH_NO_UPDATE_NOTIFIER=1 gh attestation verify \
+            "$out/install.sh" \
+            --repo "$GITHUB_REPOSITORY" \
+            --bundle "$out/install.sh.sigstore.json" \
+            --signer-workflow "$signer_workflow" \
+            --source-digest "$SOURCE_SHA" \
+            > "$RUNNER_TEMP/verified-installer-attestation.json"
 
       - name: Create the inert draft when no release exists
         if: steps.release.outputs.state == 'absent'
@@ -925,6 +971,9 @@ jobs:
             "$archive.sha256"
             "$archive.sigstore.json"
             "$archive.intoto.jsonl"
+            install.sh
+            install.sh.sigstore.json
+            install.sh.intoto.jsonl
             "$CRATE_NAME-$VERSION.SHA256SUMS"
           )
           for name in "${names[@]}"; do
@@ -1055,6 +1104,13 @@ jobs:
             --signer-workflow "$signer_workflow" \
             --source-digest "$SOURCE_SHA" \
             > "$RUNNER_TEMP/verified-final-linux-attestation.json"
+          GH_TOKEN="$token" GH_NO_UPDATE_NOTIFIER=1 gh attestation verify \
+            "$RUNNER_TEMP/prepared/install.sh" \
+            --repo "$GITHUB_REPOSITORY" \
+            --bundle "$RUNNER_TEMP/prepared/install.sh.sigstore.json" \
+            --signer-workflow "$signer_workflow" \
+            --source-digest "$SOURCE_SHA" \
+            > "$RUNNER_TEMP/verified-final-installer-attestation.json"
           unset token
 
       - name: Rebind the measured predecessors immediately before yank

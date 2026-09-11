@@ -632,6 +632,9 @@ class ChecksumManifestTests(unittest.TestCase):
             f"{archive}.sha256",
             f"{archive}.sigstore.json",
             f"{archive}.intoto.jsonl",
+            "install.sh",
+            "install.sh.sigstore.json",
+            "install.sh.intoto.jsonl",
         )
         return "".join(f"{index:064x}  {name}\n" for index, name in enumerate(names, 1))
 
@@ -639,7 +642,7 @@ class ChecksumManifestTests(unittest.TestCase):
         result = release_preflight.validate_checksum_manifest(
             self.valid_manifest(), VERSION, "SHA256SUMS"
         )
-        self.assertEqual(len(result), 9)
+        self.assertEqual(len(result), 12)
 
     def test_duplicate_entry_cannot_substitute_for_a_missing_asset(self):
         lines = self.valid_manifest().splitlines()

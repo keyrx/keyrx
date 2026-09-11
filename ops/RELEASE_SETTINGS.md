@@ -11,7 +11,7 @@ There is no manual-dispatch release path and no temporary branch admission.
 
 1. Keep GitHub **release immutability enabled** and protect `v*` tags from
    deletion or retargeting. Immutability is not an extra release action. The
-   workflow creates a draft, uploads and checks all ten assets, publishes it,
+   workflow creates a draft, uploads and checks all thirteen assets, publishes it,
    and then requires the resulting release object to report `immutable: true`.
 2. Keep the GitHub environment named `release` restricted to tags matching
    `v*`. The effect job uses that environment; ordinary branch pushes never do.
@@ -56,8 +56,8 @@ gates the effect job, which consumes the builder's original exact artifact ID
 directly. The effect job never compiles or executes the candidate binary. It
 re-derives the crate, verifies and assembles the already-tested binary handoff,
 uses official `cargo publish`, compares the registry download with the prepared
-crate, creates separate single-subject provenance for the crate and binary
-archive plus the deterministic SBOM, validates the complete ten-asset draft,
+crate, creates separate single-subject provenance for the crate, binary
+archive, and one-command installer plus the deterministic SBOM, validates the complete thirteen-asset draft,
 publishes it, verifies all remote asset digests, binary provenance, and release
 immutability, and only then yanks the exactly rebound predecessor set.
 
@@ -73,7 +73,7 @@ repository setting is an operator action.
 An exact rerun discovers drafts through the authenticated, fully paginated
 release collection, binds one exact match by its numeric release ID, and then
 continues automatically from an empty draft, reuses and verifies the complete
-ten-asset set in an exact draft, or finishes the remaining registry policy work
+thirteen-asset set in an exact draft, or finishes the remaining registry policy work
 after an immutable release. A partial draft is the one deliberate
 manual boundary: inspect and delete only that inert draft, then rerun. An exact
 already-published registry version is recognized and is never uploaded twice.

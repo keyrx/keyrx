@@ -1,5 +1,6 @@
 import re
 from pathlib import Path
+import os
 import subprocess
 import tempfile
 import tomllib
@@ -15,13 +16,14 @@ VERSION = tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))["pack
 SURFACES = (("README", README), ("docs", DOCS), ("site", SITE), ("llms", LLMS))
 LINUX_TARGET = "x86_64-unknown-linux-musl"
 UNSHIPPED_MAC_TARGETS = ("aarch64-apple-darwin", "x86_64-apple-darwin")
-LINUX_BLOCK_MATCH = re.search(
-    r"### Linux x86-64 and Windows through WSL.*?```sh\n(?P<body>.*?)```",
-    README,
-    re.DOTALL,
-)
-assert LINUX_BLOCK_MATCH is not None
-LINUX_BLOCK = LINUX_BLOCK_MATCH.group("body")
+LINUX_SECTION = README.split("### Linux x86-64 and Windows through WSL", 1)[1].split(
+    "### macOS", 1
+)[0]
+LINUX_BLOCKS = re.findall(r"```sh\n(.*?)```", LINUX_SECTION, re.DOTALL)
+LINUX_BLOCK = next((body for body in LINUX_BLOCKS if body.startswith("set -eu\n")), "")
+assert LINUX_BLOCK
+INSTALLER = ROOT / "site" / "install.sh"
+SITE_RECEIPT = (ROOT / "ops" / "site_receipt.sh").read_text(encoding="utf-8")
 
 
 class InstallGuidanceTests(unittest.TestCase):
@@ -148,11 +150,12 @@ class InstallGuidanceTests(unittest.TestCase):
         self.assertIn("no ~/.cargo/env assumption", SITE)
         self.assertIn("does not assume that `~/.cargo/env` exists", README)
 
-    def test_windows_is_wsl_only_and_no_keyrx_curl_pipe_installer_is_taught(self):
+    def test_one_command_installer_is_taught_only_for_linux_and_wsl(self):
+        command = "curl --proto '=https' --tlsv1.2 -fsSL https://keyrx.tech/install.sh | sh"
         for name, text in SURFACES:
             with self.subTest(name=name):
                 self.assertRegex(text, r"(?is)Windows.{0,100}WSL")
-                self.assertNotRegex(text, r"(?is)curl[^\n]*(?:keyrx\.tech|github\.com/keyrx)[^\n]*\|\s*(?:ba)?sh")
+                self.assertIn(command, text)
         self.assertNotIn("&& clear", README)
         self.assertNotIn("&& clear", DOCS)
         self.assertNotIn("&& clear", SITE)
@@ -164,6 +167,165 @@ class InstallGuidanceTests(unittest.TestCase):
                 self.assertIn("macOS", text)
                 self.assertRegex(text, r"(?is)(?:signed and notarized|signed, notarized).{0,100}(?:macOS|Apple)")
                 self.assertIn("cargo install --locked keyrx", text)
+
+    def test_installer_is_versioned_executable_shell_and_fail_closed_by_order(self):
+        body = INSTALLER.read_text(encoding="utf-8")
+        self.assertTrue(INSTALLER.stat().st_mode & 0o100)
+        self.assertIn('"https://github.com/$REPOSITORY/releases/latest"', body)
+        self.assertIn('BASE_URL="https://github.com/$REPOSITORY/releases/download/v$VERSION"', body)
+        self.assertEqual(
+            subprocess.run(["/bin/sh", "-n", str(INSTALLER)], check=False).returncode,
+            0,
+        )
+        ordered = (
+            'test "$(uname -s',
+            'case "$(uname -m',
+            'curl --proto',
+            'sha256sum --check --strict',
+            'gh attestation verify',
+            'tar -tzf',
+            'tar -xzf',
+            'install -m 0755',
+            'keyrx verify',
+        )
+        positions = [body.index(value) for value in ordered]
+        self.assertEqual(positions, sorted(positions))
+        self.assertIn('"$HOST/install.sh"', SITE_RECEIPT)
+        self.assertIn('cmp -s "$tmp" "$ROOT/site/install.sh"', SITE_RECEIPT)
+
+    def _installer_fixture(self, root: Path, *, system="Linux", machine="x86_64", checksum=0, gh=False):
+        tools = root / "tools"
+        home = root / "home"
+        work = root / "work"
+        tools.mkdir()
+        home.mkdir()
+        work.mkdir()
+        log = root / "calls"
+
+        def tool(name, body):
+            path = tools / name
+            path.write_text("#!/bin/sh\nset -eu\n" + body, encoding="utf-8")
+            path.chmod(0o700)
+
+        tool("uname", f'[ "$1" = -s ] && printf "%s\\n" "{system}" || printf "%s\\n" "{machine}"\n')
+        tool("mktemp", 'printf "%s\\n" "$KEYRX_TEST_WORK"\n')
+        tool(
+            "curl",
+            '''out=''; url=''
+while [ "$#" -gt 0 ]; do
+  case "$1" in --output) out="$2"; shift 2;; http*) url="$1"; shift;; *) shift;; esac
+done
+printf 'curl %s\\n' "$url" >> "$KEYRX_TEST_LOG"
+case "$url" in
+  */releases/latest) printf 'https://github.com/keyrx/keyrx/releases/tag/v%s' "$KEYRX_TEST_VERSION"; exit 0 ;;
+esac
+case "$out" in
+  *.sha256) printf '%064d  %s\\n' 0 "${out%.sha256}" > "$out" ;;
+  *) printf 'archive\\n' > "$out" ;;
+esac
+''',
+        )
+        tool("sha256sum", f'printf "checksum\\n" >> "$KEYRX_TEST_LOG"\nexit {checksum}\n')
+        tool(
+            "tar",
+            '''root="keyrx-$KEYRX_TEST_VERSION-x86_64-unknown-linux-musl"
+case "$1" in
+  -tzf) printf '%s\\n' "$root/" "$root/keyrx" "$root/LICENSE" "$root/README.md" "$root/SOURCE.json" ;;
+  -xzf)
+    shift 2
+    [ "$1" = -C ]; destination="$2"
+    mkdir -p "$destination/$root"
+    printf '%s\\n' '#!/bin/sh' '[ "$1" = --version ] && { echo "keyrx '$KEYRX_TEST_VERSION'"; exit 0; }' '[ "$1" = verify ] && { echo verify >> "$KEYRX_TEST_LOG"; exit 0; }' 'exit 1' > "$destination/$root/keyrx"
+    chmod 0755 "$destination/$root/keyrx" ;;
+esac
+''',
+        )
+        tool("install", 'printf "install\\n" >> "$KEYRX_TEST_LOG"\ncp "$3" "$4"\nchmod "$2" "$4"\n')
+        if gh:
+            tool("gh", 'printf "attest\\n" >> "$KEYRX_TEST_LOG"\nexit "${KEYRX_TEST_GH_STATUS:-0}"\n')
+        env = os.environ.copy()
+        env.update(
+            {
+                "PATH": f"{tools}:/usr/bin:/bin",
+                "HOME": str(home),
+                "KEYRX_TEST_WORK": str(work),
+                "KEYRX_TEST_LOG": str(log),
+                "KEYRX_TEST_VERSION": VERSION,
+                "CARGO_HOME": str(root / "install-root"),
+            }
+        )
+        return env, log
+
+    def test_installer_refuses_unsupported_platform_before_network(self):
+        for system, machine in (("Darwin", "x86_64"), ("Linux", "aarch64")):
+            with self.subTest(system=system, machine=machine), tempfile.TemporaryDirectory() as directory:
+                env, log = self._installer_fixture(Path(directory), system=system, machine=machine)
+                result = subprocess.run(
+                    ["/bin/sh", str(INSTALLER)], env=env, check=False, capture_output=True, text=True
+                )
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("only", result.stderr)
+                self.assertFalse(log.exists())
+
+    def test_installer_refuses_noncanonical_latest_tag_before_archive_download(self):
+        for version in ("0.4", "01.2.3", "1.02.3", "v1.2.3", "1.2.3/other"):
+            with self.subTest(version=version), tempfile.TemporaryDirectory() as directory:
+                env, log = self._installer_fixture(Path(directory))
+                env["KEYRX_TEST_VERSION"] = version
+                result = subprocess.run(
+                    ["/bin/sh", str(INSTALLER)], env=env, check=False, capture_output=True, text=True
+                )
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("latest release version", result.stderr)
+                self.assertEqual(
+                    log.read_text(encoding="utf-8").splitlines(),
+                    ["curl https://github.com/keyrx/keyrx/releases/latest"],
+                )
+
+    def test_installer_checksum_failure_cannot_extract_or_install(self):
+        with tempfile.TemporaryDirectory() as directory:
+            env, log = self._installer_fixture(Path(directory), checksum=1)
+            result = subprocess.run(
+                ["/bin/sh", str(INSTALLER)], env=env, check=False, capture_output=True, text=True
+            )
+            self.assertNotEqual(result.returncode, 0)
+            calls = log.read_text(encoding="utf-8").splitlines()
+            self.assertEqual(len([line for line in calls if line.startswith("curl ")]), 3)
+            self.assertEqual(calls[-1], "checksum")
+            self.assertNotIn("install", calls)
+
+    def test_installer_executes_verified_archive_and_installed_self_check(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            env, log = self._installer_fixture(root, gh=True)
+            result = subprocess.run(
+                ["/bin/sh", str(INSTALLER)], env=env, check=False, capture_output=True, text=True
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            calls = log.read_text(encoding="utf-8").splitlines()
+            self.assertEqual(calls[-6:], ["checksum", "attest", "verify", "install", "verify", "verify"])
+            expected_base = f"https://github.com/keyrx/keyrx/releases/download/v{VERSION}"
+            self.assertEqual(
+                [line for line in calls if line.startswith("curl ")],
+                [
+                    "curl https://github.com/keyrx/keyrx/releases/latest",
+                    f"curl {expected_base}/keyrx-{VERSION}-{LINUX_TARGET}.tar.gz",
+                    f"curl {expected_base}/keyrx-{VERSION}-{LINUX_TARGET}.tar.gz.sha256",
+                ],
+            )
+            installed = root / "install-root" / "bin" / "keyrx"
+            self.assertTrue(installed.is_file())
+            self.assertIn(f"keyrx {VERSION} installed", result.stdout)
+
+    def test_installer_attestation_failure_cannot_install(self):
+        with tempfile.TemporaryDirectory() as directory:
+            env, log = self._installer_fixture(Path(directory), gh=True)
+            env["KEYRX_TEST_GH_STATUS"] = "1"
+            result = subprocess.run(
+                ["/bin/sh", str(INSTALLER)], env=env, check=False, capture_output=True, text=True
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(log.read_text(encoding="utf-8").splitlines()[-2:], ["checksum", "attest"])
 
     def test_distro_rustup_is_not_declared_universally_broken(self):
         for name, text in SURFACES:

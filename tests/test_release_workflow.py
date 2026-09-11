@@ -331,7 +331,8 @@ class WorkflowShapeTests(unittest.TestCase):
             "reuse": "Reuse complete provenance from an exact prior run",
             "attest": "Attest the exact registry archive when no complete release exists",
             "attest-linux": "Attest the exact Linux and WSL archive when no complete release exists",
-            "complete": "Complete and validate a new ten-asset set",
+            "attest-installer": "Attest the exact installer when no complete release exists",
+            "complete": "Complete and validate a new thirteen-asset set",
             "create": "Create the inert draft when no release exists",
             "empty-fetch": "Fetch the selected empty draft by immutable API identity",
             "empty-validate": "Validate the selected draft is empty before upload",
@@ -364,6 +365,7 @@ class WorkflowShapeTests(unittest.TestCase):
             {
                 "attest",
                 "attest-linux",
+                "attest-installer",
                 "complete",
                 "create",
                 "empty-fetch",
@@ -379,6 +381,7 @@ class WorkflowShapeTests(unittest.TestCase):
         draft_empty_without_predecessors = {
             "attest",
             "attest-linux",
+            "attest-installer",
             "complete",
             "empty-fetch",
             "empty-validate",
@@ -399,11 +402,14 @@ class WorkflowShapeTests(unittest.TestCase):
             "steps.registry.outputs.predecessors != '[]'",
         )
 
-    def test_exact_ten_assets_are_named_once_by_the_validator(self):
+    def test_exact_thirteen_assets_are_named_once_by_the_validator(self):
         names = release_state.required_assets("1.2.3")
-        self.assertEqual(len(names), 10)
-        self.assertEqual(len(set(names)), 10)
+        self.assertEqual(len(names), 13)
+        self.assertEqual(len(set(names)), 13)
         self.assertIn("keyrx-1.2.3-x86_64-unknown-linux-musl.tar.gz", names)
+        self.assertIn("install.sh", names)
+        self.assertIn("install.sh.sigstore.json", names)
+        self.assertIn("install.sh.intoto.jsonl", names)
         self.assertEqual(names[-1], "keyrx-1.2.3.SHA256SUMS")
 
     def test_linux_binary_job_is_read_only_and_effect_needs_its_exact_handoff(self):
@@ -521,19 +527,27 @@ class WorkflowShapeTests(unittest.TestCase):
         linux_attest = WORKFLOW.index(
             "Attest the exact Linux and WSL archive when no complete release exists"
         )
-        complete = WORKFLOW.index("Complete and validate a new ten-asset set", linux_attest)
+        installer_attest = WORKFLOW.index(
+            "Attest the exact installer when no complete release exists", linux_attest
+        )
+        complete = WORKFLOW.index("Complete and validate a new thirteen-asset set", installer_attest)
         self.assertIn(
             "subject-path: ${{ runner.temp }}/prepared/keyrx-${{ needs.prepare.outputs.version }}-x86_64-unknown-linux-musl.tar.gz",
             WORKFLOW[linux_attest:complete],
         )
-        completed = workflow_run("Complete and validate a new ten-asset set")
-        self.assertGreaterEqual(completed.count("(.subject | length == 1)"), 2)
+        self.assertIn(
+            "subject-path: ${{ runner.temp }}/prepared/install.sh",
+            WORKFLOW[installer_attest:complete],
+        )
+        completed = workflow_run("Complete and validate a new thirteen-asset set")
+        self.assertGreaterEqual(completed.count("(.subject | length == 1)"), 3)
         selected = workflow_run("Verify the selected provider-signed provenance")
-        self.assertIn('for subject in "$crate" "$archive"', selected)
+        self.assertIn('for subject in "$crate" "$archive" install.sh', selected)
         self.assertIn('(.subject | length == 1)', selected)
         final = workflow_run("Verify the immutable release and every attached digest")
         self.assertIn('gh attestation verify', final)
         self.assertIn('"$RUNNER_TEMP/prepared/$archive"', final)
+        self.assertIn('"$RUNNER_TEMP/prepared/install.sh"', final)
 
     def test_preparation_and_ci_own_release_and_site_controls(self):
         self.assertIn("node tests/site_harness.js site/index.html", WORKFLOW)
@@ -1352,14 +1366,14 @@ raise SystemExit(0 if ok else 1)
             )
             self.assertEqual(accepted.returncode, 0, accepted.stderr)
             urls = log.read_text(encoding="utf-8").splitlines()
-            self.assertEqual(len(urls), 10)
-            self.assertEqual(len(set(urls)), 10)
+            self.assertEqual(len(urls), 13)
+            self.assertEqual(len(set(urls)), 13)
             self.assertEqual(
                 {url.split("?name=", 1)[1] for url in urls},
                 set(release_state.required_assets(version)),
             )
             self.assertTrue(
-                all("/releases/42/assets?name=keyrx-1.2.3" in url for url in urls)
+                all("/releases/42/assets?name=" in url for url in urls)
             )
             self.assertFalse(any("/tags/" in url for url in urls))
 
@@ -1787,6 +1801,7 @@ class ReleaseReuseShimTests(unittest.TestCase):
             names[2]: b'{"bomFormat":"CycloneDX"}\n',
             names[5]: b"exact Linux archive bytes\n",
             names[6]: b"Linux archive checksum sidecar\n",
+            names[9]: b"#!/bin/sh\nexit 0\n",
         }
         for name, data in stable.items():
             (prepared / name).write_bytes(data)
@@ -1806,24 +1821,28 @@ class ReleaseReuseShimTests(unittest.TestCase):
         (remote / names[8]).write_text(
             json.dumps(envelope, separators=(",", ":")) + "\n", encoding="utf-8"
         )
+        (remote / names[10]).write_text(json.dumps(bundle), encoding="utf-8")
+        (remote / names[11]).write_text(
+            json.dumps(envelope, separators=(",", ":")) + "\n", encoding="utf-8"
+        )
         manifest_rows = []
-        for name in names[:9]:
+        for name in names[:-1]:
             manifest_rows.append(
                 f"{hashlib.sha256((remote / name).read_bytes()).hexdigest()}  {name}"
             )
-        (remote / names[9]).write_text("\n".join(manifest_rows) + "\n", encoding="utf-8")
+        (remote / names[-1]).write_text("\n".join(manifest_rows) + "\n", encoding="utf-8")
         if tamper == "intoto":
             (remote / names[4]).write_text('{}\n', encoding="utf-8")
-            rows = (remote / names[9]).read_text(encoding="utf-8").splitlines()
+            rows = (remote / names[-1]).read_text(encoding="utf-8").splitlines()
             rows[4] = (
                 hashlib.sha256((remote / names[4]).read_bytes()).hexdigest()
                 + rows[4][64:]
             )
-            (remote / names[9]).write_text("\n".join(rows) + "\n", encoding="utf-8")
+            (remote / names[-1]).write_text("\n".join(rows) + "\n", encoding="utf-8")
         elif tamper == "manifest":
-            rows = (remote / names[9]).read_text(encoding="utf-8").splitlines()
+            rows = (remote / names[-1]).read_text(encoding="utf-8").splitlines()
             rows[0] = "0" * 64 + rows[0][64:]
-            (remote / names[9]).write_text("\n".join(rows) + "\n", encoding="utf-8")
+            (remote / names[-1]).write_text("\n".join(rows) + "\n", encoding="utf-8")
         elif tamper == "stable":
             (remote / names[0]).write_bytes(b"different crate bytes\n")
         api = "https://api.github.test"
@@ -1915,8 +1934,8 @@ test "$1 $2" = 'attestation verify'
                 for name in release_state.required_assets(self.VERSION):
                     self.assertEqual((prepared / name).read_bytes(), (remote / name).read_bytes())
                 urls = curl_log.read_text(encoding="utf-8").splitlines()
-                self.assertEqual(len(urls), 10)
-                self.assertEqual(len(set(urls)), 10)
+                self.assertEqual(len(urls), 13)
+                self.assertEqual(len(set(urls)), 13)
                 invocation = gh_log.read_text(encoding="utf-8")
                 self.assertIn("attestation verify", invocation)
                 self.assertIn(f"--source-digest {self.SOURCE}", invocation)

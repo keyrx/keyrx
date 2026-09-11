@@ -270,6 +270,9 @@ def validate_checksum_manifest(text: str, version: str, source: str) -> dict[str
         f"{linux_archive}.sha256",
         f"{linux_archive}.sigstore.json",
         f"{linux_archive}.intoto.jsonl",
+        "install.sh",
+        "install.sh.sigstore.json",
+        "install.sh.intoto.jsonl",
     }
     checksums: dict[str, str] = {}
     lines = text.splitlines()
