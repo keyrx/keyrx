@@ -2,7 +2,7 @@
 
 All notable changes to keyRX, newest first. Versions are the ones on crates.io.
 
-## 0.4.19 - 2026-09-11
+## 0.4.20 - 2026-09-13
 
 - Add one real Linux x86-64 and WSL install command at `https://keyrx.tech/install.sh`. The bounded
   installer refuses unsupported systems, downloads the exact versioned archive and checksum,
@@ -12,6 +12,10 @@ All notable changes to keyRX, newest first. Versions are the ones on crates.io.
 - Publish the installer as its own checksummed and signed-provenance release subject, then require
   keyrx.tech to serve those exact bytes at `/install.sh`. Keep the complete inspection-first manual
   path and locked Rust source-build path documented alongside the one-command route.
+- Recover from the protected `v0.4.19` tag, whose workflow stopped before publication.
+  GitHub artifact download can strip `install.sh`'s executable bit; verify the
+  downloaded bytes by manifest and source comparison, and verify executable mode
+  on the committed source instead. No CLI or installer behavior changes in this fix.
 
 ## 0.4.18 - 2026-09-08
 

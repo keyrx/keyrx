@@ -555,6 +555,66 @@ class WorkflowShapeTests(unittest.TestCase):
         self.assertIn("node tests/site_harness.js site/index.html", CI)
         self.assertIn("python3 -m unittest discover -s tests -p 'test_release_*.py'", CI)
 
+    def test_effect_installer_handoff_checks_bytes_not_download_mode(self):
+        body = workflow_run("Re-derive and bind every prepared byte")
+        lines = body.splitlines()
+        checksum = next(
+            line for line in lines if "sha256sum --check --strict PREPARED_SHA256SUMS" in line
+        )
+        compare = next(line for line in lines if line.startswith("cmp site/install.sh "))
+        mode = next(
+            line for line in lines
+            if line.startswith("test -x ") and "install.sh" in line
+        )
+        self.assertEqual(checksum, '(cd "$out" && sha256sum --check --strict PREPARED_SHA256SUMS)')
+        self.assertEqual(compare, 'cmp site/install.sh "$out/install.sh"')
+        self.assertEqual(mode, 'test -x site/install.sh')
+        self.assertLess(lines.index(checksum), lines.index(compare))
+        self.assertLess(lines.index(compare), lines.index(mode))
+        self.assertNotIn('test -x "$out/install.sh"', body)
+        script = "set -euo pipefail\n" + "\n".join((checksum, compare, mode)) + "\n"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            site = root / "site"
+            out = root / "prepared"
+            site.mkdir()
+            out.mkdir()
+            source = site / "install.sh"
+            downloaded = out / "install.sh"
+            source.write_bytes(b"#!/bin/sh\nexit 0\n")
+            source.chmod(0o755)
+            downloaded.write_bytes(source.read_bytes())
+            downloaded.chmod(0o644)  # Artifact transfer need not retain mode.
+            digest = hashlib.sha256(source.read_bytes()).hexdigest()
+            (out / "PREPARED_SHA256SUMS").write_text(
+                f"{digest}  install.sh\n", encoding="ascii"
+            )
+
+            def run():
+                return subprocess.run(
+                    ["bash", "-c", script],
+                    cwd=root,
+                    env={**os.environ, "out": str(out)},
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                ).returncode
+
+            self.assertEqual(run(), 0)
+            downloaded.write_bytes(b"#!/bin/sh\nexit 1\n")
+            self.assertNotEqual(run(), 0)
+            altered_digest = hashlib.sha256(downloaded.read_bytes()).hexdigest()
+            (out / "PREPARED_SHA256SUMS").write_text(
+                f"{altered_digest}  install.sh\n", encoding="ascii"
+            )
+            self.assertNotEqual(run(), 0)
+            downloaded.write_bytes(source.read_bytes())
+            (out / "PREPARED_SHA256SUMS").write_text(
+                f"{digest}  install.sh\n", encoding="ascii"
+            )
+            source.chmod(0o644)
+            self.assertNotEqual(run(), 0)
+
     def test_only_yank_credential_remains_long_lived(self):
         secret_references = {
             line.strip()

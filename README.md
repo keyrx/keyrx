@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/keyrx/keyrx/v0.4.19/assets/x-header-1500x500.png" width="100%" alt="keyRX CLI: Solana and EVM vanity address grinder">
+  <img src="https://raw.githubusercontent.com/keyrx/keyrx/v0.4.20/assets/x-header-1500x500.png" width="100%" alt="keyRX CLI: Solana and EVM vanity address grinder">
 </p>
 
 <p align="center">
@@ -62,7 +62,7 @@ The complete manual equivalent remains below:
 
 ```sh
 set -eu
-VERSION=0.4.19
+VERSION=0.4.20
 TARGET=x86_64-unknown-linux-musl
 ARCHIVE="keyrx-$VERSION-$TARGET.tar.gz"
 BASE="https://github.com/keyrx/keyrx/releases/download/v$VERSION"

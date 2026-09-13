@@ -520,7 +520,8 @@ jobs:
             > "$RUNNER_TEMP/effect-notes.md"
           cmp "$RUNNER_TEMP/effect-notes.md" "$out/release-notes.md"
           cmp site/install.sh "$out/install.sh"
-          test -x "$out/install.sh"
+          # Artifact download can strip mode; the committed source owns executable mode.
+          test -x site/install.sh
           CARGO_TARGET_DIR="$RUNNER_TEMP/effect-package" \
             cargo package --locked --no-verify
           cmp "$RUNNER_TEMP/effect-package/package/$CRATE_NAME-$VERSION.crate" \
