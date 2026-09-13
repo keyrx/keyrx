@@ -2,11 +2,22 @@
 
 All notable changes to keyRX, newest first. Versions are the ones on crates.io.
 
+## 0.4.21 - 2026-09-13
+
+- Keep the one-command Linux/WSL installer working when an older GitHub CLI is
+  installed but lacks `gh attestation verify`. Treat that command as unavailable,
+  name the checksum-only path explicitly, and still refuse when
+  `KEYRX_REQUIRE_ATTESTATION=1`. A supported command that fails verification
+  remains a refusal; no CLI binary behavior changes.
+- Make keyrx.tech's Install panel show the one Linux/WSL command by default.
+  Keep the archive and macOS source instructions behind `install manual`, and
+  replace the oversized mobile release URL with a copyable install control.
+
 ## 0.4.20 - 2026-09-13
 
 - Add one real Linux x86-64 and WSL install command at `https://keyrx.tech/install.sh`. The bounded
   installer refuses unsupported systems, downloads the exact versioned archive and checksum,
-  verifies SHA-256 before extraction, verifies signed GitHub provenance when `gh` is present,
+  verifies SHA-256 before extraction, verifies signed GitHub provenance when a compatible `gh` is present,
   installs only in the user's absolute Cargo bin root, checks the installed version, and runs
   `keyrx verify`.
 - Publish the installer as its own checksummed and signed-provenance release subject, then require

@@ -78,12 +78,13 @@ esac
 test "${#expected_line}" -eq "$((64 + 2 + ${#ARCHIVE}))" || refuse 'checksum sidecar digest is not canonical SHA-256'
 sha256sum --check --strict "$ARCHIVE.sha256"
 
-if command -v gh >/dev/null 2>&1; then
+if command -v gh >/dev/null 2>&1 &&
+  GH_NO_UPDATE_NOTIFIER=1 gh attestation verify --help >/dev/null 2>&1; then
   GH_NO_UPDATE_NOTIFIER=1 gh attestation verify "$ARCHIVE" --repo "$REPOSITORY" >/dev/null
 elif test "${KEYRX_REQUIRE_ATTESTATION:-0}" = 1; then
-  refuse 'GitHub CLI is required by KEYRX_REQUIRE_ATTESTATION=1'
+  refuse 'GitHub CLI with gh attestation verify is required by KEYRX_REQUIRE_ATTESTATION=1'
 else
-  printf '%s\n' 'keyrx install: SHA-256 verified; GitHub CLI absent, provenance verification skipped' >&2
+  printf '%s\n' 'keyrx install: SHA-256 verified; gh attestation verify unavailable, provenance verification skipped' >&2
 fi
 
 ROOT="keyrx-$VERSION-$TARGET"

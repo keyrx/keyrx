@@ -139,7 +139,7 @@ keyrx verify</pre>
 (function(){
 /* The masthead version must equal Cargo.toml. A repository test enforces the
    pair, and this is the only place on the site where the version is written. */
-var VERSION='0.4.20';
+var VERSION='0.4.21';
 var out=document.getElementById('out'),scr=document.getElementById('scr'),
     inp=document.getElementById('in'),prom=document.getElementById('prompt'),
     sr=document.getElementById('sr');
@@ -352,9 +352,16 @@ C.what=function(){blank();
     foot('Private key: --indices 128  ·  Seed recovery: --indices 8');
   }
   blank();};
-C.install=function(){blank();
-  head('INSTALL',MOBILE?'Linux / WSL first':'Linux x86-64 archive · source path for macOS');
+C.install=function(arg){blank();
+  head('INSTALL',MOBILE?'Linux / WSL · one command':'Linux x86-64 / Windows WSL · one command');
   commandRows(`bash -o pipefail -c 'curl --proto "=https" --tlsv1.2 -fsSL https://keyrx.tech/install.sh | sh'`,'verified one-command Linux / WSL install');
+  prose('d','That is the complete Linux / WSL install. It downloads and checks the archive, installs the binary, and runs keyrx verify. No Rust build or second install command.');row('');
+  if(arg!=='manual'){
+    prose('d','Want the inspect-first archive steps, or the macOS source path? Type install manual. Those are alternatives, not steps after the command above.');
+    foot('one command to install · then run keyrx');blank();return;
+  }
+  note('OPTIONAL MANUAL PATH');
+  prose('d','These are alternatives, not steps after the one-command install.');
   prose('d','The served installer is byte-identical to the checksummed and attested install.sh asset on the same release. Download it first if you prefer to inspect before execution.');row('');
   var release='https://github.com/keyrx/keyrx/releases/download/v'+VERSION+'/';
   var stem='keyrx-'+VERSION+'-';
@@ -551,7 +558,7 @@ C.grind=function(arg){var p=(arg||'').trim();var ic=false;
 C.stop=function(){if(!stopGrind())announce('No suffix demo was running');return true;};
 C.help=function(){blank();head('COMMANDS');
   [['grind X',MOBILE?'demo a suffix *X':'run the browser suffix demo'],['stop','stop the demo'],['what','what this is'],
-   ['install','three lines'],['match','what a match writes'],['wallets','which route'],
+   ['install','one command'],['install manual','inspect-first path'],['match','what a match writes'],['wallets','which route'],
    ['verified','the proof'],['donate','optional, changes nothing'],['evm','--chain evm (since 0.4.0)'],['github','the repository'],['x','@keyrx_tech'],['cls','clear']]
    .forEach(function(c){row('  [[y]]'+pad(c[0],12)+'[[/]][[d]]'+c[1]+'[[/]]');});
   foot('the bar below does the same');blank();};
@@ -603,19 +610,20 @@ function fit(){
 }
 var booted=false;
 function rerender(){stopGrind();out.innerHTML='';start();}
-var INSTALL='https://github.com/keyrx/keyrx/releases/tag/v'+VERSION;
+var INSTALL=`bash -o pipefail -c 'curl --proto "=https" --tlsv1.2 -fsSL https://keyrx.tech/install.sh | sh'`;
 function installBox(){
-  head('DOWNLOAD',MOBILE?'Linux / WSL release':'Linux / WSL archive · macOS from source');
-  var padn=Math.max(0,Math.floor((IN-INSTALL.length)/2));
-  var d=row(' '.repeat(padn)+'[[y]]'+INSTALL+'[[/]]');
-  copyIn(d,INSTALL,INSTALL,'install command');
+  head('DOWNLOAD',MOBILE?'Linux / WSL release':'Linux / WSL one-command install');
+  var label=MOBILE?'tap to copy install command':'click to copy the one-command install';
+  var padn=Math.max(0,Math.floor((IN-label.length)/2));
+  var d=row(' '.repeat(padn)+'[[y]]'+label+'[[/]]');
+  copyIn(d,label,INSTALL,'install command');
   row('');
   if(MOBILE){wrapWords('Solana vanity addresses, measured at 19.5-32.2x the cited aggregate baseline - and EVM',IN-4).forEach(function(l){row('  [[w]]'+l+'[[/]]');});
     wrapWords('- and every match writes the seed, path, and supported key forms. One Rust binary. Offline grinding. No daemon.',IN-4).forEach(function(l){row('  [[d]]'+l+'[[/]]');});}
   else{row('  [[w]]Solana vanity addresses, 19.5-32.2x measured aggregate - and EVM[[/]]');
        row('  [[d]]- and every match writes the seed, path, and supported key forms.[[/]]');
        row('  [[d]]One Rust binary. Offline grinding. No daemon.[[/]]');}
-  foot(MOBILE?'tap to copy · verify .sha256 · MIT':'Linux: verify archive · macOS: official rustup · MIT');
+  foot(MOBILE?'tap to copy · inspect if preferred':'Linux / WSL install · inspect if preferred');
 }
 function start(){
   masthead('v'+VERSION);
@@ -623,7 +631,7 @@ function start(){
   blank();
   head('START',MOBILE?'':'the whole tool, in one line each');
   kva('grind X',MOBILE?'suffix demo':'browser suffix probability demo');
-  kva('install',MOBILE?'to your machine':'every command, in the order you reach for it');
+  kva('install',MOBILE?'one command':'one command for Linux / WSL');
   kva('what',MOBILE?'the idea':'the idea, and THE 128');
   kva('match',MOBILE?'one .md per hit':'one private Markdown recovery record per hit');
   kva('wallets',MOBILE?'which route':'Phantom, Solflare, any - which flags');

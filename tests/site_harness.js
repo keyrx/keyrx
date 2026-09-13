@@ -221,6 +221,20 @@ function assertDonateSolanaBlock(og, label, expected, bad) {
     bad.push(`${label} donate panel must contain exactly one keyrx.sol row`);
 }
 
+function assertInstallIsOneCommandUntilExpanded(og, label, bad) {
+  og.run('cls');
+  og.run('install');
+  const compact = ids.out.textContent;
+  if (!compact.includes('install manual') || compact.includes('sha256sum -c') ||
+      compact.includes('tar -xzf') || compact.includes('cargo install --locked'))
+    bad.push(`${label} default Install must show one command, not the manual sequence`);
+  og.run('install manual');
+  const expanded = ids.out.textContent;
+  if (!expanded.includes('sha256sum -c') || !expanded.includes('tar -xzf') ||
+      !expanded.includes('cargo install --locked'))
+    bad.push(`${label} install manual did not expose the inspection and source paths`);
+}
+
 // The POST chain steps through zero-delay timeouts; measure after it drains.
 setTimeout(() => {
   const og = global.__kx;
@@ -298,6 +312,8 @@ setTimeout(() => {
 
   og.mode(false);
 
+  assertInstallIsOneCommandUntilExpanded(og, 'desktop', bad);
+
   for (const c of CMDS) og.run(c);
   if (og.W() !== 78) bad.push(`desktop mode W=${og.W()}, expected 78`);
   assertDonateSolanaBlock(og, 'desktop', [
@@ -310,6 +326,7 @@ setTimeout(() => {
 
   og.mode(true);
   if (og.W() !== 42) bad.push(`mobile mode W=${og.W()}, expected 42`);
+  assertInstallIsOneCommandUntilExpanded(og, 'mobile', bad);
   for (const c of CMDS) og.run(c);
   assertDonateSolanaBlock(og, 'mobile', [
     'Solana',

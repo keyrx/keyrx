@@ -110,6 +110,9 @@ class InstallGuidanceTests(unittest.TestCase):
 
     def test_site_install_route_shows_every_material_step_in_order(self):
         install_route = SITE.split("C.install=function", 1)[1].split("C.match=function", 1)[0]
+        self.assertIn("if(arg!=='manual')", install_route)
+        self.assertIn("Type install manual", install_route)
+        manual_route = install_route.split("note('OPTIONAL MANUAL PATH');", 1)[1]
         ordered = (
             "curl --proto",
             "archive+'.sha256'",
@@ -119,11 +122,11 @@ class InstallGuidanceTests(unittest.TestCase):
             "install -m 0755 ",
             "keyrx verify",
         )
-        positions = [install_route.index(item) for item in ordered]
+        positions = [manual_route.index(item) for item in ordered]
         self.assertEqual(positions, sorted(positions))
-        self.assertIn("stop if it does not", install_route)
-        self.assertIn("stop if you choose the provenance check and it fails", install_route)
-        self.assertIn("complete fail-closed script", install_route)
+        self.assertIn("stop if it does not", manual_route)
+        self.assertIn("stop if you choose the provenance check and it fails", manual_route)
+        self.assertIn("complete fail-closed script", manual_route)
 
     def test_global_manifest_is_not_claimed_to_hash_itself(self):
         for name, text in (("README", README), ("llms", LLMS)):
@@ -263,12 +266,26 @@ esac
 ''',
         )
         tool("install", 'printf "install\\n" >> "$KEYRX_TEST_LOG"\ncp "$3" "$4"\nchmod "$2" "$4"\n')
+        for name in ("chmod", "cp", "mkdir", "mv", "rm", "sed", "tr", "wc"):
+            (tools / name).symlink_to(Path("/usr/bin") / name)
         if gh:
-            tool("gh", 'printf "attest\\n" >> "$KEYRX_TEST_LOG"\nexit "${KEYRX_TEST_GH_STATUS:-0}"\n')
+            tool(
+                "gh",
+                '''case "$1 $2 $3" in
+  "attestation verify --help")
+    printf "attest-help\\n" >> "$KEYRX_TEST_LOG"
+    exit "${KEYRX_TEST_GH_HELP_STATUS:-0}" ;;
+  attestation\\ verify\\ *)
+    printf "attest\\n" >> "$KEYRX_TEST_LOG"
+    exit "${KEYRX_TEST_GH_STATUS:-0}" ;;
+  *) exit 99 ;;
+esac
+''',
+            )
         env = os.environ.copy()
         env.update(
             {
-                "PATH": f"{tools}:/usr/bin:/bin",
+                "PATH": str(tools),
                 "HOME": str(home),
                 "KEYRX_TEST_WORK": str(work),
                 "KEYRX_TEST_LOG": str(log),
@@ -325,7 +342,7 @@ esac
             )
             self.assertEqual(result.returncode, 0, result.stderr)
             calls = log.read_text(encoding="utf-8").splitlines()
-            self.assertEqual(calls[-6:], ["checksum", "attest", "verify", "install", "verify", "verify"])
+            self.assertEqual(calls[-7:], ["checksum", "attest-help", "attest", "verify", "install", "verify", "verify"])
             expected_base = f"https://github.com/keyrx/keyrx/releases/download/v{VERSION}"
             self.assertEqual(
                 [line for line in calls if line.startswith("curl ")],
@@ -347,7 +364,61 @@ esac
                 ["/bin/sh", str(INSTALLER)], env=env, check=False, capture_output=True, text=True
             )
             self.assertNotEqual(result.returncode, 0)
-            self.assertEqual(log.read_text(encoding="utf-8").splitlines()[-2:], ["checksum", "attest"])
+            self.assertEqual(log.read_text(encoding="utf-8").splitlines()[-3:], ["checksum", "attest-help", "attest"])
+
+    def test_installer_old_gh_uses_explicit_checksum_only_path(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            env, log = self._installer_fixture(root, gh=True)
+            env["KEYRX_TEST_GH_HELP_STATUS"] = "1"
+            result = subprocess.run(
+                ["/bin/sh", str(INSTALLER)], env=env, check=False, capture_output=True, text=True
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            calls = log.read_text(encoding="utf-8").splitlines()
+            self.assertIn("attest-help", calls)
+            self.assertNotIn("attest", calls)
+            self.assertIn("provenance verification skipped", result.stderr)
+            self.assertTrue((root / "install-root" / "bin" / "keyrx").is_file())
+
+    def test_installer_old_gh_refuses_if_attestation_required(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            env, log = self._installer_fixture(root, gh=True)
+            env["KEYRX_TEST_GH_HELP_STATUS"] = "1"
+            env["KEYRX_REQUIRE_ATTESTATION"] = "1"
+            result = subprocess.run(
+                ["/bin/sh", str(INSTALLER)], env=env, check=False, capture_output=True, text=True
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("gh attestation verify is required", result.stderr)
+            self.assertEqual(log.read_text(encoding="utf-8").splitlines()[-2:], ["checksum", "attest-help"])
+            self.assertFalse((root / "install-root" / "bin" / "keyrx").exists())
+
+    def test_installer_absent_gh_uses_explicit_checksum_only_path(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            env, log = self._installer_fixture(root, gh=False)
+            result = subprocess.run(
+                ["/bin/sh", str(INSTALLER)], env=env, check=False, capture_output=True, text=True
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertNotIn("attest", log.read_text(encoding="utf-8"))
+            self.assertIn("provenance verification skipped", result.stderr)
+            self.assertTrue((root / "install-root" / "bin" / "keyrx").is_file())
+
+    def test_installer_absent_gh_refuses_if_attestation_required(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            env, log = self._installer_fixture(root, gh=False)
+            env["KEYRX_REQUIRE_ATTESTATION"] = "1"
+            result = subprocess.run(
+                ["/bin/sh", str(INSTALLER)], env=env, check=False, capture_output=True, text=True
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("gh attestation verify is required", result.stderr)
+            self.assertEqual(log.read_text(encoding="utf-8").splitlines()[-1], "checksum")
+            self.assertFalse((root / "install-root" / "bin" / "keyrx").exists())
 
     def test_distro_rustup_is_not_declared_universally_broken(self):
         for name, text in SURFACES:
