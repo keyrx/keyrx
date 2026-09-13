@@ -356,9 +356,12 @@ C.install=function(arg){blank();
   head('INSTALL',MOBILE?'Linux / WSL · one command':'Linux x86-64 / Windows WSL · one command');
   commandRows(`bash -o pipefail -c 'curl --proto "=https" --tlsv1.2 -fsSL https://keyrx.tech/install.sh | sh'`,'verified one-command Linux / WSL install');
   prose('d','That is the complete Linux / WSL install. It downloads and checks the archive, installs the binary, and runs keyrx verify. No Rust build or second install command.');row('');
+  note(MOBILE?'OR · RUST SOURCE BUILD':'OR · ALREADY HAVE RUST 1.85+? BUILD FROM SOURCE');
+  commandRows('cargo install --locked keyrx','advanced alternative: crates.io source build');
+  prose('d','Choose either install path, not both. The source build is also the macOS path.');row('');
   if(arg!=='manual'){
-    prose('d','Want the inspect-first archive steps, or the macOS source path? Type install manual. Those are alternatives, not steps after the command above.');
-    foot('one command to install · then run keyrx');blank();return;
+    prose('d','Want the inspect-first archive steps or Rust setup for macOS? Type install manual.');
+    foot('one command per path · then run keyrx');blank();return;
   }
   note('OPTIONAL MANUAL PATH');
   prose('d','These are alternatives, not steps after the one-command install.');
@@ -558,7 +561,7 @@ C.grind=function(arg){var p=(arg||'').trim();var ic=false;
 C.stop=function(){if(!stopGrind())announce('No suffix demo was running');return true;};
 C.help=function(){blank();head('COMMANDS');
   [['grind X',MOBILE?'demo a suffix *X':'run the browser suffix demo'],['stop','stop the demo'],['what','what this is'],
-   ['install','one command'],['install manual','inspect-first path'],['match','what a match writes'],['wallets','which route'],
+   ['install','installer or source'],['install manual','inspect-first path'],['match','what a match writes'],['wallets','which route'],
    ['verified','the proof'],['donate','optional, changes nothing'],['evm','--chain evm (since 0.4.0)'],['github','the repository'],['x','@keyrx_tech'],['cls','clear']]
    .forEach(function(c){row('  [[y]]'+pad(c[0],12)+'[[/]][[d]]'+c[1]+'[[/]]');});
   foot('the bar below does the same');blank();};

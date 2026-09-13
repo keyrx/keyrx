@@ -226,8 +226,9 @@ function assertInstallIsOneCommandUntilExpanded(og, label, bad) {
   og.run('install');
   const compact = ids.out.textContent;
   if (!compact.includes('install manual') || compact.includes('sha256sum -c') ||
-      compact.includes('tar -xzf') || compact.includes('cargo install --locked'))
-    bad.push(`${label} default Install must show one command, not the manual sequence`);
+      compact.includes('tar -xzf') || !compact.includes('cargo install --locked keyrx') ||
+      !compact.includes('Choose either install path'))
+    bad.push(`${label} default Install must show two alternative one-command paths, not the manual sequence`);
   og.run('install manual');
   const expanded = ids.out.textContent;
   if (!expanded.includes('sha256sum -c') || !expanded.includes('tar -xzf') ||
