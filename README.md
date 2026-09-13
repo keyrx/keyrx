@@ -50,8 +50,13 @@ verifies its SHA-256 before extraction, verifies GitHub provenance when `gh atte
 the installed binary's own verification:
 
 ```sh
-bash -o pipefail -c 'curl --proto "=https" --tlsv1.2 -fsSL https://keyrx.tech/install.sh | sh'
+bash -o pipefail -c 'curl --proto "=https" --tlsv1.2 -fsSL https://keyrx.tech/install.sh | sh' && export PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"
 ```
+
+Run this in a WSL shell, not PowerShell. The final `export` makes `keyrx` available in that
+same shell; a downloaded child installer cannot change its parent shell's PATH. For future WSL
+terminals, add `${CARGO_HOME:-$HOME/.cargo}/bin` to your shell profile once if it is not already
+present. There is no native Windows `keyrx.exe` in this release.
 
 The installer is itself an attested, checksummed release asset and is served byte-for-byte at
 `https://keyrx.tech/install.sh`. To inspect it before execution, download that URL first and compare

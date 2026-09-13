@@ -354,8 +354,9 @@ C.what=function(){blank();
   blank();};
 C.install=function(arg){blank();
   head('INSTALL',MOBILE?'Linux / WSL · one command':'Linux x86-64 / Windows WSL · one command');
-  commandRows(`bash -o pipefail -c 'curl --proto "=https" --tlsv1.2 -fsSL https://keyrx.tech/install.sh | sh'`,'verified one-command Linux / WSL install');
-  prose('d','That is the complete Linux / WSL install. It downloads and checks the archive, installs the binary, and runs keyrx verify. No Rust build or second install command.');row('');
+  commandRows(`bash -o pipefail -c 'curl --proto "=https" --tlsv1.2 -fsSL https://keyrx.tech/install.sh | sh' && export PATH="\${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"`,'verified one-line Linux / WSL install, then current-shell PATH');
+  prose('d','Run this inside WSL, not PowerShell. It verifies and installs the Linux binary, runs keyrx verify, then makes keyrx available in this shell. PowerShell has no native keyrx.exe.');row('');
+  prose('d','For future WSL terminals, add $HOME/.cargo/bin to your shell profile once if it is not already on PATH.');row('');
   note(MOBILE?'OR · RUST SOURCE BUILD':'OR · ALREADY HAVE RUST 1.85+? BUILD FROM SOURCE');
   commandRows('cargo install --locked keyrx','advanced alternative: crates.io source build');
   prose('d','Choose either install path, not both. The source build is also the macOS path.');row('');
@@ -613,7 +614,7 @@ function fit(){
 }
 var booted=false;
 function rerender(){stopGrind();out.innerHTML='';start();}
-var INSTALL=`bash -o pipefail -c 'curl --proto "=https" --tlsv1.2 -fsSL https://keyrx.tech/install.sh | sh'`;
+var INSTALL=`bash -o pipefail -c 'curl --proto "=https" --tlsv1.2 -fsSL https://keyrx.tech/install.sh | sh' && export PATH="\${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"`;
 function installBox(){
   head('DOWNLOAD',MOBILE?'Linux / WSL release':'Linux / WSL one-command install');
   var label=MOBILE?'tap to copy install command':'click to copy the one-command install';
