@@ -105,7 +105,7 @@ noscript div{white-space:normal;max-width:68ch;color:var(--gray);padding:1em 0}
   <code>keyrx-&lt;version&gt;-x86_64-unknown-linux-musl.tar.gz</code> archive from the GitHub Release,
   verify it with its matching <code>.sha256</code> file, then run <code>keyrx verify</code>. Windows uses that Linux build
   inside WSL; there is no native Windows binary.</p>
-  <pre>curl --proto '=https' --tlsv1.2 -fsSL https://keyrx.tech/install.sh | sh</pre>
+  <pre>bash -o pipefail -c 'curl --proto "=https" --tlsv1.2 -fsSL https://keyrx.tech/install.sh | sh'</pre>
   <p>On macOS Apple silicon or Intel, build from source until signed and notarized macOS binaries
   exist. Install Rust 1.85 or newer from the official
   <a href="https://rustup.rs/">rustup instructions</a>. On Ubuntu, the suggested
@@ -354,7 +354,7 @@ C.what=function(){blank();
   blank();};
 C.install=function(){blank();
   head('INSTALL',MOBILE?'Linux / WSL first':'Linux x86-64 archive · source path for macOS');
-  commandRows('curl --proto \'=https\' --tlsv1.2 -fsSL https://keyrx.tech/install.sh | sh','verified one-command Linux / WSL install');
+  commandRows(`bash -o pipefail -c 'curl --proto "=https" --tlsv1.2 -fsSL https://keyrx.tech/install.sh | sh'`,'verified one-command Linux / WSL install');
   prose('d','The served installer is byte-identical to the checksummed and attested install.sh asset on the same release. Download it first if you prefer to inspect before execution.');row('');
   var release='https://github.com/keyrx/keyrx/releases/download/v'+VERSION+'/';
   var stem='keyrx-'+VERSION+'-';

@@ -50,7 +50,7 @@ verifies its SHA-256 before extraction, verifies GitHub provenance when `gh` is 
 the installed binary's own verification:
 
 ```sh
-curl --proto '=https' --tlsv1.2 -fsSL https://keyrx.tech/install.sh | sh
+bash -o pipefail -c 'curl --proto "=https" --tlsv1.2 -fsSL https://keyrx.tech/install.sh | sh'
 ```
 
 The installer is itself an attested, checksummed release asset and is served byte-for-byte at

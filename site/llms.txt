@@ -31,7 +31,7 @@ The one-command path downloads the exact versioned archive, verifies SHA-256 bef
 verifies GitHub provenance when GitHub CLI is available, installs to the user's Cargo bin directory,
 and runs `keyrx verify`:
 
-    curl --proto '=https' --tlsv1.2 -fsSL https://keyrx.tech/install.sh | sh
+    bash -o pipefail -c 'curl --proto "=https" --tlsv1.2 -fsSL https://keyrx.tech/install.sh | sh'
 
 The same `install.sh` bytes are attached to the GitHub Release, covered by its checksum manifest and
 signed provenance, and served at keyrx.tech. The manual archive path below remains available.

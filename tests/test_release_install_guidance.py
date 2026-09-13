@@ -151,7 +151,7 @@ class InstallGuidanceTests(unittest.TestCase):
         self.assertIn("does not assume that `~/.cargo/env` exists", README)
 
     def test_one_command_installer_is_taught_only_for_linux_and_wsl(self):
-        command = "curl --proto '=https' --tlsv1.2 -fsSL https://keyrx.tech/install.sh | sh"
+        command = "bash -o pipefail -c 'curl --proto \"=https\" --tlsv1.2 -fsSL https://keyrx.tech/install.sh | sh'"
         for name, text in SURFACES:
             with self.subTest(name=name):
                 self.assertRegex(text, r"(?is)Windows.{0,100}WSL")
@@ -160,6 +160,28 @@ class InstallGuidanceTests(unittest.TestCase):
         self.assertNotIn("&& clear", DOCS)
         self.assertNotIn("&& clear", SITE)
         self.assertNotIn("&& clear", LLMS)
+
+    def test_one_command_refuses_a_failed_installer_download(self):
+        command = "bash -o pipefail -c 'curl --proto \"=https\" --tlsv1.2 -fsSL https://keyrx.tech/install.sh | sh'"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            tools = root / "tools"
+            tools.mkdir()
+            curl = tools / "curl"
+            curl.write_text("#!/bin/sh\nexit 22\n", encoding="utf-8")
+            curl.chmod(0o700)
+            env = os.environ.copy()
+            env["PATH"] = f"{tools}:/usr/bin:/bin"
+            result = subprocess.run(
+                ["/bin/sh", "-c", command], env=env, check=False,
+                capture_output=True, text=True,
+            )
+            self.assertEqual(result.returncode, 22)
+            unguarded = subprocess.run(
+                ["/bin/sh", "-c", 'curl --proto "=https" --tlsv1.2 -fsSL https://keyrx.tech/install.sh | sh'],
+                env=env, check=False, capture_output=True, text=True,
+            )
+            self.assertEqual(unguarded.returncode, 0)
 
     def test_macos_uses_source_build_until_signed_notarized_binaries_exist(self):
         for name, text in SURFACES:
