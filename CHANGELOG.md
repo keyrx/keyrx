@@ -2,7 +2,11 @@
 
 All notable changes to keyRX, newest first. Versions are the ones on crates.io.
 
-## 0.4.22 - 2026-09-14
+## 0.4.23 - 2026-09-14
+
+- The protected 0.4.22 tag stopped in read-only CI before publication. Make the
+  installer's GitHub CLI test fixture hermetic on runners that have a real `gh`;
+  0.4.23 is the first release carrying the changes below.
 
 - Make the verified Linux/WSL one-command installer set up future Bash shells as well as the current
   terminal, preserving system commands even when an earlier profile line replaced `PATH`. Refuse

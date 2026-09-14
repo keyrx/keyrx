@@ -1,6 +1,7 @@
 import re
 from pathlib import Path
 import os
+import shutil
 import subprocess
 import tempfile
 import tomllib
@@ -318,6 +319,10 @@ esac
 esac
 ''',
             )
+        else:
+            # CI runners can have a real gh in /usr/bin. Keep the fixture's
+            # unavailable-gh case hermetic without removing system PATH.
+            tool("gh", "exit 127\n")
         env = os.environ.copy()
         env.update(
             {
@@ -330,6 +335,7 @@ esac
                 "CARGO_HOME": str(root / "install-root"),
             }
         )
+        self.assertEqual(shutil.which("gh", path=env["PATH"]), str(tools / "gh"))
         return env, log
 
     def test_installer_refuses_unsupported_platform_before_network(self):
@@ -426,14 +432,14 @@ esac
                 f"keyrx {VERSION}",
             )
             (root / "work").mkdir()
-            env["KEYRX_TEST_VERSION"] = "0.4.22"
+            env["KEYRX_TEST_VERSION"] = VERSION
             second = subprocess.run(
                 ["/bin/sh", str(INSTALLER)], env=env, check=False, capture_output=True, text=True
             )
             self.assertEqual(second.returncode, 0, second.stderr)
             self.assertEqual(
                 subprocess.run([str(installed), "--version"], capture_output=True, text=True).stdout.strip(),
-                "keyrx 0.4.22",
+                f"keyrx {VERSION}",
             )
             profile = root / "home" / ".bashrc"
             self.assertEqual(profile.read_text(encoding="utf-8").count("export PATH="), 1)
@@ -618,7 +624,7 @@ esac
             install_tool.write_text(install_tool.read_text(encoding="utf-8") +
                                     'chmod 0777 "$CARGO_HOME/bin"\n', encoding="utf-8")
             (root / "work").mkdir()
-            env["KEYRX_TEST_VERSION"] = "0.4.22"
+            env["KEYRX_TEST_VERSION"] = VERSION
             second = subprocess.run(
                 ["/bin/sh", str(INSTALLER)], env=env, check=False, capture_output=True, text=True
             )
@@ -631,14 +637,14 @@ esac
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             env, log = self._installer_fixture(root, gh=True)
-            env["KEYRX_TEST_VERSION"] = "0.4.22"
+            env["KEYRX_TEST_VERSION"] = VERSION
             first = subprocess.run(
                 ["/bin/sh", str(INSTALLER)], env=env, check=False, capture_output=True, text=True
             )
             self.assertEqual(first.returncode, 0, first.stderr)
             installed = root / "install-root" / "bin" / "keyrx"
             env["KEYRX_TEST_VERSION"] = "0.4.21"
-            env["KEYRX_TRUSTED_INSTALLED_VERSION"] = "0.4.22"
+            env["KEYRX_TRUSTED_INSTALLED_VERSION"] = VERSION
             log.unlink()
             second = subprocess.run(
                 ["/bin/sh", str(INSTALLER)], env=env, check=False, capture_output=True, text=True
@@ -648,7 +654,7 @@ esac
             self.assertEqual(log.read_text(encoding="utf-8").splitlines(),
                              ["curl https://github.com/keyrx/keyrx/releases/latest"])
             self.assertEqual(subprocess.run([str(installed), "--version"], capture_output=True,
-                                            text=True).stdout.strip(), "keyrx 0.4.22")
+                                            text=True).stdout.strip(), f"keyrx {VERSION}")
 
     def test_installer_never_executes_preexisting_executable(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -750,7 +756,7 @@ esac
             self.assertEqual(log.read_text(encoding="utf-8").splitlines()[-2:], ["checksum", "attest-help"])
             self.assertFalse((root / "install-root" / "bin" / "keyrx").exists())
 
-    def test_installer_absent_gh_uses_explicit_checksum_only_path(self):
+    def test_installer_unavailable_gh_uses_explicit_checksum_only_path(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             env, log = self._installer_fixture(root, gh=False)
@@ -762,7 +768,7 @@ esac
             self.assertIn("provenance verification skipped", result.stderr)
             self.assertTrue((root / "install-root" / "bin" / "keyrx").is_file())
 
-    def test_installer_absent_gh_refuses_if_attestation_required(self):
+    def test_installer_unavailable_gh_refuses_if_attestation_required(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             env, log = self._installer_fixture(root, gh=False)
