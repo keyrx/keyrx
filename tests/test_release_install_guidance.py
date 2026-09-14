@@ -151,6 +151,13 @@ class InstallGuidanceTests(unittest.TestCase):
         for name, text in SURFACES:
             with self.subTest(name=name):
                 self.assertIn(remedy, text)
+        full_one_liner = (
+            'bash -o pipefail -c \'curl --proto "=https" --tlsv1.2 -fsSL '
+            'https://keyrx.tech/install.sh | sh\' && ' + remedy
+        )
+        for name, text in (("README", README), ("docs", DOCS), ("llms", LLMS)):
+            with self.subTest(name=name):
+                self.assertIn(full_one_liner, text)
         self.assertIn("no ~/.cargo/env assumption", SITE)
         self.assertIn("does not assume that `~/.cargo/env` exists", README)
 

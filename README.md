@@ -116,7 +116,9 @@ On Windows, run these Linux commands inside WSL. A native Windows binary is not 
 No macOS archive is offered until signed and notarized Apple silicon and Intel binaries exist.
 On macOS, or to build on Linux instead of using the archive, install Rust 1.85 or newer by
 following the official [rustup instructions](https://rustup.rs/), then compile the locked
-crates.io release. On Ubuntu, do not assume the terminal's suggested `apt install cargo` meets
+crates.io release. If a Mac reports that its compiler or linker is missing, install Apple's
+Command Line Tools with `xcode-select --install` first. On Ubuntu, do not assume the terminal's
+suggested `apt install cargo` meets
 the requirement: the distribution package can be older than Rust 1.85. Distro-packaged rustup
 variants have their own setup and PATH behavior; the supported instructions here use upstream
 rustup.

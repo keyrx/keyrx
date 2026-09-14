@@ -31,7 +31,7 @@ The one-command path downloads the exact versioned archive, verifies SHA-256 bef
 verifies GitHub provenance when GitHub CLI is available, installs to the user's Cargo bin directory,
 and runs `keyrx verify`:
 
-    bash -o pipefail -c 'curl --proto "=https" --tlsv1.2 -fsSL https://keyrx.tech/install.sh | sh'
+    bash -o pipefail -c 'curl --proto "=https" --tlsv1.2 -fsSL https://keyrx.tech/install.sh | sh' && export PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"
 
 The same `install.sh` bytes are attached to the GitHub Release, covered by its checksum manifest and
 signed provenance, and served at keyrx.tech. The manual archive path below remains available.
@@ -56,7 +56,8 @@ The release's
 
 There is no native Windows binary. There are no macOS archives until signed and notarized Apple
 silicon and Intel binaries exist. macOS and source-build users install Rust 1.85 or newer from the
-official rustup instructions at https://rustup.rs/, then:
+official rustup instructions at https://rustup.rs/. On a Mac with a missing compiler or linker,
+first run xcode-select --install for Apple's Command Line Tools. Then:
 
     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
     export PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"

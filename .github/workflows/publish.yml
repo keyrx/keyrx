@@ -171,6 +171,60 @@ jobs:
           cargo +"$RUST_TOOLCHAIN" test --locked --all-targets \
             --target "$LINUX_TARGET"
 
+  macos_source:
+    needs: prepare
+    name: macOS source install (${{ matrix.runner }})
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x86_64
+    env:
+      SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+      VERSION: ${{ needs.prepare.outputs.version }}
+      EXPECTED_ARCH: ${{ matrix.arch }}
+    steps:
+      - name: Check out the exact prepared source for macOS
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.prepare.outputs.source_sha }}
+          persist-credentials: false
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Install the declared minimum Rust toolchain
+        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # pinned
+        with:
+          toolchain: 1.85.0
+          components: clippy
+
+      - name: Test and lint the exact tagged source on macOS
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^{commit})" = "$SOURCE_SHA"
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
+          cargo +"$RUST_TOOLCHAIN" test --locked --all-targets
+          cargo +"$RUST_TOOLCHAIN" clippy --locked --all-targets -- -D warnings
+
+      - name: Install the tagged source and exercise the macOS CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^{commit})" = "$SOURCE_SHA"
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
+          install_root="$(mktemp -d "$RUNNER_TEMP/keyrx-mac-install.XXXXXXXX")"
+          cargo +"$RUST_TOOLCHAIN" install --locked --path . --root "$install_root"
+          test "$("$install_root/bin/keyrx" --version)" = "keyrx $VERSION"
+          bash ops/mac_smoke.sh "$install_root" "$EXPECTED_ARCH"
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
+
   linux_binary:
     needs: [prepare, linux_test]
     runs-on: ubuntu-24.04
@@ -499,7 +553,7 @@ jobs:
           test "$("$installed_root/bin/keyrx" --version)" = "keyrx $VERSION"
 
   effect:
-    needs: [prepare, linux_binary, verify_binary]
+    needs: [prepare, linux_binary, verify_binary, macos_source]
     runs-on: ubuntu-24.04
     environment: release
     permissions:

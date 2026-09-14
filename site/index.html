@@ -111,7 +111,8 @@ noscript div{white-space:normal;max-width:68ch;color:var(--gray);padding:1em 0}
   the full command above handles this shell. It keeps <code>/usr/bin</code> and <code>/bin</code>
   on PATH. If your system PATH is already broken, repair it before installing.</p>
   <p>On macOS Apple silicon or Intel, build from source until signed and notarized macOS binaries
-  exist. Install Rust 1.85 or newer from the official
+  exist. If the compiler or linker is missing, run <code>xcode-select --install</code> for Apple's
+  Command Line Tools. Install Rust 1.85 or newer from the official
   <a href="https://rustup.rs/">rustup instructions</a>. On Ubuntu, the suggested
   <code>apt install cargo</code> can be too old; distro rustup packages are not this tested path.</p>
   <pre>curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
@@ -400,7 +401,7 @@ C.install=function(arg){blank();
   commandRows('keyrx --update','Cargo builds and official prebuilt installs update in place');
   row('');
   note('macOS and source builds (Rust 1.85+):');
-  prose('d','Until signed and notarized macOS binaries exist, install Rust from the official rustup.rs instructions and build the locked release. Ubuntu\'s suggested apt install cargo can be too old; distro rustup packages are not this tested path.');row('');
+  prose('d','Until signed and notarized macOS binaries exist, install Rust from the official rustup.rs instructions and build the locked release. On macOS, run xcode-select --install if the compiler or linker is missing. Ubuntu\'s suggested apt install cargo can be too old; distro rustup packages are not this tested path.');row('');
   commandRows('curl --proto \'=https\' --tlsv1.2 -sSf https://sh.rustup.rs | sh','official upstream rustup');
   commandRows('export PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"','portable PATH, no ~/.cargo/env assumption');
   commandRows('rustup default stable','select a current supported toolchain');
@@ -621,22 +622,27 @@ var booted=false;
 function rerender(){stopGrind();out.innerHTML='';start();}
 var INSTALL=`bash -o pipefail -c 'curl --proto "=https" --tlsv1.2 -fsSL https://keyrx.tech/install.sh | sh' && export PATH="\${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"`;
 function installBox(){
-  head('DOWNLOAD',MOBILE?'Linux / WSL release':'Linux / WSL one-command install');
-  var label=MOBILE?'tap to copy install command':'click to copy the one-command install';
-  var padn=Math.max(0,Math.floor((IN-label.length)/2));
-  var d=row(' '.repeat(padn)+'[[y]]'+label+'[[/]]');
-  copyIn(d,label,INSTALL,'install command');
+  head('DOWNLOAD',MOBILE?'choose one path':'choose one install path');
+  note(MOBILE?'LINUX / WSL · NO RUST':'LINUX / WSL · PREBUILT, NO RUST');
+  prose('d','Use a Linux or WSL shell, not PowerShell. No sudo; installs for the current user, including root if this is a root shell.');
+  var label=MOBILE?'tap to copy Linux / WSL':'click to copy Linux / WSL one-command install';
+  var d=row('  [[y]]'+label+'[[/]]');
+  copyIn(d,label,INSTALL,'Linux / WSL install command');
   row('');
-  if(MOBILE){row('  [[d]]WSL shell, not PowerShell.[[/]]');
-    row('  [[d]]Your user, not root or sudo.[[/]]');}
-  else row('  [[d]]Linux / WSL shell, your user, no sudo. Not PowerShell.[[/]]');
+  note(MOBILE?'MAC / LINUX · RUST 1.85+':'MACOS / LINUX / WSL · RUST 1.85+');
+  var source='cargo install --locked keyrx';
+  d=row('  [[y]]'+source+'[[/]]');
+  copyIn(d,source,source,'Cargo source install command');
+  row('');
+  prose('d',MOBILE?'New to WSL? Tap install below for setup and a PATH check.':'New to WSL? Click install below for setup and a PATH check.');
+  prose('d','On macOS, install Rust first; type install manual for the steps.');
   row('');
   if(MOBILE){wrapWords('Solana vanity addresses, measured at 19.5-32.2x the cited aggregate baseline - and EVM',IN-4).forEach(function(l){row('  [[w]]'+l+'[[/]]');});
     wrapWords('- and every match writes the seed, path, and supported key forms. One Rust binary. Offline grinding. No daemon.',IN-4).forEach(function(l){row('  [[d]]'+l+'[[/]]');});}
   else{row('  [[w]]Solana vanity addresses, 19.5-32.2x measured aggregate - and EVM[[/]]');
        row('  [[d]]- and every match writes the seed, path, and supported key forms.[[/]]');
        row('  [[d]]One Rust binary. Offline grinding. No daemon.[[/]]');}
-  foot(MOBILE?'tap to copy · inspect if preferred':'Linux / WSL install · inspect if preferred');
+  foot(MOBILE?'choose one · inspect if preferred':'choose one path · inspect if preferred');
 }
 function start(){
   masthead('v'+VERSION);
@@ -644,7 +650,7 @@ function start(){
   blank();
   head('START',MOBILE?'':'the whole tool, in one line each');
   kva('grind X',MOBILE?'suffix demo':'browser suffix probability demo');
-  kva('install',MOBILE?'one command':'one command for Linux / WSL');
+  kva('install',MOBILE?'guided setup':'guided setup for either install path');
   kva('what',MOBILE?'the idea':'the idea, and THE 128');
   kva('match',MOBILE?'one .md per hit':'one private Markdown recovery record per hit');
   kva('wallets',MOBILE?'which route':'Phantom, Solflare, any - which flags');

@@ -8,7 +8,8 @@ The documentation for keyRX lives in three places, all kept in step with the cod
   supported. macOS Apple silicon and Intel use the source path until signed and notarized macOS
   binaries exist: install Rust 1.85 or newer from the official
   [rustup instructions](https://rustup.rs/), put Cargo's bin directory on `PATH`, run
-  `rustup default stable`, then run `cargo install --locked keyrx`. Ubuntu's
+  `rustup default stable`, then run `cargo install --locked keyrx`. On a Mac with a missing
+  compiler or linker, first run `xcode-select --install` for Apple's Command Line Tools. Ubuntu's
   suggested `apt install cargo` can be below the required Rust version; distro rustup packages
   are not the tested upstream-rustup path. If Cargo's binary directory is not on `PATH`, run
   `export PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"`. See [Install](../README.md) for exact
@@ -17,10 +18,10 @@ The documentation for keyRX lives in three places, all kept in step with the cod
   Run it as the normal WSL user, without `sudo`; a root shell installs for root. Use
   `keyrx --update` for a no-downgrade update of an official prebuilt. Rerun the installer to
   repair or reinstall GitHub's current latest release. The one-command path is
-  `bash -o pipefail -c 'curl --proto "=https" --tlsv1.2 -fsSL https://keyrx.tech/install.sh | sh'`; the served script is
+  `bash -o pipefail -c 'curl --proto "=https" --tlsv1.2 -fsSL https://keyrx.tech/install.sh | sh' && export PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"`; the served script is
   byte-identical to the attested `install.sh` release asset and keeps the manual path available for
   inspection-first installs. The prebuilt needs no Rust; PowerShell and WSL do not share toolchains.
-  The website's complete one-liner includes the current-shell `PATH` change. The installer adds
+  The `PATH` suffix makes KeyRX available in the current shell. The installer adds
   one guarded Bash profile line for future shells, preserving `/usr/bin` and `/bin`; it refuses an
   unsafe profile before downloading. Reopen WSL and run
   `command -v id && command -v curl && command -v keyrx && keyrx --version && keyrx verify`. If even `id` cannot be found

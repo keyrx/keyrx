@@ -241,6 +241,23 @@ function assertInstallIsOneCommandUntilExpanded(og, label, bad) {
     bad.push(`${label} install manual did not expose the inspection and source paths`);
 }
 
+function assertDownloadOffersBothPaths(og, label, bad) {
+  og.run('cls');
+  const panels = og.out.children.filter(child => /\bpan\b/.test(child.className));
+  const download = panels.filter(panel => panel.children.some(row =>
+    /^(?:DOWNLOAD|DOWNLOAD: )/.test(row.getAttribute('aria-label') || '')));
+  if (download.length !== 1) {
+    bad.push(`${label} homepage DOWNLOAD panel count=${download.length}, expected 1`);
+    return;
+  }
+  const text = download[0].textContent;
+  if (!text.includes('Linux / WSL') || !text.includes('NO RUST') ||
+      !text.includes('cargo install --locked keyrx') || !text.includes('RUST 1.85+') ||
+      !text.includes('New to WSL?') || !text.includes('install below') ||
+      !text.includes('PowerShell') || !text.includes('current') || !text.includes('user'))
+    bad.push(`${label} homepage DOWNLOAD must offer both install paths and point new WSL users to guided setup`);
+}
+
 // The POST chain steps through zero-delay timeouts; measure after it drains.
 setTimeout(() => {
   const og = global.__kx;
@@ -318,6 +335,7 @@ setTimeout(() => {
 
   og.mode(false);
 
+  assertDownloadOffersBothPaths(og, 'desktop', bad);
   assertInstallIsOneCommandUntilExpanded(og, 'desktop', bad);
 
   for (const c of CMDS) og.run(c);
@@ -332,6 +350,7 @@ setTimeout(() => {
 
   og.mode(true);
   if (og.W() !== 42) bad.push(`mobile mode W=${og.W()}, expected 42`);
+  assertDownloadOffersBothPaths(og, 'mobile', bad);
   assertInstallIsOneCommandUntilExpanded(og, 'mobile', bad);
   for (const c of CMDS) og.run(c);
   assertDonateSolanaBlock(og, 'mobile', [

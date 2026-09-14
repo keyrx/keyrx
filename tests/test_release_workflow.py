@@ -15,6 +15,8 @@ WORKFLOW = (ROOT / ".github" / "workflows" / "publish.yml").read_text(
     encoding="utf-8"
 )
 CI = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+MAC_SMOKE = (ROOT / "ops" / "mac_smoke.sh").read_text(encoding="utf-8")
+MAC_FAKE_CARGO = (ROOT / "ops" / "mac_fake_cargo.sh").read_text(encoding="utf-8")
 CURRENT_VERSION = tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))["package"][
     "version"
 ]
@@ -413,7 +415,7 @@ class WorkflowShapeTests(unittest.TestCase):
         self.assertEqual(names[-1], "keyrx-1.2.3.SHA256SUMS")
 
     def test_linux_binary_job_is_read_only_and_effect_needs_its_exact_handoff(self):
-        linux_test = WORKFLOW.split("\n  linux_test:\n", 1)[1].split("\n  linux_binary:\n", 1)[0]
+        linux_test = WORKFLOW.split("\n  linux_test:\n", 1)[1].split("\n  macos_source:\n", 1)[0]
         linux = WORKFLOW.split("\n  linux_binary:\n", 1)[1].split("\n  verify_binary:\n", 1)[0]
         verify = WORKFLOW.split("\n  verify_binary:\n", 1)[1].split("\n  effect:\n", 1)[0]
         effect = WORKFLOW.split("\n  effect:\n", 1)[1]
@@ -429,7 +431,7 @@ class WorkflowShapeTests(unittest.TestCase):
         self.assertNotIn("contents: write", verify)
         self.assertNotIn("id-token: write", verify)
         self.assertNotIn("environment:", verify)
-        self.assertIn("    needs: [prepare, linux_binary, verify_binary]\n", WORKFLOW)
+        self.assertIn("    needs: [prepare, linux_binary, verify_binary, macos_source]\n", effect)
         self.assertIn(
             "artifact-ids: ${{ needs.linux_binary.outputs.artifact_id }}", effect
         )
@@ -449,8 +451,58 @@ class WorkflowShapeTests(unittest.TestCase):
         self.assertLess(download, rederive)
         self.assertLess(rederive, provider)
 
+    def test_macos_source_install_gates_release_on_both_host_architectures(self):
+        ci = CI.split("\n  macos_source:\n", 1)[1]
+        release = WORKFLOW.split("\n  macos_source:\n", 1)[1].split(
+            "\n  linux_binary:\n", 1
+        )[0]
+        effect = WORKFLOW.split("\n  effect:\n", 1)[1]
+        for job in (ci, release):
+            self.assertEqual(job.count("runner: macos-15\n"), 1)
+            self.assertEqual(job.count("runner: macos-15-intel\n"), 1)
+            self.assertIn("arch: arm64", job)
+            self.assertIn("arch: x86_64", job)
+            self.assertIn("fail-fast: false", job)
+            self.assertIn("--locked --all-targets", job)
+            self.assertIn("-- -D warnings", job)
+            self.assertIn("--locked --path . --root \"$install_root\"", job)
+            self.assertIn('bash ops/mac_smoke.sh "$install_root" "$EXPECTED_ARCH"', job)
+            self.assertNotIn("contents: write", job)
+            self.assertNotIn("id-token: write", job)
+            self.assertNotIn("environment: release", job)
+        self.assertIn("    needs: prepare\n", release)
+        self.assertIn("      contents: read", release)
+        self.assertIn("ref: ${{ needs.prepare.outputs.source_sha }}", release)
+        self.assertIn("toolchain: 1.85.0", release)
+        self.assertIn('test "$(git rev-parse HEAD^{commit})" = "$SOURCE_SHA"', release)
+        self.assertIn('test "$("$install_root/bin/keyrx" --version)" = "keyrx $VERSION"', release)
+        self.assertIn("    needs: [prepare, linux_binary, verify_binary, macos_source]\n", effect)
+
+        for required in (
+            'test "$(uname -s)" = Darwin',
+            'test "$(uname -m)" = "$expected_arch"',
+            '"$binary" verify',
+            '"$binary" bench',
+            '"$binary" grind --ends-with a',
+            '"$binary" grind --chain evm --ends-with a --checksum',
+            '"$binary" show -- "$sol_record"',
+            '"$binary" show -- "$evm_record"',
+            'stat -f %Lp "$sol_record"',
+            'stat -f %Lp "$evm_record"',
+            '"$binary" --update',
+            'grep -F \'WHAT THIS IS\' "$scratch/update.stdout"',
+        ):
+            self.assertIn(required, MAC_SMOKE)
+        self.assertNotIn("--show-seed", MAC_SMOKE)
+        self.assertNotIn("show --keys", MAC_SMOKE)
+        self.assertNotIn("show --seeds", MAC_SMOKE)
+        self.assertIn('test "$4" = "${KEYRX_TEST_INSTALL_ROOT:?}"', MAC_FAKE_CARGO)
+        self.assertIn('test "$5" = keyrx', MAC_FAKE_CARGO)
+        self.assertNotIn("cargo install", MAC_FAKE_CARGO)
+        self.assertTrue((ROOT / "ops" / "mac_fake_cargo.sh").stat().st_mode & 0o100)
+
     def test_linux_build_is_exact_repeatable_static_and_target_tested(self):
-        linux_test = WORKFLOW.split("\n  linux_test:\n", 1)[1].split("\n  linux_binary:\n", 1)[0]
+        linux_test = WORKFLOW.split("\n  linux_test:\n", 1)[1].split("\n  macos_source:\n", 1)[0]
         linux = WORKFLOW.split("\n  linux_binary:\n", 1)[1].split("\n  verify_binary:\n", 1)[0]
         self.assertIn('RUST_TOOLCHAIN: 1.85.0', WORKFLOW)
         self.assertIn('rustc 1.85.0 (4d91de4e4 2025-02-17)', linux)

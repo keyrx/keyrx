@@ -2,6 +2,14 @@
 
 All notable changes to keyRX, newest first. Versions are the ones on crates.io.
 
+## Unreleased site and verification changes
+
+- Put both Linux/WSL prebuilt and locked Rust source install choices directly in the homepage
+  DOWNLOAD panel, with a guided WSL setup pointer. Keep the Mac source path explicit and document
+  Apple's Command Line Tools when its compiler or linker is missing.
+- Gate future release publication on hosted Apple silicon and Intel macOS source-install checks;
+  no macOS binary is claimed or shipped.
+
 ## 0.4.23 - 2026-09-14
 
 - The protected 0.4.22 tag stopped in read-only CI before publication. Make the
