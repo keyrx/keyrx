@@ -4894,6 +4894,8 @@ fn run_embedded_prebuilt_installer(
 
 #[cfg(unix)]
 fn cmd_prebuilt_update() {
+    use std::os::unix::fs::MetadataExt;
+
     let current_exe = match std::env::current_exe() {
         Ok(path) => path,
         Err(e) => {
@@ -4911,11 +4913,23 @@ fn cmd_prebuilt_update() {
             std::process::exit(1);
         }
     };
+    // Hold the authenticated running bytes across the network check. A
+    // same-version result never needs to open or execute a path again.
+    let running = match open_installed_executable(&current_exe) {
+        Ok(file) => file,
+        Err(error) => {
+            eprintln!(
+                "keyrx update refused before download: cannot hold running keyrx: {}",
+                error
+            );
+            std::process::exit(1);
+        }
+    };
     println!("{}", ui::top("UPDATE", "verified Linux / WSL release"));
     println!("{}", ui::kv("installed", &ui::path_text(&current_exe)));
     println!(
         "{}",
-        ui::note("checking the latest release, checksum, and available provenance")
+        ui::note("checking the latest release; verifying a download only if newer")
     );
     println!("{}", ui::bot("then the new keyrx starts automatically"));
     println!();
@@ -4931,6 +4945,24 @@ fn cmd_prebuilt_update() {
         }
     }
     let bin = root.join("bin/keyrx");
+    if match held_executable_path_matches(&running, &bin) {
+        Ok(matches) => matches,
+        Err(error) => {
+            eprintln!(
+                "keyrx update refused: cannot recheck installed keyrx: {}",
+                error
+            );
+            std::process::exit(1);
+        }
+    } {
+        // The installer returned successfully without replacing the running
+        // inode. Render the start screen from the already authenticated bytes.
+        if std::io::IsTerminal::is_terminal(&std::io::stdout()) {
+            print!("\x1b[2J\x1b[H");
+        }
+        cmd_start();
+        return;
+    }
     let installed = match open_installed_executable(&bin) {
         Ok(file) => file,
         Err(error) => {
@@ -4938,6 +4970,12 @@ fn cmd_prebuilt_update() {
             std::process::exit(1);
         }
     };
+    let before = running.metadata().expect("held running keyrx metadata");
+    let after = installed.metadata().expect("held installed keyrx metadata");
+    if before.dev() == after.dev() && before.ino() == after.ino() {
+        eprintln!("keyrx update refused: installed keyrx identity changed ambiguously");
+        std::process::exit(1);
+    }
     if std::io::IsTerminal::is_terminal(&std::io::stdout()) {
         print!("\x1b[2J\x1b[H");
     }

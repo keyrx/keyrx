@@ -440,16 +440,97 @@ esac
             )
             (root / "work").mkdir()
             env["KEYRX_TEST_VERSION"] = VERSION
+            # The public one-line installer is also the explicit repair path.
+            # Unlike trusted --update, it must not skip a same-tag reinstall.
+            installed.write_text("#!/bin/sh\nexit 99\n", encoding="utf-8")
+            installed.chmod(0o700)
+            tampered_inode = installed.stat().st_ino
             second = subprocess.run(
                 ["/bin/sh", str(INSTALLER)], env=env, check=False, capture_output=True, text=True
             )
             self.assertEqual(second.returncode, 0, second.stderr)
+            self.assertNotEqual(installed.stat().st_ino, tampered_inode)
             self.assertEqual(
                 subprocess.run([str(installed), "--version"], capture_output=True, text=True).stdout.strip(),
                 f"keyrx {VERSION}",
             )
             profile = root / "home" / ".bashrc"
             self.assertEqual(profile.read_text(encoding="utf-8").count("export PATH="), 1)
+
+    def test_trusted_same_version_update_only_checks_latest_and_preserves_install(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            env, log = self._installer_fixture(root, gh=True)
+            first = subprocess.run(
+                ["/bin/sh", str(INSTALLER)], env=env, check=False, capture_output=True, text=True
+            )
+            self.assertEqual(first.returncode, 0, first.stderr)
+            installed = root / "install-root" / "bin" / "keyrx"
+            profile = root / "home" / ".bashrc"
+            original = (installed.stat().st_ino, installed.read_bytes(), profile.read_bytes())
+            env["KEYRX_TRUSTED_INSTALLED_VERSION"] = VERSION
+            env["KEYRX_INSTALL_NO_PROFILE"] = "1"
+            log.unlink()
+            second = subprocess.run(
+                ["/bin/sh", str(INSTALLER)], env=env, check=False, capture_output=True, text=True
+            )
+            self.assertEqual(second.returncode, 0, second.stderr)
+            self.assertIn("already current; no download or replacement needed", second.stdout)
+            self.assertEqual(log.read_text(encoding="utf-8").splitlines(),
+                             ["curl https://github.com/keyrx/keyrx/releases/latest"])
+            self.assertEqual((installed.stat().st_ino, installed.read_bytes(), profile.read_bytes()), original)
+            self.assertFalse(list((root / "install-root" / "bin").glob(".keyrx-install-*")))
+
+    def test_trusted_same_version_update_refuses_target_swap_during_latest_check(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            env, log = self._installer_fixture(root)
+            bin_dir = root / "install-root" / "bin"
+            bin_dir.mkdir(parents=True, mode=0o700)
+            installed = bin_dir / "keyrx"
+            installed.write_text("#!/bin/sh\nexit 99\n", encoding="utf-8")
+            installed.chmod(0o700)
+            replacement = root / "replacement"
+            replacement.write_text("#!/bin/sh\nexit 98\n", encoding="utf-8")
+            replacement.chmod(0o700)
+            curl = root / "tools" / "curl"
+            curl.write_text(curl.read_text(encoding="utf-8").replace(
+                "case \"$url\" in", f'mv -f -- "{replacement}" "{installed}"\ncase "$url" in'
+            ), encoding="utf-8")
+            env["KEYRX_TRUSTED_INSTALLED_VERSION"] = VERSION
+            env["KEYRX_INSTALL_NO_PROFILE"] = "1"
+            result = subprocess.run(
+                ["/bin/sh", str(INSTALLER)], env=env, check=False, capture_output=True, text=True
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("changed during version check", result.stderr)
+            self.assertEqual(log.read_text(encoding="utf-8").splitlines(),
+                             ["curl https://github.com/keyrx/keyrx/releases/latest"])
+
+    def test_trusted_older_version_still_downloads_and_verifies_new_release(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            env, log = self._installer_fixture(root, gh=True)
+            bin_dir = root / "install-root" / "bin"
+            bin_dir.mkdir(parents=True, mode=0o700)
+            installed = bin_dir / "keyrx"
+            installed.write_text("#!/bin/sh\necho keyrx 0.4.24\n", encoding="utf-8")
+            installed.chmod(0o700)
+            original_inode = installed.stat().st_ino
+            env["KEYRX_TRUSTED_INSTALLED_VERSION"] = "0.4.24"
+            env["KEYRX_INSTALL_NO_PROFILE"] = "1"
+            result = subprocess.run(
+                ["/bin/sh", str(INSTALLER)], env=env, check=False, capture_output=True, text=True
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertNotEqual(installed.stat().st_ino, original_inode)
+            self.assertEqual(subprocess.run([str(installed), "--version"], capture_output=True,
+                                            text=True).stdout.strip(), f"keyrx {VERSION}")
+            calls = log.read_text(encoding="utf-8").splitlines()
+            self.assertEqual(len([line for line in calls if line.startswith("curl ")]), 3)
+            self.assertIn("checksum", calls)
+            self.assertIn("attest", calls)
+            self.assertIn("install", calls)
 
     def test_installer_recovers_exact_wsl_bashrc_clobber_in_fresh_shell(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -36,7 +36,8 @@ and runs `keyrx verify`:
 The same `install.sh` bytes are attached to the GitHub Release, covered by its checksum manifest and
 signed provenance, and served at keyrx.tech. The manual archive path below remains available.
 Run it in WSL as the user who will use KeyRX, without sudo; a root shell installs for root.
-Use `keyrx --update` for a no-downgrade update of an official prebuilt. Rerun the installer
+Use `keyrx --update` for a no-downgrade update of an official prebuilt; a current version is not
+downloaded or reinstalled. Rerun the installer
 to repair or reinstall GitHub's current latest release; it does not run an old binary to
 determine its version and cannot promise that a direct reinstall is monotonic.
 Cargo source builds retain their separate `keyrx --update` path.

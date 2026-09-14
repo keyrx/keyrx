@@ -155,6 +155,19 @@ if test -n "$TRUSTED_INSTALLED_VERSION"; then
     test "$(printf '%s\n' "$VERSION" "$TRUSTED_INSTALLED_VERSION" | sort -V | head -n 1)" = "$VERSION"; then
     refuse "latest release $VERSION is older than trusted installed keyrx $TRUSTED_INSTALLED_VERSION; refusing to downgrade"
   fi
+  if test "$TRUSTED_INSTALLED_VERSION" = "$VERSION"; then
+    # --update already runs from this caller-owned binary. A same-version
+    # check must not download, replace, or execute anything from the network.
+    test -d "$INSTALL_ROOT" && test ! -L "$INSTALL_ROOT" &&
+      test "$(stat -c '%d:%i:%u:%a' -- "$INSTALL_ROOT")" = "$INSTALL_ROOT_ID" &&
+      test -d "$BIN_DIR" && test ! -L "$BIN_DIR" &&
+      test "$(stat -c '%d:%i:%u:%a' -- "$BIN_DIR")" = "$BIN_DIR_ID" &&
+      test -f "$BIN_DIR/keyrx" && test ! -L "$BIN_DIR/keyrx" &&
+      test "$(stat -c '%d:%i:%u:%h:%a' -- "$BIN_DIR/keyrx")" = "$EXISTING_KEYRX_ID" ||
+      refuse 'install directory or existing keyrx changed during version check'
+    printf 'keyrx %s is already current; no download or replacement needed\n' "$VERSION"
+    exit 0
+  fi
 fi
 BASE_URL="https://github.com/$REPOSITORY/releases/download/v$VERSION"
 ARCHIVE="keyrx-$VERSION-$TARGET.tar.gz"

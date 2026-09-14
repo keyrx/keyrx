@@ -2,6 +2,13 @@
 
 All notable changes to keyRX, newest first. Versions are the ones on crates.io.
 
+## 0.4.25 - 2026-09-14
+
+- Make an official Linux/WSL prebuilt `keyrx --update` stop after the authenticated latest-release
+  check when already current. It leaves the executable and shell profile untouched, and refreshes
+  the start screen from the running binary. A newer release still takes the verified install path;
+  rerunning the public one-line installer remains an explicit full repair/reinstall.
+
 ## 0.4.24 - 2026-09-14
 
 - Put both Linux/WSL prebuilt and locked Rust source install choices directly in the homepage

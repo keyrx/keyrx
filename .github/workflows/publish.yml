@@ -474,8 +474,8 @@ jobs:
           for expected in 'before download' 'install-root>/bin/keyrx'; do
             printf '%s\n' "$no_cargo_output" | grep -F "$expected" >/dev/null
           done
-          # Prove the actual prebuilt update path with release bytes and no network.
-          # The stub serves only this job's already independently verified archive.
+          # Prove the actual prebuilt updater with no external network. The
+          # current-version probe must request only the latest-release URL.
           installed_root="$smoke/installed"
           mkdir -m 0700 -p "$installed_root/bin" "$smoke/fake-path"
           cp "$binary" "$installed_root/bin/keyrx"
@@ -491,8 +491,8 @@ jobs:
             'out=' \
             'while test "$#" -gt 0; do case "$1" in --output) out="$2"; shift 2;; *) url="$1"; shift;; esac; done' \
             'case "$url" in' \
-            '  */"$KEYRX_TEST_ARCHIVE") cp "$KEYRX_TEST_HANDOFF/$KEYRX_TEST_ARCHIVE" "$out";;' \
-            '  */"$KEYRX_TEST_ARCHIVE.sha256") cp "$KEYRX_TEST_HANDOFF/$KEYRX_TEST_ARCHIVE.sha256" "$out";;' \
+            '  */"$KEYRX_TEST_ARCHIVE") : > "$KEYRX_TEST_ASSET_CALLED"; cp "$KEYRX_TEST_HANDOFF/$KEYRX_TEST_ARCHIVE" "$out";;' \
+            '  */"$KEYRX_TEST_ARCHIVE.sha256") : > "$KEYRX_TEST_ASSET_CALLED"; cp "$KEYRX_TEST_HANDOFF/$KEYRX_TEST_ARCHIVE.sha256" "$out";;' \
             '  *) exit 97;;' \
             'esac' > "$smoke/fake-path/curl"
           printf '%s\n' '#!/bin/sh' \
@@ -535,12 +535,16 @@ jobs:
           test ! -e "$foreign_called"
           test ! -e "$cargo_called"
           test "$(sha256sum "$home/.bashrc")" = "$profile_before"
-          printf '%s\n' "$swapped_output" | grep -F 'changed before executable replacement' >/dev/null
+          printf '%s\n' "$swapped_output" | grep -F 'changed during version check' >/dev/null
           cp "$binary" "$installed_root/bin/keyrx"
           chmod 0755 "$installed_root/bin/keyrx"
           rm -f -- "$curl_called"
+          asset_called="$smoke/asset-called"
+          installed_before="$(stat -c '%d:%i:%s:%a' "$installed_root/bin/keyrx")"
+          installed_sha_before="$(sha256sum "$installed_root/bin/keyrx")"
           update_output="$(CARGO="$fake_cargo" KEYRX_TEST_CARGO_CALLED="$cargo_called" \
             KEYRX_TEST_CURL_CALLED="$curl_called" \
+            KEYRX_TEST_ASSET_CALLED="$asset_called" \
             KEYRX_TEST_HANDOFF="$handoff" KEYRX_TEST_ARCHIVE="$archive" \
             KEYRX_TEST_VERSION="$VERSION" HOME="$home" SHELL=/bin/bash XDG_DATA_HOME="$data" \
             TMPDIR="$smoke" NO_COLOR=1 KEYRX_NO_LINKS=1 \
@@ -548,8 +552,11 @@ jobs:
             timeout 90s "$installed_root/bin/keyrx" --update 2>&1)"
           test ! -e "$cargo_called"
           test -e "$curl_called"
+          test ! -e "$asset_called"
+          test "$(stat -c '%d:%i:%s:%a' "$installed_root/bin/keyrx")" = "$installed_before"
+          test "$(sha256sum "$installed_root/bin/keyrx")" = "$installed_sha_before"
           test "$(sha256sum "$home/.bashrc")" = "$profile_before"
-          printf '%s\n' "$update_output" | grep -F "keyrx $VERSION installed at $installed_root/bin/keyrx" >/dev/null
+          printf '%s\n' "$update_output" | grep -F "keyrx $VERSION is already current; no download or replacement needed" >/dev/null
           test "$("$installed_root/bin/keyrx" --version)" = "keyrx $VERSION"
 
   effect:

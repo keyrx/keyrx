@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/keyrx/keyrx/v0.4.24/assets/x-header-1500x500.png" width="100%" alt="keyRX CLI: Solana and EVM vanity address grinder">
+  <img src="https://raw.githubusercontent.com/keyrx/keyrx/v0.4.25/assets/x-header-1500x500.png" width="100%" alt="keyRX CLI: Solana and EVM vanity address grinder">
 </p>
 
 <p align="center">
@@ -64,8 +64,9 @@ a new WSL terminal and check `command -v id && command -v curl && command -v key
 The prebuilt path needs no Rust or Cargo. PowerShell and WSL are separate environments: installing
 Rust in PowerShell does not install it in WSL, and this release has no native Windows `keyrx.exe`.
 
-`keyrx --update` on an official prebuilt install runs the verified installer embedded in that
-binary, refuses a release older than itself, and replaces only that installation after verification.
+`keyrx --update` on an official prebuilt install checks the latest release, returns without a
+download or replacement when already current, refuses a downgrade, and verifies any newer archive
+before replacing only that installation.
 Rerunning the one-line command repairs or reinstalls GitHub's current latest release; because it
 does not run an existing executable to learn its version, that direct path does not promise a
 no-downgrade check. If even `id`, `curl`, or `tar` is not found before installation, the
@@ -81,7 +82,7 @@ The complete manual equivalent remains below:
 
 ```sh
 set -eu
-VERSION=0.4.24
+VERSION=0.4.25
 TARGET=x86_64-unknown-linux-musl
 ARCHIVE="keyrx-$VERSION-$TARGET.tar.gz"
 BASE="https://github.com/keyrx/keyrx/releases/download/v$VERSION"

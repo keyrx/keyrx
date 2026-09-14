@@ -18,7 +18,8 @@ The documentation for keyRX lives in three places, all kept in step with the cod
   extraction, provenance, and source-build commands, and <https://keyrx.tech>
   (F3, INSTALL) for the same choices.
   Run it as the normal WSL user, without `sudo`; a root shell installs for root. Use
-  `keyrx --update` for a no-downgrade update of an official prebuilt. Rerun the installer to
+  `keyrx --update` for a no-downgrade update of an official prebuilt; it does not reinstall an
+  already-current version. Rerun the installer to
   repair or reinstall GitHub's current latest release. The one-command path is
   `bash -o pipefail -c 'curl --proto "=https" --tlsv1.2 -fsSL https://keyrx.tech/install.sh | sh' && export PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"`; the served script is
   byte-identical to the attested `install.sh` release asset and keeps the manual path available for
