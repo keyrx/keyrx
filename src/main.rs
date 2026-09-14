@@ -4882,6 +4882,19 @@ fn prebuilt_update_root_layout(
 }
 
 #[cfg(unix)]
+fn checked_embedded_installer_write(
+    write_result: std::io::Result<()>,
+    authenticated_current: bool,
+) -> std::io::Result<()> {
+    match write_result {
+        Err(error) if authenticated_current && error.kind() == std::io::ErrorKind::BrokenPipe => {
+            Ok(())
+        }
+        result => result,
+    }
+}
+
+#[cfg(unix)]
 fn run_embedded_prebuilt_installer(
     root: &std::path::Path,
 ) -> std::io::Result<(std::process::ExitStatus, bool)> {
@@ -4911,9 +4924,12 @@ fn run_embedded_prebuilt_installer(
         .expect("piped installer stdin")
         .write_all(VERIFIED_PREBUILT_INSTALLER.as_bytes());
     let output = child.wait_with_output()?;
-    write_result?;
     let suffix = format!("{}\n", marker);
     let current = output.status.success() && output.stdout.ends_with(suffix.as_bytes());
+    // A same-version installer exits before consuming the remaining embedded
+    // script. On hosts with a pipe smaller than the script, write_all may see
+    // EPIPE even though the authenticated no-op completed successfully.
+    checked_embedded_installer_write(write_result, current)?;
     let visible = if current {
         &output.stdout[..output.stdout.len() - suffix.len()]
     } else {
@@ -8399,6 +8415,30 @@ mod tests {
             None
         );
         assert_eq!(running_install_root(std::path::Path::new("keyrx")), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn embedded_installer_early_exit_accepts_only_authenticated_current_broken_pipe() {
+        use std::io::ErrorKind;
+
+        assert!(checked_embedded_installer_write(Ok(()), false).is_ok());
+        assert!(checked_embedded_installer_write(Ok(()), true).is_ok());
+        assert!(checked_embedded_installer_write(
+            Err(std::io::Error::from(ErrorKind::BrokenPipe)),
+            true
+        )
+        .is_ok());
+        assert!(checked_embedded_installer_write(
+            Err(std::io::Error::from(ErrorKind::BrokenPipe)),
+            false
+        )
+        .is_err());
+        assert!(checked_embedded_installer_write(
+            Err(std::io::Error::from(ErrorKind::PermissionDenied)),
+            true
+        )
+        .is_err());
     }
 
     #[cfg(unix)]

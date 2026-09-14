@@ -649,6 +649,8 @@ jobs:
           test -e "$relaunched"
           test ! -e "$cargo_called"
           test "$("$installed_root/bin/keyrx" --version)" = "keyrx $next_version"
+          test "$(stat -c '%d:%i:%s:%a' "$installed_root/bin/keyrx")" != "$installed_before"
+          test "$(sha256sum "$installed_root/bin/keyrx")" != "$installed_sha_before"
           test "$(sha256sum "$home/.bashrc")" = "$profile_before"
           printf '%s\n' "$upgraded_output" | grep -F "keyrx $next_version installed at $installed_root/bin/keyrx" >/dev/null
           printf '%s\n' "$upgraded_output" | grep -F 'synthetic replacement started' >/dev/null
