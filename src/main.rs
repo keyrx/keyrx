@@ -5044,7 +5044,11 @@ fn cmd_update() {
     );
     println!(
         "{}",
-        ui::bot("then the screen clears and the new keyrx starts")
+        ui::bot(if cfg!(target_os = "macos") {
+            "on macOS, run keyrx again after Cargo completes"
+        } else {
+            "then the screen clears and the new keyrx starts"
+        })
     );
     println!();
     let status = std::process::Command::new(&cargo)
@@ -5082,13 +5086,30 @@ fn cmd_update() {
             std::process::exit(1);
         }
     };
-    if std::io::IsTerminal::is_terminal(&std::io::stdout()) {
-        print!("\x1b[2J\x1b[H");
+    // macOS refuses execution through /dev/fd even when the held descriptor is
+    // inheritable. Do not fall back to a pathname exec: that would re-open a
+    // mutable name after the inode check. Cargo has completed and the new file
+    // is held here; hand control back so the user's next shell invocation
+    // opens the installed binary normally.
+    #[cfg(target_os = "macos")]
+    {
+        if !held_executable_path_matches(&installed, &bin).unwrap_or(false) {
+            eprintln!("cargo-installed keyrx changed before update completed");
+            std::process::exit(1);
+        }
+        println!("Cargo install completed. Run keyrx again from this shell.");
+        return;
     }
-    let _ = std::io::Write::flush(&mut std::io::stdout());
-    let err = exec_held_executable(&installed, &bin);
-    eprintln!("could not start {}: {}", ui::path_text(&bin), err);
-    std::process::exit(1);
+    #[cfg(not(target_os = "macos"))]
+    {
+        if std::io::IsTerminal::is_terminal(&std::io::stdout()) {
+            print!("\x1b[2J\x1b[H");
+        }
+        let _ = std::io::Write::flush(&mut std::io::stdout());
+        let err = exec_held_executable(&installed, &bin);
+        eprintln!("could not start {}: {}", ui::path_text(&bin), err);
+        std::process::exit(1);
+    }
 }
 
 /// cargo, wherever rustup put it: $CARGO (set when run under cargo), then PATH,
@@ -5283,7 +5304,10 @@ fn exec_held_executable(file: &std::fs::File, path: &std::path::Path) -> std::io
     std::io::Error::last_os_error()
 }
 
-#[cfg(all(unix, not(any(target_os = "linux", target_os = "android"))))]
+#[cfg(all(
+    unix,
+    not(any(target_os = "linux", target_os = "android", target_os = "macos"))
+))]
 fn exec_held_executable(file: &std::fs::File, path: &std::path::Path) -> std::io::Error {
     use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
     use std::os::unix::process::CommandExt;
@@ -5294,11 +5318,8 @@ fn exec_held_executable(file: &std::fs::File, path: &std::path::Path) -> std::io
             "installed executable pathname changed before relaunch",
         );
     }
-    // File::open uses close-on-exec. On macOS an exec of /dev/fd/N then
-    // returns EBADF: the descriptor is closed while the kernel resolves it.
-    // Duplicate only this held executable with FD_CLOEXEC clear; F_DUPFD
-    // creates that descriptor without changing the original file's flags.
-    // The replacement inherits one read-only handle to its predecessor.
+    // Duplicate only this held executable with FD_CLOEXEC clear. The
+    // replacement inherits one read-only handle to its predecessor.
     let fd = unsafe { libc::fcntl(file.as_raw_fd(), libc::F_DUPFD, 3) };
     if fd < 0 {
         return std::io::Error::last_os_error();
@@ -5314,6 +5335,14 @@ fn exec_held_executable(file: &std::fs::File, path: &std::path::Path) -> std::io
     std::process::Command::new(descriptor_path)
         .arg0(path)
         .exec()
+}
+
+#[cfg(target_os = "macos")]
+fn exec_held_executable(_file: &std::fs::File, _path: &std::path::Path) -> std::io::Error {
+    std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "macOS does not allow relaunch from a held /dev/fd executable",
+    )
 }
 
 fn cmd_start() {

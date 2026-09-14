@@ -12,8 +12,10 @@ The documentation for keyRX lives in three places, all kept in step with the cod
   compiler or linker, first run `xcode-select --install` for Apple's Command Line Tools. Ubuntu's
   suggested `apt install cargo` can be below the required Rust version; distro rustup packages
   are not the tested upstream-rustup path. If Cargo's binary directory is not on `PATH`, run
-  `export PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"`. See [Install](../README.md) for exact
-  download, checksum, extraction, provenance, and source-build commands, and <https://keyrx.tech>
+  `export PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"`. A Cargo-installed `keyrx --update` on
+  macOS completes the install, then asks you to run `keyrx` again from your shell; it does not
+  automatically relaunch there. See [Install](../README.md) for exact download, checksum,
+  extraction, provenance, and source-build commands, and <https://keyrx.tech>
   (F3, INSTALL) for the same choices.
   Run it as the normal WSL user, without `sudo`; a root shell installs for root. Use
   `keyrx --update` for a no-downgrade update of an official prebuilt. Rerun the installer to

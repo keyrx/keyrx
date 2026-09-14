@@ -398,7 +398,7 @@ C.install=function(arg){blank();
   commandRows('keyrx estimate --chain evm --ends-with dead','EVM: hex, any case');
   commandRows('keyrx grind --chain evm --ends-with dead','0x...dead, MetaMask/Rabby');
   commandRows('keyrx show','list records');
-  commandRows('keyrx --update','Cargo builds and official prebuilt installs update in place');
+  commandRows('keyrx --update','updates in place; on macOS run keyrx again when Cargo finishes');
   row('');
   note('macOS and source builds (Rust 1.85+):');
   prose('d','Until signed and notarized macOS binaries exist, install Rust from the official rustup.rs instructions and build the locked release. On macOS, run xcode-select --install if the compiler or linker is missing. Ubuntu\'s suggested apt install cargo can be too old; distro rustup packages are not this tested path.');row('');

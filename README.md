@@ -365,8 +365,11 @@ leaves no recovery record; every created Markdown file contains exactly one hit.
 
 Superseded releases are yanked on crates.io when a new one publishes (never deleted; an
 existing install keeps working). On Unix, a Cargo-installed `keyrx --update` preserves the install
-root of the running `<root>/bin/keyrx`, holds the newly installed executable by descriptor and
-relaunches that exact inode. An explicit root must be absolute. The official prebuilt release
+root of the running `<root>/bin/keyrx` and holds the newly installed executable by descriptor.
+On Linux it relaunches that exact inode. On macOS, where the hosted Apple runners refused
+descriptor-based execution, it returns to the shell after a successful Cargo install and asks
+you to run `keyrx` again. It does not fall back to a pathname relaunch with a race window.
+An explicit root must be absolute. The official prebuilt release
 updates through its embedded verified installer into the exact running install root, then holds
 and relaunches the verified replacement; it does not guess that Cargo owns that executable or
 change a shell profile during update. The manual release archive remains an alternative. Other platforms

@@ -54,6 +54,7 @@ CARGO="$fake_cargo" KEYRX_TEST_INSTALL_ROOT="$install_root" \
   KEYRX_TEST_CARGO_CALLED="$called" \
   "$binary" --update > "$scratch/update.stdout"
 test -f "$called"
-grep -F 'WHAT THIS IS' "$scratch/update.stdout" > /dev/null
+grep -F 'Run keyrx again from this shell.' "$scratch/update.stdout" > /dev/null
+"$binary" --version > /dev/null
 
-printf 'macOS source install, verify, benchmark, Solana/EVM custody, and hermetic update relaunch passed on %s\n' "$expected_arch"
+printf 'macOS source install, verify, benchmark, Solana/EVM custody, and safe update handoff passed on %s\n' "$expected_arch"

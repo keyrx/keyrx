@@ -490,7 +490,7 @@ class WorkflowShapeTests(unittest.TestCase):
             'stat -f %Lp "$sol_record"',
             'stat -f %Lp "$evm_record"',
             '"$binary" --update',
-            'grep -F \'WHAT THIS IS\' "$scratch/update.stdout"',
+            'grep -F \'Run keyrx again from this shell.\' "$scratch/update.stdout"',
         ):
             self.assertIn(required, MAC_SMOKE)
         self.assertNotIn("--show-seed", MAC_SMOKE)

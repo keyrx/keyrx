@@ -237,6 +237,11 @@ fn cargo_update_invokes_the_exact_locked_install_at_the_selected_root() {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
+    #[cfg(target_os = "macos")]
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains("Run keyrx again from this shell."),
+        "macOS update must give the safe next step after Cargo succeeds"
+    );
     let argv = std::fs::read_to_string(&argv_log).expect("read fake Cargo argv");
     assert_eq!(
         argv.lines().collect::<Vec<_>>(),
