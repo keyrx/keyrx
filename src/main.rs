@@ -8293,7 +8293,10 @@ mod tests {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let dir = std::env::temp_dir().join(format!(
+        // macOS exposes the temporary directory as /var, while its canonical
+        // path is /private/var. The fixture starts canonical so this test
+        // exercises its own deliberate alias below, not the OS temp alias.
+        let dir = std::env::temp_dir().canonicalize().unwrap().join(format!(
             "keyrx-prebuilt-root-{}-{}",
             std::process::id(),
             nonce
