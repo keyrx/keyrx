@@ -5285,7 +5285,7 @@ fn exec_held_executable(file: &std::fs::File, path: &std::path::Path) -> std::io
 
 #[cfg(all(unix, not(any(target_os = "linux", target_os = "android"))))]
 fn exec_held_executable(file: &std::fs::File, path: &std::path::Path) -> std::io::Error {
-    use std::os::fd::AsRawFd;
+    use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
     use std::os::unix::process::CommandExt;
 
     if !held_executable_path_matches(file, path).unwrap_or(false) {
@@ -5294,7 +5294,17 @@ fn exec_held_executable(file: &std::fs::File, path: &std::path::Path) -> std::io
             "installed executable pathname changed before relaunch",
         );
     }
-    let descriptor_path = std::path::PathBuf::from(format!("/dev/fd/{}", file.as_raw_fd()));
+    // File::open uses close-on-exec. On macOS an exec of /dev/fd/N then
+    // returns EBADF: the descriptor is closed while the kernel resolves it.
+    // Duplicate only this held executable with FD_CLOEXEC clear; F_DUPFD
+    // creates that descriptor without changing the original file's flags.
+    // The replacement inherits one read-only handle to its predecessor.
+    let fd = unsafe { libc::fcntl(file.as_raw_fd(), libc::F_DUPFD, 3) };
+    if fd < 0 {
+        return std::io::Error::last_os_error();
+    }
+    let inherited = unsafe { OwnedFd::from_raw_fd(fd) };
+    let descriptor_path = std::path::PathBuf::from(format!("/dev/fd/{}", inherited.as_raw_fd()));
     if !descriptor_path.exists() {
         return std::io::Error::new(
             std::io::ErrorKind::Unsupported,

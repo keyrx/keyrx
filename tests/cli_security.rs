@@ -1390,7 +1390,16 @@ fn show_refuses_non_utf8_inventory_names_without_terminal_bytes() {
     let matches = dir.0.join("keyrx/matches");
     std::fs::create_dir_all(&matches).unwrap();
     let raw = std::ffi::OsString::from_vec(vec![0x80, b'.', b't', b'x', b't']);
-    std::fs::write(matches.join(raw), b"").unwrap();
+    let write = std::fs::write(matches.join(raw), b"");
+    #[cfg(target_os = "macos")]
+    if let Err(error) = write {
+        // APFS refuses an invalid UTF-8 filename before keyrx can see it.
+        // The hostile name remains exercised on Unix filesystems that admit it.
+        assert_eq!(error.raw_os_error(), Some(libc::EILSEQ));
+        return;
+    }
+    #[cfg(not(target_os = "macos"))]
+    write.unwrap();
     let output = keyrx(&dir.0, &["show"]);
     assert!(!output.status.success());
     assert!(!output.stdout.contains(&0x1b));
