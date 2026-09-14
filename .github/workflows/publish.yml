@@ -404,26 +404,99 @@ jobs:
             KEYRX_TEST_CARGO_CALLED="$cargo_called" HOME="$home" \
             XDG_DATA_HOME="$data" NO_COLOR=1 KEYRX_NO_LINKS=1 \
             PATH="$empty_path" "$binary" --update 2>&1)"; then
-            echo 'official prebuilt update unexpectedly succeeded' >&2
+            echo 'uninstalled archive binary unexpectedly updated' >&2
             exit 1
           fi
           test ! -e "$cargo_called"
-          for expected in \
-            'https://github.com/keyrx/keyrx/releases/latest' \
-            'x86_64-unknown-linux-musl' '.sha256'; do
+          for expected in 'before download' 'install-root>/bin/keyrx'; do
             printf '%s\n' "$update_output" | grep -F "$expected" >/dev/null
           done
           if no_cargo_output="$(/usr/bin/env -u CARGO -u CARGO_HOME -u USERPROFILE \
             HOME="$no_cargo_home" XDG_DATA_HOME="$data" NO_COLOR=1 KEYRX_NO_LINKS=1 \
             PATH="$empty_path" "$binary" --update 2>&1)"; then
-            echo 'official prebuilt update without Cargo unexpectedly succeeded' >&2
+            echo 'uninstalled archive binary without Cargo unexpectedly updated' >&2
             exit 1
           fi
-          for expected in \
-            'https://github.com/keyrx/keyrx/releases/latest' \
-            'x86_64-unknown-linux-musl' '.sha256'; do
+          for expected in 'before download' 'install-root>/bin/keyrx'; do
             printf '%s\n' "$no_cargo_output" | grep -F "$expected" >/dev/null
           done
+          # Prove the actual prebuilt update path with release bytes and no network.
+          # The stub serves only this job's already independently verified archive.
+          installed_root="$smoke/installed"
+          mkdir -m 0700 -p "$installed_root/bin" "$smoke/fake-path"
+          cp "$binary" "$installed_root/bin/keyrx"
+          chmod 0755 "$installed_root/bin/keyrx"
+          printf '%s\n' '#!/bin/sh' \
+            'test -z "${KEYRX_TEST_CURL_CALLED:-}" || : > "$KEYRX_TEST_CURL_CALLED"' \
+            'test "${KEYRX_TRUSTED_INSTALLED_VERSION:-}" = "$KEYRX_TEST_VERSION" || exit 96' \
+            'test "${KEYRX_INSTALL_NO_PROFILE:-}" = 1 || exit 95' \
+            'for arg in "$@"; do case "$arg" in *releases/latest)' \
+            '  if test -n "${KEYRX_TEST_SWAP_TARGET:-}"; then mv -f -- "$KEYRX_TEST_SWAP_STAGED" "$KEYRX_TEST_SWAP_TARGET"; fi' \
+            '  printf "%s" "https://github.com/keyrx/keyrx/releases/tag/v$KEYRX_TEST_VERSION"; exit 0;;' \
+            'esac; done' \
+            'out=' \
+            'while test "$#" -gt 0; do case "$1" in --output) out="$2"; shift 2;; *) url="$1"; shift;; esac; done' \
+            'case "$url" in' \
+            '  */"$KEYRX_TEST_ARCHIVE") cp "$KEYRX_TEST_HANDOFF/$KEYRX_TEST_ARCHIVE" "$out";;' \
+            '  */"$KEYRX_TEST_ARCHIVE.sha256") cp "$KEYRX_TEST_HANDOFF/$KEYRX_TEST_ARCHIVE.sha256" "$out";;' \
+            '  *) exit 97;;' \
+            'esac' > "$smoke/fake-path/curl"
+          printf '%s\n' '#!/bin/sh' \
+            'case "$*" in "attestation verify --help") exit 1;; *) exit 98;; esac' \
+            > "$smoke/fake-path/gh"
+          chmod 0700 "$smoke/fake-path/curl" "$smoke/fake-path/gh"
+          curl_called="$smoke/curl-called"
+          printf '%s\n' '# existing Bash profile must remain byte-identical' > "$home/.bashrc"
+          chmod 0600 "$home/.bashrc"
+          profile_before="$(sha256sum "$home/.bashrc")"
+          if mismatch_output="$(CARGO_HOME="$no_cargo_home" \
+            KEYRX_TEST_CURL_CALLED="$curl_called" HOME="$home" \
+            NO_COLOR=1 PATH="$smoke/fake-path:/usr/bin:/bin" \
+            "$installed_root/bin/keyrx" --update 2>&1)"; then
+            echo 'mismatched CARGO_HOME unexpectedly updated' >&2
+            exit 1
+          fi
+          test ! -e "$curl_called"
+          printf '%s\n' "$mismatch_output" | grep -F 'before download' >/dev/null
+          # After the updater has authenticated its own running inode, swap the
+          # path through the fake provider. A foreign target must never execute.
+          foreign="$smoke/foreign-keyrx"
+          foreign_called="$smoke/foreign-called"
+          printf '%s\n' '#!/bin/sh' ': > "$KEYRX_TEST_FOREIGN_CALLED"' 'exit 0' > "$foreign"
+          chmod 0700 "$foreign"
+          if swapped_output="$(CARGO="$fake_cargo" \
+            KEYRX_TEST_CARGO_CALLED="$cargo_called" \
+            KEYRX_TEST_CURL_CALLED="$curl_called" \
+            KEYRX_TEST_SWAP_STAGED="$foreign" \
+            KEYRX_TEST_SWAP_TARGET="$installed_root/bin/keyrx" \
+            KEYRX_TEST_FOREIGN_CALLED="$foreign_called" \
+            KEYRX_TEST_HANDOFF="$handoff" KEYRX_TEST_ARCHIVE="$archive" \
+            KEYRX_TEST_VERSION="$VERSION" HOME="$home" SHELL=/bin/bash XDG_DATA_HOME="$data" \
+            TMPDIR="$smoke" NO_COLOR=1 KEYRX_NO_LINKS=1 \
+            PATH="$smoke/fake-path:/usr/bin:/bin" \
+            timeout 90s "$installed_root/bin/keyrx" --update 2>&1)"; then
+            echo 'a swapped foreign keyrx target unexpectedly updated' >&2
+            exit 1
+          fi
+          test ! -e "$foreign_called"
+          test ! -e "$cargo_called"
+          test "$(sha256sum "$home/.bashrc")" = "$profile_before"
+          printf '%s\n' "$swapped_output" | grep -F 'changed before executable replacement' >/dev/null
+          cp "$binary" "$installed_root/bin/keyrx"
+          chmod 0755 "$installed_root/bin/keyrx"
+          rm -f -- "$curl_called"
+          update_output="$(CARGO="$fake_cargo" KEYRX_TEST_CARGO_CALLED="$cargo_called" \
+            KEYRX_TEST_CURL_CALLED="$curl_called" \
+            KEYRX_TEST_HANDOFF="$handoff" KEYRX_TEST_ARCHIVE="$archive" \
+            KEYRX_TEST_VERSION="$VERSION" HOME="$home" SHELL=/bin/bash XDG_DATA_HOME="$data" \
+            TMPDIR="$smoke" NO_COLOR=1 KEYRX_NO_LINKS=1 \
+            PATH="$smoke/fake-path:/usr/bin:/bin" \
+            timeout 90s "$installed_root/bin/keyrx" --update 2>&1)"
+          test ! -e "$cargo_called"
+          test -e "$curl_called"
+          test "$(sha256sum "$home/.bashrc")" = "$profile_before"
+          printf '%s\n' "$update_output" | grep -F "keyrx $VERSION installed at $installed_root/bin/keyrx" >/dev/null
+          test "$("$installed_root/bin/keyrx" --version)" = "keyrx $VERSION"
 
   effect:
     needs: [prepare, linux_binary, verify_binary]

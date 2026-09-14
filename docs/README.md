@@ -14,10 +14,17 @@ The documentation for keyRX lives in three places, all kept in step with the cod
   `export PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"`. See [Install](../README.md) for exact
   download, checksum, extraction, provenance, and source-build commands, and <https://keyrx.tech>
   (F3, INSTALL) for the same choices.
-  The one-command path is
+  Run it as the normal WSL user, without `sudo`; a root shell installs for root. Use
+  `keyrx --update` for a no-downgrade update of an official prebuilt. Rerun the installer to
+  repair or reinstall GitHub's current latest release. The one-command path is
   `bash -o pipefail -c 'curl --proto "=https" --tlsv1.2 -fsSL https://keyrx.tech/install.sh | sh'`; the served script is
   byte-identical to the attested `install.sh` release asset and keeps the manual path available for
-  inspection-first installs.
+  inspection-first installs. The prebuilt needs no Rust; PowerShell and WSL do not share toolchains.
+  The website's complete one-liner includes the current-shell `PATH` change. The installer adds
+  one guarded Bash profile line for future shells, preserving `/usr/bin` and `/bin`; it refuses an
+  unsafe profile before downloading. Reopen WSL and run
+  `command -v id && command -v curl && command -v keyrx && keyrx --version && keyrx verify`. If even `id` cannot be found
+  before installation, repair the existing system `PATH` first.
 - **Start:** `keyrx` with no arguments prints the start screen, which explains every command and
   every flag in place: WHAT THIS IS, COMMANDS, PATTERN FLAGS, EVM, GRIND FLAGS, THE 128, WHAT A
   MATCH WRITES, RECIPES, A TYPICAL SESSION. `keyrx <command> --help` for any one of them.

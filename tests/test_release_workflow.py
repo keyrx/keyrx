@@ -500,9 +500,12 @@ class WorkflowShapeTests(unittest.TestCase):
             'PATH="$empty_path" "$binary" --update',
             'CARGO="$fake_cargo"',
             'test ! -e "$cargo_called"',
-            "'https://github.com/keyrx/keyrx/releases/latest'",
-            "'x86_64-unknown-linux-musl'",
-            "'.sha256'",
+            "'before download'",
+            "'install-root>/bin/keyrx'",
+            'installed_root="$smoke/installed"',
+            'KEYRX_TEST_HANDOFF="$handoff"',
+            'PATH="$smoke/fake-path:/usr/bin:/bin"',
+            'timeout 90s "$installed_root/bin/keyrx" --update',
         ):
             with self.subTest(required=required):
                 self.assertIn(required, smoke)

@@ -2,6 +2,19 @@
 
 All notable changes to keyRX, newest first. Versions are the ones on crates.io.
 
+## 0.4.22 - 2026-09-14
+
+- Make the verified Linux/WSL one-command installer set up future Bash shells as well as the current
+  terminal, preserving system commands even when an earlier profile line replaced `PATH`. Refuse
+  unsafe profile and install directories before download, and never execute a preexisting binary
+  merely to read its version. Leave wallet records and unrelated tools untouched.
+- Let an official prebuilt `keyrx --update` use its embedded verified installer in the exact
+  running install root, reject a release older than the running version, and relaunch the verified
+  replacement without Cargo or shell-profile changes. Keep source-built updates on their Cargo path.
+- Reduce install guidance to the supported one-command WSL path, retain an inspect-first manual
+  alternative and `cargo install --locked keyrx`, and verify `id`, `curl`, and `keyrx` separately in
+  a new shell so a broken `PATH` cannot look healthy.
+
 ## 0.4.21 - 2026-09-13
 
 - Keep the one-command Linux/WSL installer working when an older GitHub CLI is

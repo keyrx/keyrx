@@ -105,7 +105,11 @@ noscript div{white-space:normal;max-width:68ch;color:var(--gray);padding:1em 0}
   <code>keyrx-&lt;version&gt;-x86_64-unknown-linux-musl.tar.gz</code> archive from the GitHub Release,
   verify it with its matching <code>.sha256</code> file, then run <code>keyrx verify</code>. Windows uses that Linux build
   inside WSL; there is no native Windows binary.</p>
-  <pre>bash -o pipefail -c 'curl --proto "=https" --tlsv1.2 -fsSL https://keyrx.tech/install.sh | sh'</pre>
+  <pre>bash -o pipefail -c 'curl --proto "=https" --tlsv1.2 -fsSL https://keyrx.tech/install.sh | sh' &amp;&amp; export PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"</pre>
+  <p>Run inside Linux or WSL as your normal user, without sudo, not in PowerShell. The prebuilt
+  needs no Rust or Cargo. The installer safely adds a Bash startup line for new WSL shells;
+  the full command above handles this shell. It keeps <code>/usr/bin</code> and <code>/bin</code>
+  on PATH. If your system PATH is already broken, repair it before installing.</p>
   <p>On macOS Apple silicon or Intel, build from source until signed and notarized macOS binaries
   exist. Install Rust 1.85 or newer from the official
   <a href="https://rustup.rs/">rustup instructions</a>. On Ubuntu, the suggested
@@ -139,7 +143,7 @@ keyrx verify</pre>
 (function(){
 /* The masthead version must equal Cargo.toml. A repository test enforces the
    pair, and this is the only place on the site where the version is written. */
-var VERSION='0.4.21';
+var VERSION='0.4.22';
 var out=document.getElementById('out'),scr=document.getElementById('scr'),
     inp=document.getElementById('in'),prom=document.getElementById('prompt'),
     sr=document.getElementById('sr');
@@ -338,7 +342,7 @@ C.what=function(){blank();
   head('WHAT THIS IS',MOBILE?'':'one seed, many addresses, exact keys and paths');
   prose('d','Grinds Solana and EVM vanity addresses - an address that ends (or starts) with the letters you choose - and writes the seed, derivation path, and supported key forms: base58 and JSON array for Solana, 0x hex for EVM.');row('');
   prose('d','Fast because solana-keygen grind pays 2048 rounds of PBKDF2 (~1.2 ms) to test ONE address; keyRX pays it once per seed, then walks that seed\'s account indices at ~21 us each. The cited run measured 19.5-32.2x aggregate throughput and 33-55x per core.');row('');
-  prose('d','Standalone. No daemon or service. Grinding is offline; only the explicit --update command may ask Cargo to fetch a release. A prebuilt install without Cargo points back to the verified archive. Secrets go to a mode-0600 file on Unix, never to the screen unless you ask.');
+  prose('d','Standalone. No daemon or service. Grinding is offline; only explicit --update uses the network: Cargo builds ask Cargo, and the official prebuilt runs its embedded verified installer. Rerun the one-line installer to repair from GitHub latest; the manual archive remains an alternative. Secrets go to a mode-0600 file on Unix, never to the screen unless you ask.');
   foot('verify -> bench -> estimate -> grind -> show');
   if(!MOBILE){
     head('THE 128','what --indices means and why it matters');
@@ -355,11 +359,12 @@ C.what=function(){blank();
 C.install=function(arg){blank();
   head('INSTALL',MOBILE?'Linux / WSL · one command':'Linux x86-64 / Windows WSL · one command');
   commandRows(`bash -o pipefail -c 'curl --proto "=https" --tlsv1.2 -fsSL https://keyrx.tech/install.sh | sh' && export PATH="\${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"`,'verified one-line Linux / WSL install, then current-shell PATH');
-  prose('d','Run this inside WSL, not PowerShell. It verifies and installs the Linux binary, runs keyrx verify, then makes keyrx available in this shell. PowerShell has no native keyrx.exe.');row('');
-  prose('d','For future WSL terminals, add $HOME/.cargo/bin to your shell profile once if it is not already on PATH.');row('');
+  prose('d','Run this in Linux or inside WSL as your normal user, without sudo, not in PowerShell. It verifies and installs the Linux binary, runs keyrx verify, and makes keyrx available in this shell. The installer adds one safe Bash startup line for new shells; no second setup command. A root shell installs for root, not another WSL user. PowerShell has no native keyrx.exe.');row('');
+  prose('d','Reopen WSL and verify it. If id or curl is already command not found before installation, your system PATH is broken; restore /usr/bin and /bin first.');
+  commandRows('command -v id && command -v curl && command -v keyrx && keyrx --version && keyrx verify','confirm after a new shell opens');row('');
   note(MOBILE?'OR · RUST SOURCE BUILD':'OR · ALREADY HAVE RUST 1.85+? BUILD FROM SOURCE');
   commandRows('cargo install --locked keyrx','advanced alternative: crates.io source build');
-  prose('d','Choose either install path, not both. The source build is also the macOS path.');row('');
+  prose('d','Choose either install path, not both. The source build is also the macOS path. Later, use keyrx --update for a no-downgrade update; rerunning the installer repairs from GitHub latest.');row('');
   if(arg!=='manual'){
     prose('d','Want the inspect-first archive steps or Rust setup for macOS? Type install manual.');
     foot('one command per path · then run keyrx');blank();return;
@@ -392,7 +397,7 @@ C.install=function(arg){blank();
   commandRows('keyrx estimate --chain evm --ends-with dead','EVM: hex, any case');
   commandRows('keyrx grind --chain evm --ends-with dead','0x...dead, MetaMask/Rabby');
   commandRows('keyrx show','list records');
-  commandRows('keyrx --update','Cargo-installed builds update; prebuilt shows release path');
+  commandRows('keyrx --update','Cargo builds and official prebuilt installs update in place');
   row('');
   note('macOS and source builds (Rust 1.85+):');
   prose('d','Until signed and notarized macOS binaries exist, install Rust from the official rustup.rs instructions and build the locked release. Ubuntu\'s suggested apt install cargo can be too old; distro rustup packages are not this tested path.');row('');
@@ -621,6 +626,10 @@ function installBox(){
   var padn=Math.max(0,Math.floor((IN-label.length)/2));
   var d=row(' '.repeat(padn)+'[[y]]'+label+'[[/]]');
   copyIn(d,label,INSTALL,'install command');
+  row('');
+  if(MOBILE){row('  [[d]]WSL shell, not PowerShell.[[/]]');
+    row('  [[d]]Your user, not root or sudo.[[/]]');}
+  else row('  [[d]]Linux / WSL shell, your user, no sudo. Not PowerShell.[[/]]');
   row('');
   if(MOBILE){wrapWords('Solana vanity addresses, measured at 19.5-32.2x the cited aggregate baseline - and EVM',IN-4).forEach(function(l){row('  [[w]]'+l+'[[/]]');});
     wrapWords('- and every match writes the seed, path, and supported key forms. One Rust binary. Offline grinding. No daemon.',IN-4).forEach(function(l){row('  [[d]]'+l+'[[/]]');});}

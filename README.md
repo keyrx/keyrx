@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/keyrx/keyrx/v0.4.21/assets/x-header-1500x500.png" width="100%" alt="keyRX CLI: Solana and EVM vanity address grinder">
+  <img src="https://raw.githubusercontent.com/keyrx/keyrx/v0.4.22/assets/x-header-1500x500.png" width="100%" alt="keyRX CLI: Solana and EVM vanity address grinder">
 </p>
 
 <p align="center">
@@ -23,7 +23,8 @@ base58 model and are labeled approximate because signing-key outputs are not uni
 
 Solana and EVM BIP39 vanity address grinder. Standalone terminal tool - no daemon
 or service. Grinding, estimating, benchmarking, showing and verifying make no network
-requests; only the explicit `--update` command may ask Cargo to fetch a release. Replaces
+requests; only the explicit `--update` command may use the network, through Cargo for source
+installs or the embedded verified installer for an official prebuilt. Replaces
 `solana-keygen grind --use-mnemonic`; on EVM it
 does the same thing for Ethereum, Base, Arbitrum, Optimism, Polygon, BNB, Robinhood Chain
 and every chain that shares the key format (one key is every one of them).
@@ -53,10 +54,23 @@ the installed binary's own verification:
 bash -o pipefail -c 'curl --proto "=https" --tlsv1.2 -fsSL https://keyrx.tech/install.sh | sh' && export PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"
 ```
 
-Run this in a WSL shell, not PowerShell. The final `export` makes `keyrx` available in that
-same shell; a downloaded child installer cannot change its parent shell's PATH. For future WSL
-terminals, add `${CARGO_HOME:-$HOME/.cargo}/bin` to your shell profile once if it is not already
-present. There is no native Windows `keyrx.exe` in this release.
+Run this in Linux or a WSL shell as the user who will run KeyRX, without `sudo`, not in PowerShell.
+Running it from a root shell installs under `/root` by default and will not make KeyRX available to a
+different WSL user. The final `export` makes `keyrx` available in that same shell; a downloaded
+child installer cannot change its parent shell's PATH. For Bash, the installer also adds one
+guarded line to your own `~/.bashrc` so KeyRX and system commands remain available in new shells.
+It refuses an unsafe profile before downloading; it never replaces existing profile lines. Open
+a new WSL terminal and check `command -v id && command -v curl && command -v keyrx && keyrx --version && keyrx verify`.
+The prebuilt path needs no Rust or Cargo. PowerShell and WSL are separate environments: installing
+Rust in PowerShell does not install it in WSL, and this release has no native Windows `keyrx.exe`.
+
+`keyrx --update` on an official prebuilt install runs the verified installer embedded in that
+binary, refuses a release older than itself, and replaces only that installation after verification.
+Rerunning the one-line command repairs or reinstalls GitHub's current latest release; because it
+does not run an existing executable to learn its version, that direct path does not promise a
+no-downgrade check. If even `id`, `curl`, or `tar` is not found before installation, the
+shell's system `PATH` is already broken; repair that existing shell configuration first. Do not
+replace `PATH` with just the KeyRX bin directory. Non-Bash shells receive their own profile guidance.
 
 The installer is itself an attested, checksummed release asset and is served byte-for-byte at
 `https://keyrx.tech/install.sh`. To inspect it before execution, download that URL first and compare
@@ -67,7 +81,7 @@ The complete manual equivalent remains below:
 
 ```sh
 set -eu
-VERSION=0.4.21
+VERSION=0.4.22
 TARGET=x86_64-unknown-linux-musl
 ARCHIVE="keyrx-$VERSION-$TARGET.tar.gz"
 BASE="https://github.com/keyrx/keyrx/releases/download/v$VERSION"
@@ -351,8 +365,9 @@ Superseded releases are yanked on crates.io when a new one publishes (never dele
 existing install keeps working). On Unix, a Cargo-installed `keyrx --update` preserves the install
 root of the running `<root>/bin/keyrx`, holds the newly installed executable by descriptor and
 relaunches that exact inode. An explicit root must be absolute. The official prebuilt release
-refuses the automatic update even when Cargo happens to be installed and points to the verified
-release archive; it does not guess that Cargo owns or may replace that executable. Other platforms
+updates through its embedded verified installer into the exact running install root, then holds
+and relaunches the verified replacement; it does not guess that Cargo owns that executable or
+change a shell profile during update. The manual release archive remains an alternative. Other platforms
 refuse the automatic relaunch and print the supported manual path.
 
 `--count N` reserves exactly N output slots before writing. Threads that find

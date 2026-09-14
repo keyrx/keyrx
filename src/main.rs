@@ -1,7 +1,8 @@
 // keyRX -- Solana and EVM vanity address grinder
 //
 // Standalone terminal tool. No daemon or service. Grinding and local inspection
-// are offline; the explicit --update command may invoke Cargo's networked install.
+// are offline; the explicit --update command alone may use the network to
+// fetch a verified prebuilt release or invoke Cargo's networked install.
 //
 // Why it's fast: `solana-keygen grind --use-mnemonic` generates a fresh
 // mnemonic per candidate, paying 2048 rounds of PBKDF2-HMAC-SHA512 (~1.2ms)
@@ -4758,9 +4759,8 @@ fn main() {
 /// and the two ideas you need - what a path index is, and why --indices
 /// trades speed for where the match lands.
 /// For Cargo installations, `keyrx --update` runs cargo install --locked keyrx
-/// and then the newly installed binary. An official prebuilt installation
-/// always refuses with the verified release-download path instead of pretending
-/// it can safely replace itself.
+/// and then the newly installed binary. An official Linux prebuilt executes
+/// the release-built, embedded verified installer into its exact running root.
 #[cfg(not(unix))]
 fn cmd_update() {
     ui::masthead(&format!("v{}", env!("CARGO_PKG_VERSION")));
@@ -4786,6 +4786,163 @@ fn cmd_update() {
 fn official_prebuilt_distribution() -> bool {
     cfg!(all(target_os = "linux", target_arch = "x86_64"))
         && option_env!("KEYRX_DISTRIBUTION") == Some(LINUX_PREBUILT_DISTRIBUTION)
+}
+
+#[cfg(unix)]
+const VERIFIED_PREBUILT_INSTALLER: &str = include_str!("../site/install.sh");
+
+/// Refuse before network if this executable is not an ordinary, caller-owned
+/// installation at <root>/bin/keyrx. In particular a symlinked root or an
+/// ambient Cargo override must not redirect the update to another location.
+#[cfg(unix)]
+fn prebuilt_update_root(current_exe: &std::path::Path) -> Result<std::path::PathBuf, String> {
+    let root = prebuilt_update_root_layout(
+        current_exe,
+        std::env::var_os("CARGO_HOME"),
+        std::env::var_os("CARGO_INSTALL_ROOT"),
+    )?;
+    #[cfg(target_os = "linux")]
+    use std::os::unix::fs::MetadataExt;
+    let installed = open_installed_executable(current_exe)
+        .map_err(|e| format!("running keyrx is not safe to replace: {}", e))?;
+    #[cfg(target_os = "linux")]
+    {
+        let actual = std::fs::metadata("/proc/self/exe")
+            .map_err(|e| format!("cannot verify running executable identity: {}", e))?;
+        let held = installed
+            .metadata()
+            .map_err(|e| format!("cannot hold running executable identity: {}", e))?;
+        if actual.dev() != held.dev() || actual.ino() != held.ino() {
+            return Err("running executable differs from the install target".into());
+        }
+    }
+    Ok(root)
+}
+
+#[cfg(unix)]
+fn prebuilt_update_root_layout(
+    current_exe: &std::path::Path,
+    cargo_home: Option<std::ffi::OsString>,
+    cargo_install_root: Option<std::ffi::OsString>,
+) -> Result<std::path::PathBuf, String> {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+    let root = running_install_root(current_exe)
+        .ok_or("running keyrx is not at an absolute <install-root>/bin/keyrx path")?;
+    for (name, value) in [
+        ("CARGO_HOME", cargo_home),
+        ("CARGO_INSTALL_ROOT", cargo_install_root),
+    ] {
+        if let Some(value) = value {
+            let chosen = absolute_env_path(name, value)?;
+            if chosen != root {
+                return Err(format!(
+                    "{} points somewhere other than the running keyrx install root",
+                    name
+                ));
+            }
+        }
+    }
+    for path in [&root, &root.join("bin")] {
+        let meta = std::fs::symlink_metadata(path)
+            .map_err(|e| format!("cannot inspect {}: {}", ui::path_text(path), e))?;
+        if !meta.is_dir()
+            || meta.file_type().is_symlink()
+            || meta.uid() != unsafe { libc::geteuid() }
+            || meta.permissions().mode() & 0o022 != 0
+        {
+            return Err(format!(
+                "{} is not a caller-owned, non-symlink, non-group/world-writable directory",
+                ui::path_text(path)
+            ));
+        }
+    }
+    if std::fs::canonicalize(&root).ok().as_deref() != Some(root.as_path()) {
+        return Err("install root traverses a symlink or is not canonical".into());
+    }
+    Ok(root)
+}
+
+#[cfg(unix)]
+fn run_embedded_prebuilt_installer(
+    root: &std::path::Path,
+) -> std::io::Result<std::process::ExitStatus> {
+    use std::io::Write;
+    let mut child = std::process::Command::new("/bin/sh")
+        .arg("-s")
+        .env("CARGO_HOME", root)
+        // This value is compiled into the currently running, inode-verified
+        // release. The installer must never execute a mutable old target merely
+        // to discover a version before the new archive has been verified.
+        .env("KEYRX_TRUSTED_INSTALLED_VERSION", env!("CARGO_PKG_VERSION"))
+        // `--update` is a binary replacement, not a first-run shell setup.
+        // In particular it must not rewrite an existing .bashrc on every run.
+        .env("KEYRX_INSTALL_NO_PROFILE", "1")
+        .stdin(std::process::Stdio::piped())
+        .spawn()?;
+    let write_result = child
+        .stdin
+        .take()
+        .expect("piped installer stdin")
+        .write_all(VERIFIED_PREBUILT_INSTALLER.as_bytes());
+    let status = child.wait()?;
+    write_result?;
+    Ok(status)
+}
+
+#[cfg(unix)]
+fn cmd_prebuilt_update() {
+    let current_exe = match std::env::current_exe() {
+        Ok(path) => path,
+        Err(e) => {
+            eprintln!(
+                "keyrx update refused: cannot identify the running executable: {}",
+                e
+            );
+            std::process::exit(1);
+        }
+    };
+    let root = match prebuilt_update_root(&current_exe) {
+        Ok(root) => root,
+        Err(reason) => {
+            eprintln!("keyrx update refused before download: {}", reason);
+            std::process::exit(1);
+        }
+    };
+    println!("{}", ui::top("UPDATE", "verified Linux / WSL release"));
+    println!("{}", ui::kv("installed", &ui::path_text(&current_exe)));
+    println!(
+        "{}",
+        ui::note("checking the latest release, checksum, and available provenance")
+    );
+    println!("{}", ui::bot("then the new keyrx starts automatically"));
+    println!();
+    match run_embedded_prebuilt_installer(&root) {
+        Ok(status) if status.success() => {}
+        Ok(status) => {
+            eprintln!("keyrx verified installer exited with {}", status);
+            std::process::exit(status.code().unwrap_or(1));
+        }
+        Err(error) => {
+            eprintln!("keyrx could not run its embedded installer: {}", error);
+            std::process::exit(1);
+        }
+    }
+    let bin = root.join("bin/keyrx");
+    let installed = match open_installed_executable(&bin) {
+        Ok(file) => file,
+        Err(error) => {
+            eprintln!("keyrx installed release cannot be held safely: {}", error);
+            std::process::exit(1);
+        }
+    };
+    if std::io::IsTerminal::is_terminal(&std::io::stdout()) {
+        print!("\x1b[2J\x1b[H");
+    }
+    let _ = std::io::Write::flush(&mut std::io::stdout());
+    let err = exec_held_executable(&installed, &bin);
+    eprintln!("could not start {}: {}", ui::path_text(&bin), err);
+    std::process::exit(1);
 }
 
 #[cfg(unix)]
@@ -4843,7 +5000,8 @@ fn refuse_manual_update(reason: &str, linux_x86_64: bool, official_prebuilt: boo
 fn cmd_update() {
     ui::masthead(&format!("v{}", env!("CARGO_PKG_VERSION")));
     if official_prebuilt_distribution() {
-        refuse_manual_update("this prebuilt release does not replace itself.", true, true);
+        cmd_prebuilt_update();
+        return;
     }
     let Some(cargo) = find_cargo() else {
         refuse_manual_update(
@@ -5208,7 +5366,7 @@ fn cmd_start() {
     );
     println!(
         "{}",
-        n("offline; Cargo-installed updates alone use the network. Secrets")
+        n("offline; only explicit updates use the network. Secrets")
     );
     println!(
         "{}",
@@ -8124,6 +8282,49 @@ mod tests {
             None
         );
         assert_eq!(running_install_root(std::path::Path::new("keyrx")), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn prebuilt_updater_refuses_ambiguous_or_unsafe_install_roots_before_download() {
+        use std::os::unix::fs::{symlink, PermissionsExt};
+
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!(
+            "keyrx-prebuilt-root-{}-{}",
+            std::process::id(),
+            nonce
+        ));
+        let root = dir.join("install");
+        let bin = root.join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700)).unwrap();
+        std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let exe = bin.join("keyrx");
+        std::fs::write(&exe, b"fixture").unwrap();
+        std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o700)).unwrap();
+        assert_eq!(prebuilt_update_root_layout(&exe, None, None).unwrap(), root);
+        assert_eq!(
+            prebuilt_update_root_layout(&exe, Some(root.clone().into_os_string()), None).unwrap(),
+            root
+        );
+        for value in ["relative", "/another/install"] {
+            assert!(prebuilt_update_root_layout(&exe, Some(value.into()), None).is_err());
+            assert!(prebuilt_update_root_layout(&exe, None, Some(value.into())).is_err());
+        }
+        std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o777)).unwrap();
+        assert!(prebuilt_update_root_layout(&exe, None, None).is_err());
+        std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let alias = dir.join("alias");
+        symlink(&root, &alias).unwrap();
+        assert!(prebuilt_update_root_layout(&alias.join("bin/keyrx"), None, None).is_err());
+        assert!(
+            prebuilt_update_root_layout(&root.join("../install/bin/keyrx"), None, None).is_err()
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[cfg(unix)]

@@ -9,7 +9,7 @@
 > the address, its derivation path, the seed phrase, a base58 keypair for current
 > Phantom/Solflare private-key import flows, and a JSON byte array for
 > solana-keygen. One Rust binary. No daemon or service. Grinding, estimating,
-> benchmarking, showing and verifying are offline; explicit --update may use Cargo's network access.
+> benchmarking, showing and verifying are offline; explicit --update may use the network for a verified release.
 >
 > `--chain evm` (0.4.0): Ethereum and every EVM chain - the same mnemonic walk on
 > secp256k1 at m/44'/60'/0'/0/N, keccak addresses in EIP-55 case; hex patterns,
@@ -35,6 +35,16 @@ and runs `keyrx verify`:
 
 The same `install.sh` bytes are attached to the GitHub Release, covered by its checksum manifest and
 signed provenance, and served at keyrx.tech. The manual archive path below remains available.
+Run it in WSL as the user who will use KeyRX, without sudo; a root shell installs for root.
+Use `keyrx --update` for a no-downgrade update of an official prebuilt. Rerun the installer
+to repair or reinstall GitHub's current latest release; it does not run an old binary to
+determine its version and cannot promise that a direct reinstall is monotonic.
+Cargo source builds retain their separate `keyrx --update` path.
+The prebuilt needs no Rust or Cargo. PowerShell and WSL are separate environments; there is no
+native Windows binary. The website's full one-line command fixes PATH in its current shell; the
+installer safely adds a Bash startup line for new shells. Reopen WSL, then run
+`command -v id && command -v curl && command -v keyrx && keyrx --version && keyrx verify`. If system commands are already
+missing, repair the existing PATH before installation. `/usr/bin` and `/bin` must remain available.
 
 Download it and its matching `.tar.gz.sha256` sidecar from the same GitHub Release, verify the
 archive, extract it, install `keyrx` into `${CARGO_HOME:-$HOME/.cargo}/bin`, then run `keyrx verify`.
@@ -71,7 +81,7 @@ Then use the tool:
     keyrx grind --ends-with KEYRX --passphrase     # BIP39 passphrase: prompted, hidden, never stored; import that address by key
     keyrx grind --starts-with Key --ends-with RX   # both ends; --ignore-case for any case (32x likelier for five letters)
     keyrx show                   # every Markdown record and legacy ledger; prints each exact show command
-    keyrx --update               # Cargo-installed builds update in place; prebuilt users get the release path
+    keyrx --update               # Cargo builds and official prebuilt installs update in place
 
 `bench`, `grind`, and `show` require Unix owner-only file semantics. On
 Windows, run them under WSL. Probability is not machine-specific; a matching

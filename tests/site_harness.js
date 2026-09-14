@@ -229,6 +229,11 @@ function assertInstallIsOneCommandUntilExpanded(og, label, bad) {
       compact.includes('tar -xzf') || !compact.includes('cargo install --locked keyrx') ||
       !compact.includes('Choose either install path'))
     bad.push(`${label} default Install must show two alternative one-command paths, not the manual sequence`);
+  if (!compact.includes('sudo') || !compact.includes('PowerShell') ||
+      !compact.includes('Reopen WSL') || !compact.includes('command -v id') ||
+      !compact.includes('command -v curl') || !compact.includes('command -v keyrx') ||
+      !compact.includes('/usr/bin') || !compact.includes('/bin'))
+    bad.push(`${label} default Install omitted WSL user, persistent PATH, or fresh-shell verification`);
   og.run('install manual');
   const expanded = ids.out.textContent;
   if (!expanded.includes('sha256sum -c') || !expanded.includes('tar -xzf') ||

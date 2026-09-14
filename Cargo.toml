@@ -1,6 +1,6 @@
 [package]
 name = "keyrx"
-version = "0.4.21"
+version = "0.4.22"
 edition = "2021"
 rust-version = "1.85"
 description = "The keyRX CLI: Solana and EVM vanity address grinder. One seed, many addresses, exact keys and paths. Offline grinding. Open. Verified."
@@ -13,9 +13,10 @@ keywords = ["solana", "vanity", "wallet", "keygen", "address"]
 categories = ["command-line-utilities", "cryptography::cryptocurrencies"]
 # The crate is the CLI. The site and the raster/vector brand assets live in the
 # repository, not in the tarball: assets/ is outside the MIT grant
-# (TRADEMARK.md), and cargo install needs none of it. The CLI source still
-# contains the terminal renderer for the mark it prints.
-include = ["/src/**", "/Cargo.toml", "/Cargo.lock", "/README.md", "/LICENSE", "/TRADEMARK.md", "/CHANGELOG.md"]
+# (TRADEMARK.md). The verified installer is embedded in the official prebuilt
+# updater, so it must be included in the published source crate as well. The CLI
+# source still contains the terminal renderer for the mark it prints.
+include = ["/src/**", "/site/install.sh", "/Cargo.toml", "/Cargo.lock", "/README.md", "/LICENSE", "/TRADEMARK.md", "/CHANGELOG.md"]
 
 [[bin]]
 name = "keyrx"
