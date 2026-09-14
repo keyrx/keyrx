@@ -4805,6 +4805,8 @@ fn prebuilt_update_root(current_exe: &std::path::Path) -> Result<std::path::Path
     use std::os::unix::fs::MetadataExt;
     let installed = open_installed_executable(current_exe)
         .map_err(|e| format!("running keyrx is not safe to replace: {}", e))?;
+    #[cfg(not(target_os = "linux"))]
+    drop(installed);
     #[cfg(target_os = "linux")]
     {
         let actual = std::fs::metadata("/proc/self/exe")
@@ -5098,7 +5100,6 @@ fn cmd_update() {
             std::process::exit(1);
         }
         println!("Cargo install completed. Run keyrx again from this shell.");
-        return;
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -5245,7 +5246,7 @@ fn held_executable_path_matches(
         && held.ino() == current.ino())
 }
 
-#[cfg(unix)]
+#[cfg(any(target_os = "linux", target_os = "android"))]
 fn exec_vectors(
     argv0: &std::path::Path,
 ) -> std::io::Result<(Vec<std::ffi::CString>, Vec<std::ffi::CString>)> {
