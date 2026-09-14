@@ -482,7 +482,7 @@ jobs:
           chmod 0755 "$installed_root/bin/keyrx"
           printf '%s\n' '#!/bin/sh' \
             'test -z "${KEYRX_TEST_CURL_CALLED:-}" || : > "$KEYRX_TEST_CURL_CALLED"' \
-            'test "${KEYRX_TRUSTED_INSTALLED_VERSION:-}" = "$KEYRX_TEST_VERSION" || exit 96' \
+            'test "${KEYRX_TRUSTED_INSTALLED_VERSION:-}" = "$KEYRX_TEST_TRUSTED_VERSION" || exit 96' \
             'test "${KEYRX_INSTALL_NO_PROFILE:-}" = 1 || exit 95' \
             'for arg in "$@"; do case "$arg" in *releases/latest)' \
             '  if test -n "${KEYRX_TEST_SWAP_TARGET:-}"; then mv -f -- "$KEYRX_TEST_SWAP_STAGED" "$KEYRX_TEST_SWAP_TARGET"; fi' \
@@ -491,8 +491,8 @@ jobs:
             'out=' \
             'while test "$#" -gt 0; do case "$1" in --output) out="$2"; shift 2;; *) url="$1"; shift;; esac; done' \
             'case "$url" in' \
-            '  */"$KEYRX_TEST_ARCHIVE") : > "$KEYRX_TEST_ASSET_CALLED"; cp "$KEYRX_TEST_HANDOFF/$KEYRX_TEST_ARCHIVE" "$out";;' \
-            '  */"$KEYRX_TEST_ARCHIVE.sha256") : > "$KEYRX_TEST_ASSET_CALLED"; cp "$KEYRX_TEST_HANDOFF/$KEYRX_TEST_ARCHIVE.sha256" "$out";;' \
+            '  */"$KEYRX_TEST_ARCHIVE") : > "$KEYRX_TEST_ASSET_CALLED"; test "${KEYRX_TEST_ASSET_EXIT:-0}" != 42 || exit 42; cp "$KEYRX_TEST_HANDOFF/$KEYRX_TEST_SOURCE_ARCHIVE" "$out";;' \
+            '  */"$KEYRX_TEST_ARCHIVE.sha256") : > "$KEYRX_TEST_ASSET_CALLED"; sed "s/  $KEYRX_TEST_SOURCE_ARCHIVE$/  $KEYRX_TEST_ARCHIVE/" "$KEYRX_TEST_HANDOFF/$KEYRX_TEST_SOURCE_ARCHIVE.sha256" > "$out";;' \
             '  *) exit 97;;' \
             'esac' > "$smoke/fake-path/curl"
           printf '%s\n' '#!/bin/sh' \
@@ -525,6 +525,7 @@ jobs:
             KEYRX_TEST_SWAP_TARGET="$installed_root/bin/keyrx" \
             KEYRX_TEST_FOREIGN_CALLED="$foreign_called" \
             KEYRX_TEST_HANDOFF="$handoff" KEYRX_TEST_ARCHIVE="$archive" \
+            KEYRX_TEST_SOURCE_ARCHIVE="$archive" KEYRX_TEST_TRUSTED_VERSION="$VERSION" \
             KEYRX_TEST_VERSION="$VERSION" HOME="$home" SHELL=/bin/bash XDG_DATA_HOME="$data" \
             TMPDIR="$smoke" NO_COLOR=1 KEYRX_NO_LINKS=1 \
             PATH="$smoke/fake-path:/usr/bin:/bin" \
@@ -546,6 +547,7 @@ jobs:
             KEYRX_TEST_CURL_CALLED="$curl_called" \
             KEYRX_TEST_ASSET_CALLED="$asset_called" \
             KEYRX_TEST_HANDOFF="$handoff" KEYRX_TEST_ARCHIVE="$archive" \
+            KEYRX_TEST_SOURCE_ARCHIVE="$archive" KEYRX_TEST_TRUSTED_VERSION="$VERSION" \
             KEYRX_TEST_VERSION="$VERSION" HOME="$home" SHELL=/bin/bash XDG_DATA_HOME="$data" \
             TMPDIR="$smoke" NO_COLOR=1 KEYRX_NO_LINKS=1 \
             PATH="$smoke/fake-path:/usr/bin:/bin" \
@@ -558,6 +560,98 @@ jobs:
           test "$(sha256sum "$home/.bashrc")" = "$profile_before"
           printf '%s\n' "$update_output" | grep -F "keyrx $VERSION is already current; no download or replacement needed" >/dev/null
           test "$("$installed_root/bin/keyrx" --version)" = "keyrx $VERSION"
+          # A newer tag must enter the download/verify branch and refuse a
+          # wrong-version archive without replacing the running executable.
+          next_version="${VERSION%.*}.$((${VERSION##*.} + 1))"
+          next_archive="keyrx-$next_version-x86_64-unknown-linux-musl.tar.gz"
+          rm -f -- "$asset_called"
+          if failed_asset_output="$(CARGO="$fake_cargo" KEYRX_TEST_CARGO_CALLED="$cargo_called" \
+            KEYRX_TEST_CURL_CALLED="$curl_called" KEYRX_TEST_ASSET_CALLED="$asset_called" \
+            KEYRX_TEST_ASSET_EXIT=42 KEYRX_TEST_HANDOFF="$handoff" KEYRX_TEST_ARCHIVE="$next_archive" \
+            KEYRX_TEST_SOURCE_ARCHIVE="$archive" KEYRX_TEST_TRUSTED_VERSION="$VERSION" \
+            KEYRX_TEST_VERSION="$next_version" HOME="$home" SHELL=/bin/bash XDG_DATA_HOME="$data" \
+            TMPDIR="$smoke" NO_COLOR=1 KEYRX_NO_LINKS=1 \
+            PATH="$smoke/fake-path:/usr/bin:/bin" \
+            timeout 90s "$installed_root/bin/keyrx" --update 2>&1)"; then
+            echo 'failed newer asset was mistaken for an already-current release' >&2
+            exit 1
+          fi
+          test -e "$asset_called"
+          test "$(stat -c '%d:%i:%s:%a' "$installed_root/bin/keyrx")" = "$installed_before"
+          printf '%s\n' "$failed_asset_output" | grep -F 'exited with exit status: 42' >/dev/null
+          if printf '%s\n' "$failed_asset_output" | grep -F 'already current' >/dev/null; then
+            echo 'failed asset was reported as already current' >&2
+            exit 1
+          fi
+          rm -f -- "$asset_called"
+          if newer_output="$(CARGO="$fake_cargo" KEYRX_TEST_CARGO_CALLED="$cargo_called" \
+            KEYRX_TEST_CURL_CALLED="$curl_called" KEYRX_TEST_ASSET_CALLED="$asset_called" \
+            KEYRX_TEST_HANDOFF="$handoff" KEYRX_TEST_ARCHIVE="$next_archive" \
+            KEYRX_TEST_SOURCE_ARCHIVE="$archive" KEYRX_TEST_TRUSTED_VERSION="$VERSION" \
+            KEYRX_TEST_VERSION="$next_version" HOME="$home" SHELL=/bin/bash XDG_DATA_HOME="$data" \
+            TMPDIR="$smoke" NO_COLOR=1 KEYRX_NO_LINKS=1 \
+            PATH="$smoke/fake-path:/usr/bin:/bin" \
+            timeout 90s "$installed_root/bin/keyrx" --update 2>&1)"; then
+            echo 'wrong-version newer archive unexpectedly updated' >&2
+            exit 1
+          fi
+          test -e "$asset_called"
+          test ! -e "$cargo_called"
+          test "$(stat -c '%d:%i:%s:%a' "$installed_root/bin/keyrx")" = "$installed_before"
+          test "$(sha256sum "$installed_root/bin/keyrx")" = "$installed_sha_before"
+          test "$(sha256sum "$home/.bashrc")" = "$profile_before"
+          printf '%s\n' "$newer_output" | grep -F 'archive member set or order differs' >/dev/null
+          # Also drive a successful update through the packaged Rust binary.
+          # This throwaway synthetic ELF is only an offline fixture; the real
+          # release archive was independently rebuilt and compared above.
+          synthetic_handoff="$smoke/synthetic-handoff"
+          synthetic_root="keyrx-$next_version-x86_64-unknown-linux-musl"
+          mkdir -p "$synthetic_handoff/$synthetic_root"
+          cc -DKEYRX_TEST_NEXT_VERSION="\"$next_version\"" -x c \
+            -o "$synthetic_handoff/$synthetic_root/keyrx" - <<'KEYRX_TEST_C'
+          #include <stdio.h>
+          #include <stdlib.h>
+          #include <string.h>
+          int main(int argc, char **argv) {
+            if (argc == 2 && strcmp(argv[1], "--version") == 0) {
+              puts("keyrx " KEYRX_TEST_NEXT_VERSION);
+              return 0;
+            }
+            if (argc == 2 && strcmp(argv[1], "verify") == 0) return 0;
+            const char *path = getenv("KEYRX_TEST_RELAUNCHED");
+            if (!path) return 90;
+            FILE *file = fopen(path, "w");
+            if (!file) return 91;
+            fclose(file);
+            puts("synthetic replacement started");
+            return 0;
+          }
+          KEYRX_TEST_C
+          chmod 0755 "$synthetic_handoff/$synthetic_root/keyrx"
+          printf 'fixture\n' > "$synthetic_handoff/$synthetic_root/LICENSE"
+          printf 'fixture\n' > "$synthetic_handoff/$synthetic_root/README.md"
+          printf '{}\n' > "$synthetic_handoff/$synthetic_root/SOURCE.json"
+          tar --no-recursion -czf "$synthetic_handoff/$next_archive" \
+            -C "$synthetic_handoff" "$synthetic_root/" "$synthetic_root/keyrx" \
+            "$synthetic_root/LICENSE" "$synthetic_root/README.md" "$synthetic_root/SOURCE.json"
+          (cd "$synthetic_handoff" && sha256sum "$next_archive" > "$next_archive.sha256")
+          relaunched="$smoke/relaunched"
+          rm -f -- "$asset_called"
+          upgraded_output="$(CARGO="$fake_cargo" KEYRX_TEST_CARGO_CALLED="$cargo_called" \
+            KEYRX_TEST_CURL_CALLED="$curl_called" KEYRX_TEST_ASSET_CALLED="$asset_called" \
+            KEYRX_TEST_RELAUNCHED="$relaunched" KEYRX_TEST_HANDOFF="$synthetic_handoff" \
+            KEYRX_TEST_ARCHIVE="$next_archive" KEYRX_TEST_SOURCE_ARCHIVE="$next_archive" \
+            KEYRX_TEST_TRUSTED_VERSION="$VERSION" KEYRX_TEST_VERSION="$next_version" \
+            HOME="$home" SHELL=/bin/bash XDG_DATA_HOME="$data" TMPDIR="$smoke" \
+            NO_COLOR=1 KEYRX_NO_LINKS=1 PATH="$smoke/fake-path:/usr/bin:/bin" \
+            timeout 90s "$installed_root/bin/keyrx" --update 2>&1)"
+          test -e "$asset_called"
+          test -e "$relaunched"
+          test ! -e "$cargo_called"
+          test "$("$installed_root/bin/keyrx" --version)" = "keyrx $next_version"
+          test "$(sha256sum "$home/.bashrc")" = "$profile_before"
+          printf '%s\n' "$upgraded_output" | grep -F "keyrx $next_version installed at $installed_root/bin/keyrx" >/dev/null
+          printf '%s\n' "$upgraded_output" | grep -F 'synthetic replacement started' >/dev/null
 
   effect:
     needs: [prepare, linux_binary, verify_binary, macos_source]

@@ -334,6 +334,22 @@ fn master_key(seed: &[u8]) -> ([u8; 32], [u8; 32]) {
     result
 }
 
+#[cfg(unix)]
+fn checked_prebuilt_update_outcome(
+    already_current: bool,
+    running: &std::fs::File,
+    installed_path: &std::path::Path,
+) -> Result<bool, String> {
+    let same = held_executable_path_matches(running, installed_path)
+        .map_err(|error| format!("cannot recheck installed keyrx: {}", error))?;
+    match (already_current, same) {
+        (true, true) => Ok(true),
+        (true, false) => Err("installed keyrx changed after the current-version check".into()),
+        (false, true) => Err("installer reported success without a verified replacement".into()),
+        (false, false) => Ok(false),
+    }
+}
+
 /// SLIP-0010 hardened derivation. Ed25519 supports hardened only.
 /// data = 0x00 || parent_key || ser32(index | 0x80000000)
 fn derive_hardened(key: &[u8; 32], chain: &[u8; 32], index: u32) -> ([u8; 32], [u8; 32]) {
@@ -4868,8 +4884,13 @@ fn prebuilt_update_root_layout(
 #[cfg(unix)]
 fn run_embedded_prebuilt_installer(
     root: &std::path::Path,
-) -> std::io::Result<std::process::ExitStatus> {
+) -> std::io::Result<(std::process::ExitStatus, bool)> {
     use std::io::Write;
+    let marker = format!(
+        "KEYRX_CURRENT_{:016x}{:016x}",
+        OsRng.next_u64(),
+        OsRng.next_u64()
+    );
     let mut child = std::process::Command::new("/bin/sh")
         .arg("-s")
         .env("CARGO_HOME", root)
@@ -4880,16 +4901,26 @@ fn run_embedded_prebuilt_installer(
         // `--update` is a binary replacement, not a first-run shell setup.
         // In particular it must not rewrite an existing .bashrc on every run.
         .env("KEYRX_INSTALL_NO_PROFILE", "1")
+        .env("KEYRX_EMBEDDED_UPDATE_MARKER", &marker)
         .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
         .spawn()?;
     let write_result = child
         .stdin
         .take()
         .expect("piped installer stdin")
         .write_all(VERIFIED_PREBUILT_INSTALLER.as_bytes());
-    let status = child.wait()?;
+    let output = child.wait_with_output()?;
     write_result?;
-    Ok(status)
+    let suffix = format!("{}\n", marker);
+    let current = output.status.success() && output.stdout.ends_with(suffix.as_bytes());
+    let visible = if current {
+        &output.stdout[..output.stdout.len() - suffix.len()]
+    } else {
+        &output.stdout
+    };
+    std::io::stdout().write_all(visible)?;
+    Ok((output.status, current))
 }
 
 #[cfg(unix)]
@@ -4925,6 +4956,16 @@ fn cmd_prebuilt_update() {
             std::process::exit(1);
         }
     };
+    #[cfg(target_os = "linux")]
+    {
+        let same_running_inode = std::fs::metadata("/proc/self/exe")
+            .and_then(|actual| running.metadata().map(|held| (actual, held)))
+            .is_ok_and(|(actual, held)| actual.dev() == held.dev() && actual.ino() == held.ino());
+        if !same_running_inode {
+            eprintln!("keyrx update refused before download: install target changed since running keyrx was checked");
+            std::process::exit(1);
+        }
+    }
     println!("{}", ui::top("UPDATE", "verified Linux / WSL release"));
     println!("{}", ui::kv("installed", &ui::path_text(&current_exe)));
     println!(
@@ -4933,9 +4974,9 @@ fn cmd_prebuilt_update() {
     );
     println!("{}", ui::bot("then the new keyrx starts automatically"));
     println!();
-    match run_embedded_prebuilt_installer(&root) {
-        Ok(status) if status.success() => {}
-        Ok(status) => {
+    let already_current = match run_embedded_prebuilt_installer(&root) {
+        Ok((status, current)) if status.success() => current,
+        Ok((status, _)) => {
             eprintln!("keyrx verified installer exited with {}", status);
             std::process::exit(status.code().unwrap_or(1));
         }
@@ -4943,18 +4984,16 @@ fn cmd_prebuilt_update() {
             eprintln!("keyrx could not run its embedded installer: {}", error);
             std::process::exit(1);
         }
-    }
+    };
     let bin = root.join("bin/keyrx");
-    if match held_executable_path_matches(&running, &bin) {
-        Ok(matches) => matches,
-        Err(error) => {
-            eprintln!(
-                "keyrx update refused: cannot recheck installed keyrx: {}",
-                error
-            );
+    let no_op = match checked_prebuilt_update_outcome(already_current, &running, &bin) {
+        Ok(no_op) => no_op,
+        Err(reason) => {
+            eprintln!("keyrx update refused: {}", reason);
             std::process::exit(1);
         }
-    } {
+    };
+    if no_op {
         // The installer returned successfully without replacing the running
         // inode. Render the start screen from the already authenticated bytes.
         if std::io::IsTerminal::is_terminal(&std::io::stdout()) {
@@ -8360,6 +8399,40 @@ mod tests {
             None
         );
         assert_eq!(running_install_root(std::path::Path::new("keyrx")), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn prebuilt_current_result_refuses_a_post_child_path_swap() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = std::env::temp_dir().join(format!(
+            "keyrx-update-outcome-{}-{:016x}",
+            std::process::id(),
+            OsRng.next_u64()
+        ));
+        std::fs::create_dir(&dir).unwrap();
+        let installed = dir.join("keyrx");
+        std::fs::write(&installed, b"running executable").unwrap();
+        std::fs::set_permissions(&installed, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let running = open_installed_executable(&installed).unwrap();
+        assert_eq!(
+            checked_prebuilt_update_outcome(true, &running, &installed),
+            Ok(true)
+        );
+        assert!(checked_prebuilt_update_outcome(false, &running, &installed).is_err());
+
+        let foreign = dir.join("foreign");
+        std::fs::write(&foreign, b"unverified foreign executable").unwrap();
+        std::fs::set_permissions(&foreign, std::fs::Permissions::from_mode(0o700)).unwrap();
+        std::fs::rename(&foreign, &installed).unwrap();
+        assert!(checked_prebuilt_update_outcome(true, &running, &installed).is_err());
+        assert_eq!(
+            checked_prebuilt_update_outcome(false, &running, &installed),
+            Ok(false)
+        );
+        drop(running);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[cfg(unix)]

@@ -470,12 +470,14 @@ esac
             original = (installed.stat().st_ino, installed.read_bytes(), profile.read_bytes())
             env["KEYRX_TRUSTED_INSTALLED_VERSION"] = VERSION
             env["KEYRX_INSTALL_NO_PROFILE"] = "1"
+            env["KEYRX_EMBEDDED_UPDATE_MARKER"] = "KEYRX_CURRENT_TESTMARKER"
             log.unlink()
             second = subprocess.run(
                 ["/bin/sh", str(INSTALLER)], env=env, check=False, capture_output=True, text=True
             )
             self.assertEqual(second.returncode, 0, second.stderr)
             self.assertIn("already current; no download or replacement needed", second.stdout)
+            self.assertTrue(second.stdout.endswith("KEYRX_CURRENT_TESTMARKER\n"))
             self.assertEqual(log.read_text(encoding="utf-8").splitlines(),
                              ["curl https://github.com/keyrx/keyrx/releases/latest"])
             self.assertEqual((installed.stat().st_ino, installed.read_bytes(), profile.read_bytes()), original)
@@ -499,6 +501,7 @@ esac
             ), encoding="utf-8")
             env["KEYRX_TRUSTED_INSTALLED_VERSION"] = VERSION
             env["KEYRX_INSTALL_NO_PROFILE"] = "1"
+            env["KEYRX_EMBEDDED_UPDATE_MARKER"] = "KEYRX_CURRENT_TESTMARKER"
             result = subprocess.run(
                 ["/bin/sh", str(INSTALLER)], env=env, check=False, capture_output=True, text=True
             )
@@ -519,6 +522,7 @@ esac
             original_inode = installed.stat().st_ino
             env["KEYRX_TRUSTED_INSTALLED_VERSION"] = "0.4.24"
             env["KEYRX_INSTALL_NO_PROFILE"] = "1"
+            env["KEYRX_EMBEDDED_UPDATE_MARKER"] = "KEYRX_CURRENT_TESTMARKER"
             result = subprocess.run(
                 ["/bin/sh", str(INSTALLER)], env=env, check=False, capture_output=True, text=True
             )
@@ -531,6 +535,27 @@ esac
             self.assertIn("checksum", calls)
             self.assertIn("attest", calls)
             self.assertIn("install", calls)
+            self.assertNotIn("KEYRX_CURRENT_TESTMARKER", result.stdout)
+
+    def test_embedded_update_never_treats_curl_exit_42_as_current(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            env, _ = self._installer_fixture(root)
+            bin_dir = root / "install-root" / "bin"
+            bin_dir.mkdir(parents=True, mode=0o700)
+            installed = bin_dir / "keyrx"
+            installed.write_text("#!/bin/sh\nexit 99\n", encoding="utf-8")
+            installed.chmod(0o700)
+            curl = root / "tools" / "curl"
+            curl.write_text("#!/bin/sh\nexit 42\n", encoding="utf-8")
+            env["KEYRX_TRUSTED_INSTALLED_VERSION"] = VERSION
+            env["KEYRX_INSTALL_NO_PROFILE"] = "1"
+            env["KEYRX_EMBEDDED_UPDATE_MARKER"] = "KEYRX_CURRENT_TESTMARKER"
+            result = subprocess.run(
+                ["/bin/sh", str(INSTALLER)], env=env, check=False, capture_output=True, text=True
+            )
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("cannot resolve latest GitHub release", result.stderr)
 
     def test_installer_recovers_exact_wsl_bashrc_clobber_in_fresh_shell(self):
         with tempfile.TemporaryDirectory() as directory:

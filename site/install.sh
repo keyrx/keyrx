@@ -11,6 +11,14 @@ refuse() {
   exit 1
 }
 
+EMBEDDED_MARKER=''
+if test "${KEYRX_EMBEDDED_UPDATE_MARKER+x}" = x; then
+  EMBEDDED_MARKER="$KEYRX_EMBEDDED_UPDATE_MARKER"
+  unset KEYRX_EMBEDDED_UPDATE_MARKER
+  case "$EMBEDDED_MARKER" in ''|*[!A-Za-z0-9_-]*) refuse 'embedded update marker is invalid' ;; esac
+  test "${#EMBEDDED_MARKER}" -le 80 || refuse 'embedded update marker is too long'
+fi
+
 need() {
   command -v "$1" >/dev/null 2>&1 || refuse "required command is missing: $1"
 }
@@ -135,7 +143,7 @@ need mv
 
 LATEST_URL="$(curl --proto '=https' --tlsv1.2 --fail --show-error --silent --location \
   --head --output /dev/null --write-out '%{url_effective}' \
-  "https://github.com/$REPOSITORY/releases/latest")"
+  "https://github.com/$REPOSITORY/releases/latest")" || refuse 'cannot resolve latest GitHub release'
 LATEST_PREFIX="https://github.com/$REPOSITORY/releases/tag/v"
 case "$LATEST_URL" in
   "$LATEST_PREFIX"*) VERSION="${LATEST_URL#"$LATEST_PREFIX"}" ;;
@@ -166,6 +174,9 @@ if test -n "$TRUSTED_INSTALLED_VERSION"; then
       test "$(stat -c '%d:%i:%u:%h:%a' -- "$BIN_DIR/keyrx")" = "$EXISTING_KEYRX_ID" ||
       refuse 'install directory or existing keyrx changed during version check'
     printf 'keyrx %s is already current; no download or replacement needed\n' "$VERSION"
+    # This exact marker is captured by the embedded caller. All errors remain
+    # nonzero; no external command's exit code can impersonate a no-op.
+    if test -n "$EMBEDDED_MARKER"; then printf '%s\n' "$EMBEDDED_MARKER"; fi
     exit 0
   fi
 fi
